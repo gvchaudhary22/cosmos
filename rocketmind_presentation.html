@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RocketMind - AI-Powered Support Intelligence</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0a0e1a; color: #e2e8f0; overflow-x: hidden; }
+
+  /* Slide system */
+  .slide { min-height: 100vh; padding: 60px 80px; display: none; position: relative; }
+  .slide.active { display: flex; flex-direction: column; justify-content: center; }
+
+  /* Navigation */
+  .nav { position: fixed; bottom: 30px; right: 40px; z-index: 100; display: flex; gap: 12px; }
+  .nav button { padding: 10px 20px; border: 1px solid rgba(99,179,237,0.3); border-radius: 8px; background: rgba(15,23,42,0.9); color: #93c5fd; cursor: pointer; font-size: 14px; backdrop-filter: blur(10px); transition: all 0.2s; }
+  .nav button:hover { background: rgba(59,130,246,0.2); border-color: #3b82f6; }
+  .slide-counter { position: fixed; bottom: 35px; left: 40px; color: #475569; font-size: 13px; z-index: 100; }
+
+  /* Typography */
+  h1 { font-size: 52px; font-weight: 700; background: linear-gradient(135deg, #60a5fa, #a78bfa, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 16px; line-height: 1.2; }
+  h2 { font-size: 38px; font-weight: 600; color: #f1f5f9; margin-bottom: 24px; }
+  h3 { font-size: 24px; color: #93c5fd; margin-bottom: 16px; }
+  p { font-size: 18px; line-height: 1.7; color: #94a3b8; max-width: 900px; }
+  .subtitle { font-size: 22px; color: #64748b; margin-bottom: 40px; }
+
+  /* Cards */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-top: 24px; }
+  .card { padding: 24px; border-radius: 12px; background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(99,179,237,0.15); transition: transform 0.2s, border-color 0.2s; }
+  .card:hover { transform: translateY(-2px); border-color: rgba(99,179,237,0.4); }
+  .card h4 { font-size: 18px; color: #e2e8f0; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: #94a3b8; }
+  .card .icon { font-size: 28px; margin-bottom: 12px; }
+
+  /* Code blocks */
+  .code { background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(99,179,237,0.1); border-radius: 10px; padding: 20px 24px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.6; overflow-x: auto; margin: 16px 0; color: #cbd5e1; }
+  .code .comment { color: #475569; }
+  .code .keyword { color: #93c5fd; }
+  .code .string { color: #86efac; }
+  .code .highlight { color: #fbbf24; font-weight: 600; }
+
+  /* Flow diagrams */
+  .flow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
+  .flow-box { padding: 12px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; white-space: nowrap; }
+  .flow-arrow { color: #475569; font-size: 20px; }
+  .fb-blue { background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); color: #93c5fd; }
+  .fb-green { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #86efac; }
+  .fb-purple { background: rgba(168,85,247,0.15); border: 1px solid rgba(168,85,247,0.3); color: #c4b5fd; }
+  .fb-orange { background: rgba(249,115,22,0.15); border: 1px solid rgba(249,115,22,0.3); color: #fdba74; }
+  .fb-red { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th { background: rgba(30,41,59,0.8); color: #93c5fd; padding: 12px 16px; text-align: left; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid rgba(99,179,237,0.2); }
+  td { padding: 10px 16px; border-bottom: 1px solid rgba(51,65,85,0.4); font-size: 14px; color: #cbd5e1; }
+  tr:hover td { background: rgba(30,41,59,0.3); }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .badge-blue { background: rgba(59,130,246,0.2); color: #93c5fd; }
+  .badge-green { background: rgba(34,197,94,0.2); color: #86efac; }
+  .badge-purple { background: rgba(168,85,247,0.2); color: #c4b5fd; }
+  .badge-orange { background: rgba(249,115,22,0.2); color: #fdba74; }
+
+  /* Columns */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+  .cols-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; }
+
+  /* Stats */
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 24px 0; }
+  .stat { text-align: center; padding: 20px; border-radius: 12px; background: rgba(30,41,59,0.5); border: 1px solid rgba(99,179,237,0.1); }
+  .stat .num { font-size: 36px; font-weight: 700; color: #60a5fa; }
+  .stat .label { font-size: 12px; color: #64748b; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Example boxes */
+  .example { background: rgba(15,23,42,0.6); border-left: 3px solid #3b82f6; padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 12px 0; }
+  .example .q { color: #fbbf24; font-weight: 600; font-size: 15px; margin-bottom: 6px; }
+  .example .a { color: #94a3b8; font-size: 13px; }
+  .example .tool { color: #86efac; font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" id="s1">
+  <div>
+    <p style="font-size:16px; color:#3b82f6; letter-spacing:2px; text-transform:uppercase; margin-bottom:20px;">Shiprocket AI Platform</p>
+    <h1>RocketMind</h1>
+    <p class="subtitle">AI-Powered Support Intelligence for ICRM</p>
+    <p style="max-width:700px; margin-top:30px;">An intelligent support system that understands orders, shipments, NDR, billing, and 23 marketplace channels — powered by a deep knowledge base of 31,000+ embedding chunks, a knowledge graph with entity-level reasoning, and multi-model AI.</p>
+    <div class="stat-grid" style="margin-top:50px; max-width:800px;">
+      <div class="stat"><div class="num">31K+</div><div class="label">KB Chunks</div></div>
+      <div class="stat"><div class="num">10,671</div><div class="label">API Routes</div></div>
+      <div class="stat"><div class="num">676</div><div class="label">DB Tables</div></div>
+      <div class="stat"><div class="num">23</div><div class="label">Tools</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 2: Architecture Overview -->
+<div class="slide" id="s2">
+  <h2>Three Systems, One Brain</h2>
+  <p class="subtitle">MARS orchestrates. COSMOS thinks. RocketMind answers.</p>
+  <div class="cols" style="margin-top:30px;">
+    <div>
+      <div class="card" style="margin-bottom:16px; border-color:rgba(249,115,22,0.3);">
+        <div class="icon">&#9881;</div>
+        <h4>MARS <span class="badge badge-orange">Orchestrator</span></h4>
+        <p>Go backend. Manages repositories, dry runs, module knowledge base updates, webhook integrations, and pipeline coordination. Routes events to COSMOS for AI processing.</p>
+      </div>
+      <div class="card" style="border-color:rgba(168,85,247,0.3);">
+        <div class="icon">&#129504;</div>
+        <h4>COSMOS <span class="badge badge-purple">AI Engine</span></h4>
+        <p>Python/FastAPI. GraphRAG retrieval, embedding pipeline, intent classification, ReAct reasoning, tool execution, and the GREL learning system. The "brain" behind every answer.</p>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="border-color:rgba(59,130,246,0.4); background:rgba(59,130,246,0.08);">
+        <div class="icon">&#128640;</div>
+        <h4>RocketMind <span class="badge badge-blue">User Interface</span></h4>
+        <p>The ICRM-facing chat interface. ICRM agents ask questions in natural language (English + Hinglish). RocketMind routes through COSMOS to find answers, execute actions, and resolve support tickets.</p>
+        <div style="margin-top:16px;">
+          <div class="example">
+            <div class="q">ICRM Agent: "Order 987654 ka status kya hai?"</div>
+            <div class="a">RocketMind: Order 987654 is currently at status SHIPPED (6). Courier: Delhivery. AWB: 1234567890. Expected delivery: 2 April 2026.</div>
+            <div class="tool">Tools used: order_lookup, shipment_track</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 3: How a Chat Query Works -->
+<div class="slide" id="s3">
+  <h2>How a Query Flows Through RocketMind</h2>
+  <p class="subtitle">From ICRM agent question to answer in &lt;2 seconds</p>
+
+  <div class="flow" style="margin-top:30px;">
+    <div class="flow-box fb-blue">ICRM Agent Types Query</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box fb-purple">Intent Classifier</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box fb-green">4-Leg Retrieval</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box fb-orange">Tool Execution</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box fb-blue">LLM Response</div>
+  </div>
+
+  <div class="cols" style="margin-top:30px;">
+    <div>
+      <h3>Stage 1: Parallel Probe (50ms)</h3>
+      <div class="code">
+        <span class="comment">// 5 pipelines run simultaneously</span><br>
+        <span class="keyword">P1:</span> Intent Classification <span class="string">&rarr; "lookup" + "order"</span><br>
+        <span class="keyword">P2:</span> Entity Extraction <span class="string">&rarr; order_id: 987654</span><br>
+        <span class="keyword">P3:</span> Vector Search <span class="string">&rarr; top-5 KB chunks</span><br>
+        <span class="keyword">P4:</span> Page-Role Context <span class="string">&rarr; ICRM permissions</span><br>
+        <span class="keyword">P5:</span> Session History <span class="string">&rarr; last 3 entities</span>
+      </div>
+
+      <h3>Stage 2: GraphRAG Deep (200ms)</h3>
+      <div class="code">
+        <span class="comment">// 4-leg hybrid retrieval with RRF fusion</span><br>
+        <span class="keyword">Leg 1:</span> Exact Lookup <span class="string">(weight 2.0)</span><br>
+        <span class="keyword">Leg 2:</span> Graph Neighborhood <span class="string">(weight 1.5)</span><br>
+        <span class="keyword">Leg 3:</span> Vector Similarity <span class="string">(weight 1.0)</span><br>
+        <span class="keyword">Leg 4:</span> Lexical Search <span class="string">(weight 0.8)</span><br>
+        <br>
+        <span class="highlight">Fused Score = &Sigma; (weight / (60 + rank))</span>
+      </div>
+    </div>
+    <div>
+      <h3>Stage 3: ReAct Reasoning Loop</h3>
+      <div class="code">
+        <span class="keyword">REASON:</span> Classify intent + select tools<br>
+        <span class="keyword">ACT:</span> Execute tools in parallel<br>
+        <span class="keyword">OBSERVE:</span> Parse results<br>
+        <span class="keyword">EVALUATE:</span> Score confidence (0-1)<br>
+        <span class="keyword">REFLECT:</span> Quality check<br>
+        <br>
+        <span class="comment">// Max 3 iterations</span><br>
+        <span class="string">confidence &ge; 0.8 &rarr; Respond</span><br>
+        <span class="string">confidence &ge; 0.5 &rarr; Respond with caveat</span><br>
+        <span class="highlight">confidence &lt; 0.3 &rarr; Escalate to supervisor</span>
+      </div>
+
+      <h3>Context Assembly (Token-Budgeted)</h3>
+      <div class="code">
+        <span class="keyword">35%</span> Relationship chains<br>
+        <span class="keyword">30%</span> API/tool descriptions<br>
+        <span class="keyword">20%</span> Table schemas<br>
+        <span class="keyword">15%</span> Document evidence<br>
+        <br>
+        <span class="comment">// Total: 4,000 tokens max</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 4: Knowledge Base -->
+<div class="slide" id="s4">
+  <h2>Knowledge Base Architecture</h2>
+  <p class="subtitle">5 Pillars of Knowledge &mdash; from DB schema to business rules</p>
+
+  <div class="card-grid" style="grid-template-columns: repeat(5, 1fr);">
+    <div class="card" style="text-align:center;">
+      <div class="icon">&#128202;</div>
+      <h4>Pillar 1</h4>
+      <p><strong>Schema</strong><br>676 tables<br>Columns, state machines, constants, validation rules</p>
+      <div class="badge badge-blue" style="margin-top:8px;">3,508 chunks</div>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div class="icon">&#128279;</div>
+      <h4>Pillar 3</h4>
+      <p><strong>API Tools</strong><br>5,483 endpoints<br>Params, response fields, examples, routing</p>
+      <div class="badge badge-green" style="margin-top:8px;">21,172 chunks</div>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div class="icon">&#128196;</div>
+      <h4>Pillar 4</h4>
+      <p><strong>Page Intel</strong><br>20 pages<br>Actions, fields, roles, API bindings</p>
+      <div class="badge badge-purple" style="margin-top:8px;">24 docs</div>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div class="icon">&#128214;</div>
+      <h4>Pillar 5</h4>
+      <p><strong>Module Docs</strong><br>63 modules<br>Business rules, debugging, PRDs</p>
+      <div class="badge badge-orange" style="margin-top:8px;">436 chunks</div>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div class="icon">&#129520;</div>
+      <h4>Eval Seeds</h4>
+      <p><strong>Training Data</strong><br>5,716 query&rarr;tool pairs<br>Intent evaluation</p>
+      <div class="badge badge-blue" style="margin-top:8px;">5,716 docs</div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:30px;">Tiered File Structure (per entity)</h3>
+  <div class="code" style="max-width:600px;">
+    tables/orders/<br>
+    &nbsp;&nbsp;<span class="keyword">high/</span> <span class="comment">&larr; AI reads these (chunked for embedding)</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;identity_core.yaml &nbsp;&nbsp;<span class="string">905 tokens</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;states_constants.yaml <span class="string">906 tokens</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;rules.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="string">903 tokens</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;dataflow.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="string">907 tokens</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;...12 files total<br>
+    &nbsp;&nbsp;<span class="keyword">high.yaml</span> <span class="comment">&larr; Source of truth (merged)</span><br>
+    &nbsp;&nbsp;<span class="keyword">medium.yaml</span> <span class="comment">&larr; Future reference</span><br>
+    &nbsp;&nbsp;<span class="keyword">low.yaml</span> <span class="comment">&larr; Supplementary metadata</span>
+  </div>
+</div>
+
+<!-- SLIDE 5: GREL Learning System -->
+<div class="slide" id="s5">
+  <h2>GREL &mdash; Graph-based Reasoning & Evolutionary Learning</h2>
+  <p class="subtitle">The system that gets smarter with every query</p>
+
+  <div class="cols">
+    <div>
+      <h3>What is GREL?</h3>
+      <p>GREL is the <strong>learning layer</strong> that sits on top of the retrieval system. It continuously evaluates which strategy works best for each type of query and evolves over time.</p>
+
+      <h3 style="margin-top:24px;">5 Competing Strategies</h3>
+      <table>
+        <tr><th>Strategy</th><th>Method</th><th>Cost</th></tr>
+        <tr><td><span class="badge badge-green">A</span> Decision Tree</td><td>Rule-based pattern matching</td><td>Free</td></tr>
+        <tr><td><span class="badge badge-blue">B</span> TF-IDF RAG</td><td>Keyword retrieval</td><td>Low</td></tr>
+        <tr><td><span class="badge badge-purple">C</span> Tool-Use</td><td>LLM native tool selection</td><td>Medium</td></tr>
+        <tr><td><span class="badge badge-orange">D</span> Full Reasoning</td><td>Multi-step ReAct loop</td><td>High</td></tr>
+        <tr><td><span class="badge badge-blue">E</span> Hybrid Retrieval</td><td>Graph + Vector + Lexical</td><td>Medium</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Tournament Evolution</h3>
+      <div class="code">
+        <span class="keyword">Week 1-2: TOURNAMENT</span><br>
+        <span class="comment">// Run ALL strategies in parallel</span><br>
+        <span class="comment">// Log which one wins for each query pattern</span><br>
+        <br>
+        <span class="keyword">Week 3-4: SHADOW</span><br>
+        <span class="comment">// Run winner + 1-2 shadows for validation</span><br>
+        <span class="comment">// Verify winner consistency</span><br>
+        <br>
+        <span class="keyword">Month 2+: CONVERGED</span><br>
+        <span class="comment">// Run winner only (shadow 10% for drift)</span><br>
+        <span class="highlight">// Cost drops 60-80% while quality holds</span>
+      </div>
+
+      <h3 style="margin-top:20px;">Learning Signals</h3>
+      <div class="card-grid" style="grid-template-columns: 1fr 1fr;">
+        <div class="card"><h4>Positive</h4><p>Correct tool selected. User accepted answer. Low latency.</p></div>
+        <div class="card"><h4>Negative</h4><p>Wrong tool. User escalated. Timeout. Low confidence.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 6: Tools & Agents -->
+<div class="slide" id="s6">
+  <h2>Tools, Agents, Skills & Actions</h2>
+  <p class="subtitle">23 tools across read and write operations</p>
+
+  <div class="cols">
+    <div>
+      <h3>15 Read Tools <span class="badge badge-green">Safe</span></h3>
+      <table>
+        <tr><th>Tool</th><th>Domain</th></tr>
+        <tr><td>order_lookup</td><td>Orders</td></tr>
+        <tr><td>shipment_track</td><td>Shipments</td></tr>
+        <tr><td>tracking_timeline</td><td>Tracking</td></tr>
+        <tr><td>ndr_list / ndr_details</td><td>NDR</td></tr>
+        <tr><td>seller_info / seller_plan</td><td>Seller</td></tr>
+        <tr><td>billing_query</td><td>Billing</td></tr>
+        <tr><td>wallet_balance</td><td>Wallet</td></tr>
+        <tr><td>elk_search</td><td>Observability</td></tr>
+      </table>
+
+      <h3 style="margin-top:20px;">8 Write Tools <span class="badge badge-orange">Approval Required</span></h3>
+      <table>
+        <tr><th>Tool</th><th>Risk</th></tr>
+        <tr><td>cancel_order</td><td><span class="badge badge-orange">Medium</span></td></tr>
+        <tr><td>initiate_refund</td><td><span class="badge badge-orange">Medium</span></td></tr>
+        <tr><td>block_seller</td><td><span class="badge" style="background:rgba(239,68,68,0.2);color:#fca5a5;">High</span></td></tr>
+        <tr><td>reassign_courier</td><td><span class="badge badge-orange">Medium</span></td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Forged Agents (Dynamic)</h3>
+      <p style="margin-bottom:16px;">When confidence drops below 0.6, AgentForge creates a specialized agent at runtime:</p>
+
+      <div class="card" style="margin-bottom:12px;">
+        <h4>&#128269; Order Trace Agent</h4>
+        <p>End-to-end order lifecycle tracing. Follows: creation &rarr; AWB &rarr; pickup &rarr; delivery &rarr; NDR/RTO.</p>
+      </div>
+      <div class="card" style="margin-bottom:12px;">
+        <h4>&#128680; NDR Diagnosis Agent</h4>
+        <p>Root cause analysis for non-delivery. Checks: address, phone, courier, weight, serviceability.</p>
+      </div>
+      <div class="card" style="margin-bottom:12px;">
+        <h4>&#128176; Billing Dispute Agent</h4>
+        <p>Weight discrepancy resolution. Compares: applied weight vs actual, freight charges, COD deductions.</p>
+      </div>
+
+      <h3 style="margin-top:20px;">Action Approval Flow</h3>
+      <div class="flow">
+        <div class="flow-box fb-blue">Agent Requests Action</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box fb-orange">Risk Assessment</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box fb-green">Low Risk: Auto-approve</div>
+      </div>
+      <div class="flow">
+        <div class="flow-box" style="width:180px;">&nbsp;</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box fb-red">High Risk: Supervisor Queue</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 7: Live Examples -->
+<div class="slide" id="s7">
+  <h2>Live Examples</h2>
+  <p class="subtitle">How RocketMind handles real ICRM queries</p>
+
+  <div class="cols-3" style="margin-top:24px;">
+    <div>
+      <h3>Example 1: Order Lookup</h3>
+      <div class="example">
+        <div class="q">"Order 12345678 ka status batao"</div>
+        <div class="a" style="margin-top:8px;">
+          <strong>Intent:</strong> lookup | <strong>Entity:</strong> order<br>
+          <strong>Entity ID:</strong> 12345678<br>
+          <strong>Confidence:</strong> 0.95 (Tier 1)<br><br>
+          <strong>Tools:</strong> order_lookup(id=12345678)<br>
+          <strong>Graph:</strong> order &rarr; shipment &rarr; courier<br><br>
+          <strong>Response:</strong> "Order 12345678 is SHIPPED (status 6). Courier: BlueDart, AWB: 9876543210. Currently in transit, expected delivery tomorrow."
+        </div>
+        <div class="tool">Latency: 450ms | Cost: $0.001</div>
+      </div>
+    </div>
+    <div>
+      <h3>Example 2: NDR Resolution</h3>
+      <div class="example">
+        <div class="q">"AWB 5544332211 pe NDR aaya hai, customer ka phone nahi lag raha"</div>
+        <div class="a" style="margin-top:8px;">
+          <strong>Intent:</strong> explain | <strong>Entity:</strong> ndr<br>
+          <strong>Confidence:</strong> 0.55 (Tier 2)<br><br>
+          <strong>Forged Agent:</strong> NDR Diagnosis<br>
+          <strong>Tools:</strong> ndr_details, shipment_track, order_lookup<br><br>
+          <strong>Response:</strong> "NDR reason: Customer Unavailable. This is attempt 2/3. Recommended: Update phone number via update_address tool, then reattempt_delivery. Alternative: If customer unreachable after 3 attempts, RTO will initiate automatically."
+        </div>
+        <div class="tool">Latency: 1.2s | Cost: $0.008</div>
+      </div>
+    </div>
+    <div>
+      <h3>Example 3: Cancel + Refund</h3>
+      <div class="example">
+        <div class="q">"Cancel order 99887766 and process refund"</div>
+        <div class="a" style="margin-top:8px;">
+          <strong>Intent:</strong> act | <strong>Entity:</strong> order<br>
+          <strong>Confidence:</strong> 0.90 (Tier 1)<br><br>
+          <strong>Tools:</strong> cancel_order, initiate_refund<br>
+          <strong>Risk:</strong> Medium &rarr; Approval Required<br><br>
+          <strong>Response:</strong> "Order 99887766 cancellation requested. Status: CANCELLATION_REQUESTED (18). Refund of Rs 1,249 to original payment method queued. Both actions require supervisor approval. Estimated processing: 24-48 hours."
+        </div>
+        <div class="tool">Latency: 800ms | Approval: pending</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 8: 3-Model Embedding -->
+<div class="slide" id="s8">
+  <h2>Multi-Model Embedding Pipeline</h2>
+  <p class="subtitle">3 models, 3 tables, Kafka-based async shadow lanes</p>
+
+  <div class="cols">
+    <div>
+      <table>
+        <tr><th>Model</th><th>Dim</th><th>Table</th><th>Purpose</th></tr>
+        <tr><td>text-embedding-3-small</td><td>1,536</td><td>cosmos_embeddings</td><td><span class="badge badge-green">LIVE</span></td></tr>
+        <tr><td>text-embedding-3-large</td><td>3,072</td><td>cosmos_embeddings_large</td><td><span class="badge badge-blue">Benchmark</span></td></tr>
+        <tr><td>voyage-3-large</td><td>1,024</td><td>cosmos_embeddings_shadow</td><td><span class="badge badge-purple">Benchmark</span></td></tr>
+      </table>
+
+      <h3 style="margin-top:24px;">Deduplication (3 Layers)</h3>
+      <div class="code">
+        <span class="keyword">Layer 1:</span> Primary &mdash; content_hash in cosmos_embeddings<br>
+        <span class="keyword">Layer 2:</span> Kafka Producer &mdash; content_hash in tracker table<br>
+        <span class="keyword">Layer 3:</span> Consumer &mdash; content_hash in shadow tables<br>
+        <br>
+        <span class="highlight">Result: Zero wasted API calls on re-run</span>
+      </div>
+    </div>
+    <div>
+      <h3>Architecture</h3>
+      <div class="code">
+        Pipeline Run (click "Feed Schema")<br>
+        &nbsp;&nbsp;|<br>
+        &nbsp;&nbsp;+-- <span class="keyword">SYNC:</span> AI Gateway &rarr; 3-small &rarr; cosmos_embeddings<br>
+        &nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="string">(serves all live queries)</span><br>
+        &nbsp;&nbsp;|<br>
+        &nbsp;&nbsp;+-- <span class="keyword">KAFKA:</span> publish to sc_webhook_orders_wc<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+-- <span class="keyword">CONSUMER:</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+-- 3-large (parallel, fast)<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+-- voyage (3 RPM, batched 50/call)<br>
+        <br>
+        <span class="keyword">Tracker:</span> cosmos_embedding_queue_tracker<br>
+        &nbsp;&nbsp;small_done | large_done | voyage_done
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 9: Knowledge Graph -->
+<div class="slide" id="s9">
+  <h2>GraphRAG: Knowledge Graph Reasoning</h2>
+  <p class="subtitle">Not just "find similar text" &mdash; understand relationships</p>
+
+  <div class="cols">
+    <div>
+      <h3>Graph Structure</h3>
+      <div class="code">
+        <span class="keyword">Nodes:</span> api_endpoint, table, tool, agent, intent, domain, module<br>
+        <span class="keyword">Edges:</span> belongs_to_domain, implements_tool, assigned_to_agent,<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;has_intent, reads_table, writes_table<br>
+        <span class="keyword">Lookup:</span> entity_type + value &rarr; node_id (O(1))<br>
+        <br>
+        <span class="comment">// Example traversal:</span><br>
+        <span class="string">api:orders.create</span><br>
+        &nbsp;&nbsp;&rarr; <span class="keyword">belongs_to</span> domain:orders<br>
+        &nbsp;&nbsp;&rarr; <span class="keyword">implements</span> tool:orders_create<br>
+        &nbsp;&nbsp;&rarr; <span class="keyword">assigned_to</span> agent:order_ops_agent<br>
+        &nbsp;&nbsp;&rarr; <span class="keyword">writes</span> table:orders<br>
+        &nbsp;&nbsp;&rarr; <span class="keyword">writes</span> table:shipments<br>
+        &nbsp;&nbsp;&rarr; <span class="keyword">has_intent</span> intent:orders_create
+      </div>
+    </div>
+    <div>
+      <h3>Why Graph Beats Embedding-Only</h3>
+      <div class="card" style="margin-bottom:12px;">
+        <h4>Embedding-only</h4>
+        <p>"cancel order" &rarr; finds docs mentioning "cancel" &rarr; might return billing docs about "cancelled invoices"</p>
+      </div>
+      <div class="card" style="border-color:rgba(34,197,94,0.3);">
+        <h4>GraphRAG</h4>
+        <p>"cancel order" &rarr; intent:act + entity:order &rarr; traverses to cancel_order tool &rarr; finds exact endpoint, required params, risk level, approval flow</p>
+      </div>
+
+      <h3 style="margin-top:20px;">Entity Resolution</h3>
+      <div class="code">
+        <span class="comment">// Query: "AWB 9876543210"</span><br>
+        <span class="keyword">entity_lookup:</span><br>
+        &nbsp;&nbsp;type="awb", value="9876543210"<br>
+        &nbsp;&nbsp;&rarr; node: api:shipments.track<br>
+        &nbsp;&nbsp;&rarr; BFS 2-hop: shipments &rarr; orders &rarr; NDR<br>
+        &nbsp;&nbsp;&rarr; <span class="highlight">Full context in one traversal</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 10: Score & Roadmap -->
+<div class="slide" id="s10">
+  <h2>Current State & Roadmap</h2>
+
+  <div class="cols">
+    <div>
+      <h3>KB Quality Score: 9.6/10</h3>
+      <table>
+        <tr><th>Signal</th><th>Coverage</th><th>Score</th></tr>
+        <tr><td>State machines</td><td>100%</td><td>10/10</td></tr>
+        <tr><td>Constants/enums</td><td>100%</td><td>10/10</td></tr>
+        <tr><td>Validation/params</td><td>133%</td><td>10/10</td></tr>
+        <tr><td>API controllers</td><td>92%</td><td>10/10</td></tr>
+        <tr><td>API response fields</td><td>94%</td><td>10/10</td></tr>
+        <tr><td>API request params</td><td>90%</td><td>10/10</td></tr>
+        <tr><td>API examples</td><td>100%</td><td>10/10</td></tr>
+        <tr><td>Controller refs</td><td>61%</td><td>7/10</td></tr>
+        <tr><td>Path params</td><td>55%</td><td>6/10</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Journey: 4.3 &rarr; 9.6</h3>
+      <div class="code">
+        <span class="string">4.3</span> &rarr; Baseline (thin KB, no chunking)<br>
+        <span class="string">5.3</span> &rarr; high/medium/low structure + P4/P5<br>
+        <span class="string">6.2</span> &rarr; Repo scan: constants, validation<br>
+        <span class="string">7.4</span> &rarr; Docker PHP routes (10,671)<br>
+        <span class="string">8.5</span> &rarr; Controller param scan (2,031 methods)<br>
+        <span class="string">9.2</span> &rarr; Fuzzy matching + response fields<br>
+        <span class="string">9.5</span> &rarr; Deep code scan (all patterns)<br>
+        <span class="highlight">9.6</span> &rarr; Semantic chunking + all pillars
+      </div>
+
+      <h3 style="margin-top:24px;">Infrastructure: 10/10</h3>
+      <p>18 components, 9,774 lines of code. Chunker, reranker, HyDE, bridge docs, eval pipeline, 3-model embedding, Kafka shadow lanes, graph ingestion.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Navigation -->
+<div class="nav">
+  <button onclick="prev()">&#8592; Prev</button>
+  <button onclick="next()">Next &#8594;</button>
+</div>
+<div class="slide-counter" id="counter">1 / 10</div>
+
+<script>
+let current = 0;
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+
+function show(n) {
+  slides.forEach(s => s.classList.remove('active'));
+  current = ((n % total) + total) % total;
+  slides[current].classList.add('active');
+  document.getElementById('counter').textContent = `${current + 1} / ${total}`;
+}
+
+function next() { show(current + 1); }
+function prev() { show(current - 1); }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ') next();
+  if (e.key === 'ArrowLeft') prev();
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "total_collected": 5761,
+  "after_dedup": 5660,
+  "train_count": 3934,
+  "dev_count": 844,
+  "holdout_count": 882,
+  "random_seed": 42,
+  "split_ratios": {
+    "train": 0.7,
+    "dev": 0.15,
+    "holdout": 0.15
+  },
+  "sources": {
+    "global_eval_set": 5615,
+    "pillar4_eval_cases": 45
+  }
+}
