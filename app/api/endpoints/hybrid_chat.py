@@ -6,6 +6,7 @@ POST /cosmos/api/v1/hybrid/chat/stream   — SSE streaming with pipeline events
 GET  /cosmos/api/v1/hybrid/analytics     — Pipeline attribution analytics
 """
 
+import asyncio
 import json
 import time
 from uuid import UUID, uuid4
@@ -158,6 +159,70 @@ def _build_llm_context(orch_result: OrchestratorResult) -> str:
         for e in recent[:3]:
             parts.append(f"  {e.get('label', e.get('id', '?'))}")
 
+    # Phase 2: Field traces (deterministic field → API → DB column)
+    field_traces = ctx.get("field_traces", [])
+    if field_traces:
+        parts.append(f"[Field Traces — {len(field_traces)} traces]")
+        for ft in field_traces[:5]:
+            if isinstance(ft, dict):
+                field_name = ft.get("field_name", ft.get("field", "?"))
+                api = ft.get("api_endpoint", ft.get("api", "?"))
+                col = ft.get("db_column", ft.get("column", ""))
+                line = f"  {field_name} → {api}"
+                if col:
+                    line += f" → {col}"
+                parts.append(line)
+
+    # Phase 2: Neighbor chunks (sibling evidence from same parent document)
+    neighbor_chunks = ctx.get("neighbor_chunks", [])
+    if neighbor_chunks:
+        parts.append(f"[Neighbor Chunks — {len(neighbor_chunks)} sibling chunks]")
+        for nc in neighbor_chunks[:3]:
+            chunk_type = nc.get("chunk_type", "")
+            content = nc.get("content", "")[:200]
+            section = nc.get("section", "")
+            label = f"{chunk_type}/{section}" if section else chunk_type
+            parts.append(f"  [{label}] {content}")
+
+    # Phase 2: Module context (module_doc vector + graph node unified)
+    module_context = ctx.get("module_context", {})
+    if module_context:
+        parts.append(f"[Module Context — {len(module_context)} module(s)]")
+        for mod_name, mod_data in list(module_context.items())[:3]:
+            if isinstance(mod_data, dict):
+                parts.append(f"  [{mod_name}]")
+                for sec in mod_data.get("sections", [])[:2]:
+                    parts.append(f"    {str(sec)[:200]}")
+                edges = mod_data.get("graph_edges", [])
+                if edges:
+                    parts.append(f"    edges: {', '.join(edges[:4])}")
+
+    # Wave 3: LangGraph reasoning trace + refined entities
+    w3 = ctx.get("wave3_reasoning", {})
+    if w3:
+        refined = w3.get("refined_entities", [])
+        tool_plan = w3.get("tool_plan", [])
+        trace = w3.get("reasoning_trace", "")
+        if refined:
+            parts.append(f"[Wave 3 — LangGraph Refined Entities ({len(refined)})]")
+            for ent in refined[:6]:
+                parts.append(f"  {ent.get('type', '?')}={ent.get('value', '?')}")
+        if tool_plan:
+            parts.append(f"[Wave 3 — Suggested Tools: {', '.join(str(t) for t in tool_plan[:5])}]")
+        if trace:
+            parts.append(f"[Wave 3 — Reasoning] {trace[:300]}")
+
+    # Wave 4: Neo4j targeted graph paths
+    w4 = ctx.get("wave4_graph", {})
+    if w4 and w4.get("path_count", 0) > 0:
+        rel_ctx = w4.get("relationship_context", "")
+        parts.append(
+            f"[Wave 4 — Neo4j Graph ({w4['path_count']} nodes, "
+            f"{w4.get('entity_targets_used', 0)} entity targets)]"
+        )
+        if rel_ctx:
+            parts.append(rel_ctx[:500])
+
     return "\n".join(parts) if parts else "[No context gathered from pipelines]"
 
 
@@ -184,6 +249,31 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
     # Read effective workflow settings from cache
     _settings_cache = getattr(request.app.state, "settings_cache", None)
     _workflow_settings = _settings_cache.get() if _settings_cache else None
+
+    # ---------------------------------------------------------------
+    # PRE-EXECUTION GUARDRAILS (15 guards: injection, access, rate, cost)
+    # ---------------------------------------------------------------
+    react_engine = _get_react_engine(request)
+    if react_engine and react_engine.guardrails:
+        try:
+            pre_context = {
+                "query": chat_req.message,
+                "user_id": chat_req.user_id,
+                "company_id": chat_req.company_id,
+                "role": chat_req.role,
+                "channel": chat_req.channel,
+                "session_id": str(session_id),
+            }
+            pre_result = await react_engine.guardrails.run_pre(pre_context)
+            if pre_result.action.value == "block":
+                return HybridChatResponse(
+                    session_id=session_id,
+                    message_id=uuid4(),
+                    content=pre_result.reason or "Your request was blocked by safety checks.",
+                    confidence=0.0,
+                )
+        except Exception as guard_err:
+            logger.warning("hybrid_chat.pre_guardrail_error", error=str(guard_err))
 
     # Run two-stage pipeline
     orch_result = await orchestrator.execute(
@@ -227,36 +317,70 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
     tools_used = []
     llm_latency = 0.0
 
-    if complexity == "complex" and orchestrator.riper_engine:
-        # Full RIPER: Research → Innovate → Plan → Execute → Review
-        t0 = time.monotonic()
-        riper_result = await orchestrator.riper_engine.process_full(
-            query=chat_req.message,
-            context=orch_result.context,
-            intents=orch_result.intents,
-        )
-        llm_latency = (time.monotonic() - t0) * 1000
-        content = riper_result.final_response
-        confidence = riper_result.confidence
-        tools_used = riper_result.tools_used
-        orch_result.riper_summary = orchestrator.riper_engine.to_summary(riper_result)
+    # Check if fast-path already produced a result (Tier 0)
+    fast_path_response = (orch_result.context or {}).get("fast_path_response")
+    if fast_path_response:
+        content = fast_path_response
+        confidence = (orch_result.response_metadata or {}).get("confidence", 0.9)
+        tools_used = (orch_result.response_metadata or {}).get("tools_used", [])
+        llm_latency = (orch_result.response_metadata or {}).get("latency_ms", 0)
 
-    elif complexity == "standard" and orchestrator.riper_engine:
-        # RIPER Lite: Research → Plan → Execute → Review (skip Innovate)
+    elif orchestrator.riper_engine:
+        # RIPER for ALL non-cached queries
+        # COMPLEX → Full RIPER (R+I+P+E+R), STANDARD/QUICK → RIPER Lite (R+P+E+R)
         t0 = time.monotonic()
-        riper_result = await orchestrator.riper_engine.process_lite(
-            query=chat_req.message,
-            context=orch_result.context,
-            intents=orch_result.intents,
-        )
-        llm_latency = (time.monotonic() - t0) * 1000
-        content = riper_result.final_response
-        confidence = riper_result.confidence
-        tools_used = riper_result.tools_used
-        orch_result.riper_summary = orchestrator.riper_engine.to_summary(riper_result)
+        try:
+            if complexity == "complex":
+                riper_result = await asyncio.wait_for(
+                    orchestrator.riper_engine.process_full(
+                        query=chat_req.message,
+                        context=orch_result.context,
+                        intents=orch_result.intents,
+                    ),
+                    timeout=30.0,  # 30s max for complex queries
+                )
+            else:
+                riper_result = await asyncio.wait_for(
+                    orchestrator.riper_engine.process_lite(
+                        query=chat_req.message,
+                        context=orch_result.context,
+                        intents=orch_result.intents,
+                    ),
+                    timeout=15.0,  # 15s max for standard/quick
+                )
+
+            llm_latency = (time.monotonic() - t0) * 1000
+            content = riper_result.final_response
+            confidence = riper_result.confidence
+            tools_used = riper_result.tools_used
+            orch_result.riper_summary = orchestrator.riper_engine.to_summary(riper_result)
+
+        except (asyncio.TimeoutError, Exception) as riper_err:
+            # Circuit breaker: RIPER/LLM failed → fall back to tool-only response
+            llm_latency = (time.monotonic() - t0) * 1000
+            logger.warning("hybrid_chat.riper_failed",
+                           error=str(riper_err), latency_ms=round(llm_latency, 1))
+
+            # Build tool-only response from orchestrator context
+            ctx = orch_result.context or {}
+            tool_data = ctx.get("multi_agent_response") or ctx.get("fast_path_response")
+            if tool_data:
+                content = tool_data
+                confidence = 0.6
+            else:
+                # Last resort: use KB chunks directly
+                chunks = ctx.get("knowledge_chunks", [])
+                if chunks:
+                    content = "Based on available information: " + " ".join(
+                        c.get("content", "")[:200] for c in chunks[:3]
+                    )
+                    confidence = 0.4
+                else:
+                    content = "I'm having trouble processing this request. Please try again or rephrase your question."
+                    confidence = 0.2
 
     elif engine is not None:
-        # QUICK: direct ReAct, no RIPER wrapper
+        # Fallback: direct ReAct (only if RIPER unavailable)
         augmented_context = {
             "user_id": chat_req.user_id,
             "company_id": chat_req.company_id,
@@ -316,6 +440,57 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
             confidence = min(confidence, 0.3)
 
     # ---------------------------------------------------------------
+    # PATTERN LEARNING: Record every successful resolution
+    # Builds pattern confidence over time (30+ successes → fast path)
+    # ---------------------------------------------------------------
+    if content and confidence >= 0.5 and tools_used:
+        try:
+            intent_for_cache = "unknown"
+            entity_for_cache = "unknown"
+            if orch_result.intents:
+                i0 = orch_result.intents[0]
+                intent_for_cache = i0.get("intent", "unknown") if isinstance(i0, dict) else str(i0)
+                entity_for_cache = i0.get("entity", "unknown") if isinstance(i0, dict) else "unknown"
+
+            tool_seq = [{"tool_name": t} for t in tools_used]
+            await orchestrator.pattern_cache.record_success(
+                query=chat_req.message,
+                intent=intent_for_cache,
+                entity_type=entity_for_cache,
+                tool_sequence=tool_seq,
+                repo_id=chat_req.repo_id if hasattr(chat_req, 'repo_id') else "",
+                role=chat_req.role if hasattr(chat_req, 'role') else "",
+                latency_ms=llm_latency,
+            )
+        except Exception:
+            pass  # non-critical
+
+    # ---------------------------------------------------------------
+    # POST-EXECUTION GUARDRAILS (10 guards: PII mask, leakage, hallucination, legal)
+    # ---------------------------------------------------------------
+    if react_engine and react_engine.guardrails and content:
+        try:
+            post_context = {
+                "query": chat_req.message,
+                "response": content,
+                "user_id": chat_req.user_id,
+                "company_id": chat_req.company_id,
+                "role": chat_req.role,
+                "tools_used": tools_used,
+                "confidence": confidence,
+                "intents": orch_result.intents,
+                "context": orch_result.context,
+            }
+            post_result = await react_engine.guardrails.run_post(post_context)
+            if post_result.action.value == "block":
+                content = post_result.reason or "Response blocked by safety checks. Please contact support."
+                confidence = 0.0
+            elif post_result.action.value == "mask" and post_result.modified_data:
+                content = post_result.modified_data  # PII-masked version
+        except Exception as guard_err:
+            logger.warning("hybrid_chat.post_guardrail_error", error=str(guard_err))
+
+    # ---------------------------------------------------------------
     # Build response
     # ---------------------------------------------------------------
     resp = HybridChatResponse(
@@ -344,6 +519,10 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
             resp.pipeline_breakdown["_ralph"] = orch_result.ralph_summary
         if orch_result.forge_summary:
             resp.pipeline_breakdown["_agent_forge"] = orch_result.forge_summary
+        if orch_result.wave3_context:
+            resp.pipeline_breakdown["_wave3_langgraph"] = orch_result.wave3_context
+        if orch_result.wave4_context:
+            resp.pipeline_breakdown["_wave4_neo4j"] = orch_result.wave4_context
 
     return resp
 

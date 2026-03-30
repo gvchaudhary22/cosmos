@@ -73,6 +73,7 @@ class ReActEngine:
     """
 
     MAX_LOOPS = 3
+    MAX_LOOPS_COMPLEX = 5  # More iterations for complex multi-step queries
 
     def __init__(self, classifier, tool_registry, llm_client, guardrails, approval_engine=None):
         self.classifier = classifier
@@ -111,7 +112,11 @@ class ReActEngine:
         accumulated_context: Dict[str, Any] = {}
         loop = 0
 
-        for loop in range(self.MAX_LOOPS):
+        # Use more loops for complex queries (multi-intent, multi-entity)
+        is_complex = session_context.get("complexity") == "complex" if isinstance(session_context, dict) else False
+        max_loops = self.MAX_LOOPS_COMPLEX if is_complex else self.MAX_LOOPS
+
+        for loop in range(max_loops):
             logger.info("react.loop_start", loop=loop, message=user_message[:80])
 
             # --- REASON ---

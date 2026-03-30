@@ -51,8 +51,24 @@ class WorkflowSettings:
     # Extra quality levers
     enable_ralph: bool = True
     enable_riper: bool = True
-    enable_hyde: bool = False
+    enable_hyde: bool = True
     max_context_tokens: int = 8000
+
+    # Wave 3: LangGraph stateful reasoning (runs after W1+W2, before LLM assembly)
+    wave3_langgraph_enabled: bool = True    # stateful multi-step reasoning on merged context
+    wave3_max_iterations: int = 3           # max reasoning loop iterations
+    wave3_timeout_sec: int = 15             # hard timeout for Wave 3
+
+    # Wave 4: Neo4j targeted graph traversal (runs after W3, uses refined entities)
+    wave4_neo4j_enabled: bool = True        # targeted BFS from W3-extracted entities
+    wave4_max_depth: int = 3               # graph traversal depth
+    wave4_timeout_sec: int = 10             # hard timeout for Wave 4
+
+    # Phase 3: Shadow lane mode for W3/W4
+    # When True: W3+W4 run in parallel but results are ONLY logged for comparison,
+    # not injected into LLM context. Enables MRR comparison before promoting to default.
+    wave3_shadow_mode: bool = False  # log-only, no context injection
+    wave4_shadow_mode: bool = False  # log-only, no context injection
 
     @classmethod
     def max_quality(cls) -> "WorkflowSettings":
@@ -75,6 +91,12 @@ class WorkflowSettings:
             enable_riper=True,
             enable_hyde=True,
             max_context_tokens=16000,
+            wave3_langgraph_enabled=True,
+            wave3_max_iterations=3,
+            wave3_timeout_sec=20,
+            wave4_neo4j_enabled=True,
+            wave4_max_depth=4,
+            wave4_timeout_sec=15,
         )
 
     @classmethod
@@ -103,6 +125,8 @@ class WorkflowSettings:
             enable_riper=False,
             enable_hyde=False,
             max_context_tokens=4000,
+            wave3_langgraph_enabled=False,  # too expensive for cost mode
+            wave4_neo4j_enabled=False,
         )
 
     @classmethod
@@ -126,6 +150,12 @@ class WorkflowSettings:
             enable_riper=bool(d.get("enable_riper", True)),
             enable_hyde=bool(d.get("enable_hyde", False)),
             max_context_tokens=int(d.get("max_context_tokens", 8000)),
+            wave3_langgraph_enabled=bool(d.get("wave3_langgraph_enabled", False)),
+            wave3_max_iterations=int(d.get("wave3_max_iterations", 3)),
+            wave3_timeout_sec=int(d.get("wave3_timeout_sec", 15)),
+            wave4_neo4j_enabled=bool(d.get("wave4_neo4j_enabled", False)),
+            wave4_max_depth=int(d.get("wave4_max_depth", 3)),
+            wave4_timeout_sec=int(d.get("wave4_timeout_sec", 10)),
         )
 
     def to_dict(self) -> dict:
@@ -147,6 +177,12 @@ class WorkflowSettings:
             "enable_riper": self.enable_riper,
             "enable_hyde": self.enable_hyde,
             "max_context_tokens": self.max_context_tokens,
+            "wave3_langgraph_enabled": self.wave3_langgraph_enabled,
+            "wave3_max_iterations": self.wave3_max_iterations,
+            "wave3_timeout_sec": self.wave3_timeout_sec,
+            "wave4_neo4j_enabled": self.wave4_neo4j_enabled,
+            "wave4_max_depth": self.wave4_max_depth,
+            "wave4_timeout_sec": self.wave4_timeout_sec,
         }
 
 

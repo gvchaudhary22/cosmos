@@ -505,41 +505,465 @@
   </div>
 </div>
 
-<!-- SLIDE 10: Score & Roadmap -->
+<!-- SLIDE 10: RIPER Engine Deep Dive -->
 <div class="slide" id="s10">
-  <h2>Current State & Roadmap</h2>
+  <h2>RIPER Engine &mdash; 5-Phase Structured Reasoning</h2>
+  <p class="subtitle">For COMPLEX queries that need multi-step analysis</p>
 
   <div class="cols">
     <div>
-      <h3>KB Quality Score: 9.6/10</h3>
+      <h3>When RIPER Activates</h3>
+      <div class="code">
+        <span class="comment">// RequestClassifier output:</span><br>
+        <span class="keyword">QUICK</span> &rarr; Direct ReAct (1 loop, &lt;500ms)<br>
+        <span class="keyword">STANDARD</span> &rarr; RIPER Lite (R+E+R, skip I+P)<br>
+        <span class="highlight">COMPLEX</span> &rarr; Full RIPER (all 5 phases)
+      </div>
+
+      <h3 style="margin-top:20px;">5 Phases</h3>
       <table>
-        <tr><th>Signal</th><th>Coverage</th><th>Score</th></tr>
-        <tr><td>State machines</td><td>100%</td><td>10/10</td></tr>
-        <tr><td>Constants/enums</td><td>100%</td><td>10/10</td></tr>
-        <tr><td>Validation/params</td><td>133%</td><td>10/10</td></tr>
-        <tr><td>API controllers</td><td>92%</td><td>10/10</td></tr>
-        <tr><td>API response fields</td><td>94%</td><td>10/10</td></tr>
-        <tr><td>API request params</td><td>90%</td><td>10/10</td></tr>
-        <tr><td>API examples</td><td>100%</td><td>10/10</td></tr>
-        <tr><td>Controller refs</td><td>61%</td><td>7/10</td></tr>
-        <tr><td>Path params</td><td>55%</td><td>6/10</td></tr>
+        <tr><th>Phase</th><th>Action</th><th>Output</th></tr>
+        <tr><td><span class="badge badge-blue">R</span> RESEARCH</td><td>Gather all KB context, entity data, graph neighbors</td><td>Research artifact with evidence</td></tr>
+        <tr><td><span class="badge badge-purple">I</span> INNOVATE</td><td>Generate multiple answer strategies from research</td><td>2-3 candidate approaches</td></tr>
+        <tr><td><span class="badge badge-green">P</span> PLAN</td><td>Select best strategy, plan tool execution order</td><td>Execution plan with dependencies</td></tr>
+        <tr><td><span class="badge badge-orange">E</span> EXECUTE</td><td>Run tools in dependency order (parallel where possible)</td><td>Tool results + confidence score</td></tr>
+        <tr><td><span class="badge" style="background:rgba(239,68,68,0.2);color:#fca5a5;">R</span> REVIEW</td><td>Quality check: hallucination, completeness, accuracy</td><td>Final response + quality score</td></tr>
       </table>
     </div>
     <div>
-      <h3>Journey: 4.3 &rarr; 9.6</h3>
-      <div class="code">
-        <span class="string">4.3</span> &rarr; Baseline (thin KB, no chunking)<br>
-        <span class="string">5.3</span> &rarr; high/medium/low structure + P4/P5<br>
-        <span class="string">6.2</span> &rarr; Repo scan: constants, validation<br>
-        <span class="string">7.4</span> &rarr; Docker PHP routes (10,671)<br>
-        <span class="string">8.5</span> &rarr; Controller param scan (2,031 methods)<br>
-        <span class="string">9.2</span> &rarr; Fuzzy matching + response fields<br>
-        <span class="string">9.5</span> &rarr; Deep code scan (all patterns)<br>
-        <span class="highlight">9.6</span> &rarr; Semantic chunking + all pillars
+      <h3>Example: Complex Query Through RIPER</h3>
+      <div class="example">
+        <div class="q">"Company 54321 ka last month ka order-to-delivery conversion rate kya hai, aur kaunsa courier sabse fast deliver karta hai?"</div>
+        <div class="a" style="margin-top:8px; font-size:12px;">
+          <strong>R - RESEARCH:</strong><br>
+          &bull; KB: orders table (status constants), shipments table (courier_id), billing_data<br>
+          &bull; Graph: company:54321 &rarr; orders &rarr; shipments &rarr; couriers<br>
+          &bull; Intent: report + courier_compare (multi-intent)<br><br>
+
+          <strong>I - INNOVATE:</strong><br>
+          &bull; Strategy A: Query orders + shipments separately, join in code<br>
+          &bull; Strategy B: Use billing_query for pre-aggregated data<br>
+          &bull; Strategy C: ELK analytics for time-series breakdown<br><br>
+
+          <strong>P - PLAN:</strong><br>
+          &bull; Selected: Strategy A (most accurate)<br>
+          &bull; Step 1: orders_by_company(company_id=54321, from=30d) [parallel]<br>
+          &bull; Step 2: shipment_track(order_ids=...) [depends on step 1]<br>
+          &bull; Step 3: Compute: delivered / total, group by courier<br><br>
+
+          <strong>E - EXECUTE:</strong><br>
+          &bull; 847 orders fetched, 789 delivered (93.2% conversion)<br>
+          &bull; Delhivery: 2.1 days avg, BlueDart: 1.8 days, Ecom: 3.4 days<br><br>
+
+          <strong>R - REVIEW:</strong><br>
+          &bull; Numbers verified against billing records &check;<br>
+          &bull; No hallucination detected &check;
+        </div>
+        <div class="tool">RIPER Full | 5 phases | Confidence: 0.92 | Latency: 3.2s</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 10b: GREL + Wave Execution -->
+<div class="slide" id="s10b">
+  <h2>GREL &mdash; Gather, Reason, Evaluate, Learn</h2>
+  <p class="subtitle">The evolutionary learning system with 2-wave parallel execution</p>
+
+  <div class="cols">
+    <div>
+      <h3>4 Phases</h3>
+      <div class="code" style="font-size:13px;">
+        <span class="keyword">GATHER:</span> Run strategies in 2 waves<br>
+        &nbsp;&nbsp;<span class="string">Wave 1 (cheap, parallel):</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;Decision Tree + TF-IDF + Hybrid Retrieval<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;Timeout: 15s per task<br>
+        &nbsp;&nbsp;<br>
+        &nbsp;&nbsp;<span class="string">if Wave 1 confidence &ge; 0.75 &rarr; skip Wave 2</span><br>
+        &nbsp;&nbsp;<br>
+        &nbsp;&nbsp;<span class="string">Wave 2 (expensive, only if needed):</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;Claude Tool-Use + Full Reasoning<br>
+        <br>
+        <span class="keyword">REASON:</span> Merge results from best strategy<br>
+        &nbsp;&nbsp;Weighted by: confidence &times; latency_penalty<br>
+        <br>
+        <span class="keyword">EVALUATE:</span> Score final answer quality<br>
+        &nbsp;&nbsp;Criteria: completeness, accuracy, relevance<br>
+        <br>
+        <span class="keyword">LEARN:</span> <span class="highlight">(async, after response sent)</span><br>
+        &nbsp;&nbsp;Record: which strategy won, for what query type<br>
+        &nbsp;&nbsp;Update: tournament weights + Kafka event
       </div>
 
-      <h3 style="margin-top:24px;">Infrastructure: 10/10</h3>
-      <p>18 components, 9,774 lines of code. Chunker, reranker, HyDE, bridge docs, eval pipeline, 3-model embedding, Kafka shadow lanes, graph ingestion.</p>
+      <h3 style="margin-top:16px;">Wave Executor Architecture</h3>
+      <div class="code" style="font-size:12px;">
+        <span class="keyword">WaveExecutor:</span><br>
+        &nbsp;&nbsp;Wave 1: [Task A, Task B, Task C] &rarr; <span class="string">asyncio.gather()</span><br>
+        &nbsp;&nbsp;&darr; results + consensus check<br>
+        &nbsp;&nbsp;Wave 2: [Task D, Task E] &rarr; <span class="string">asyncio.gather()</span><br>
+        &nbsp;&nbsp;&darr; skip if Wave 1 sufficient<br>
+        &nbsp;&nbsp;Progress: SSE callback per task status change
+      </div>
+    </div>
+    <div>
+      <h3>3-Tier Escalation System</h3>
+      <div class="code" style="font-size:13px;">
+        <span class="keyword">Tier 1: Brain (KB + Graph + Tools)</span><br>
+        &nbsp;&nbsp;Score = evidence &times; 0.4 + entity_resolved &times; 0.3<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ live_data &times; 0.2 + classifier_conf &times; 0.1<br>
+        &nbsp;&nbsp;<span class="string">score &ge; 0.70 &rarr; RESPOND</span><br>
+        &nbsp;&nbsp;<span class="highlight">score &lt; 0.70 &rarr; ESCALATE to Tier 2</span><br>
+        <br>
+        <span class="keyword">Tier 2: Code Intelligence</span><br>
+        &nbsp;&nbsp;Deep code analysis + retry with enriched context<br>
+        &nbsp;&nbsp;<span class="string">score &ge; 0.60 &rarr; RESPOND</span><br>
+        &nbsp;&nbsp;<span class="highlight">score &lt; 0.60 &rarr; ESCALATE to Tier 3</span><br>
+        <br>
+        <span class="keyword">Tier 3: Safe DB Query</span><br>
+        &nbsp;&nbsp;Template-driven SQL against prod slave (read-only)<br>
+        &nbsp;&nbsp;<span class="string">score &ge; 0.50 &rarr; RESPOND</span><br>
+        &nbsp;&nbsp;<span class="highlight">score &lt; 0.50 &rarr; ESCALATE to Human</span>
+      </div>
+
+      <h3 style="margin-top:16px;">RALPH Self-Correction</h3>
+      <div class="code" style="font-size:13px;">
+        <span class="comment">// Runs AFTER ReAct produces response</span><br>
+        <span class="keyword">REVIEW:</span> Check response against KB evidence<br>
+        <span class="keyword">ANALYZE:</span> Identify gaps, contradictions, claims<br>
+        <span class="keyword">LEARN:</span> Record what worked / what failed<br>
+        <span class="keyword">PRIORITIZE:</span> Rank corrections by severity<br>
+        <span class="keyword">HARMONIZE:</span> Rewrite if quality &lt; threshold<br>
+        <br>
+        <span class="string">Max 3 cycles. Cycle 3 = escalate to human.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 10c: Full Chat Flow Technical -->
+<div class="slide" id="s10c">
+  <h2>Complete Chat Flow &mdash; Technical Deep Dive</h2>
+  <p class="subtitle">Every step from keypress to response, with latency targets</p>
+
+  <div class="code" style="font-size:12px; line-height:1.5; max-width:100%;">
+    <span class="highlight">User types: "Order 12345 ka AWB kahan tak pahuncha?"</span><br><br>
+
+    <span class="keyword">1. GUARDRAIL PRE-CHECK</span> <span class="string">[&lt;5ms]</span><br>
+    &nbsp;&nbsp;&rarr; MarsSafety: injection scan (12 patterns) &rarr; ALLOW<br>
+    &nbsp;&nbsp;&rarr; TenantIsolation: company_id match &rarr; ALLOW<br>
+    &nbsp;&nbsp;&rarr; RoleAccess: ICRM agent role &rarr; ALLOW<br>
+    &nbsp;&nbsp;&rarr; CostBudget: session=$0.02 &lt; $1.00 &rarr; ALLOW<br><br>
+
+    <span class="keyword">2. STAGE 1: PARALLEL PROBE</span> <span class="string">[~50ms, 5 pipelines concurrent]</span><br>
+    &nbsp;&nbsp;&rarr; P1 IntentClassifier: intent=LOOKUP, entity=ORDER, id=12345 (conf=0.92)<br>
+    &nbsp;&nbsp;&rarr; P2 EntityLookup: entity_lookup WHERE type="order_id" value="12345" &rarr; node: table:orders<br>
+    &nbsp;&nbsp;&rarr; P3 VectorSearch: embed query &rarr; cosine search &rarr; top-5 chunks [orders:identity, orders:states, ...]<br>
+    &nbsp;&nbsp;&rarr; P4 PageRole: ICRM agent can view order detail &rarr; OK<br>
+    &nbsp;&nbsp;&rarr; P5 SessionHistory: user asked about order 98765 last turn &rarr; seed graph<br><br>
+
+    <span class="keyword">3. TIER 1 GATE</span> <span class="string">[&lt;1ms]</span><br>
+    &nbsp;&nbsp;&rarr; evidence_count=4/5 (0.4), entity_resolved=true (0.3), live_data=true (0.2), classifier=0.92 (0.1)<br>
+    &nbsp;&nbsp;&rarr; score = 0.4*0.8 + 0.3*1.0 + 0.2*1.0 + 0.1*0.92 = <span class="highlight">0.812 &ge; 0.70 &rarr; RESPOND (no escalation)</span><br><br>
+
+    <span class="keyword">4. STAGE 2: HYBRID RETRIEVAL (4-leg parallel)</span> <span class="string">[~200ms]</span><br>
+    &nbsp;&nbsp;&rarr; Leg 1 Exact: entity_lookup(order_id=12345) &rarr; BFS 2-hop [orders &rarr; shipments &rarr; couriers] <span class="string">[wt: 2.0]</span><br>
+    &nbsp;&nbsp;&rarr; Leg 2 Graph: intent:lookup &rarr; domain:orders &rarr; tool:orders_lookup, agent:order_ops <span class="string">[wt: 1.5]</span><br>
+    &nbsp;&nbsp;&rarr; Leg 3 Vector: HyDE expand &rarr; embed &rarr; cosine top-20 &rarr; rerank top-5 <span class="string">[wt: 1.0]</span><br>
+    &nbsp;&nbsp;&rarr; Leg 4 Lexical: GIN full-text "order 12345 AWB track" <span class="string">[wt: 0.8]</span><br>
+    &nbsp;&nbsp;&rarr; <span class="highlight">RRF Fusion: score = &Sigma;(weight/(60+rank))</span> &rarr; ranked nodes<br><br>
+
+    <span class="keyword">5. CONTEXT ASSEMBLY</span> <span class="string">[~5ms, 4000 token budget]</span><br>
+    &nbsp;&nbsp;&rarr; 35% Chains: orders &rarr; shipments &rarr; courier (Delhivery) &rarr; AWB: 9876543210<br>
+    &nbsp;&nbsp;&rarr; 30% API: GET /shipments/{id}/track returns: status, current_location, edd<br>
+    &nbsp;&nbsp;&rarr; 20% Schema: shipments.status=6(SHIPPED), orders.status=6(SHIPPED)<br>
+    &nbsp;&nbsp;&rarr; 15% Evidence: "status 6 = handed to courier, in transit"<br><br>
+
+    <span class="keyword">6. ReAct REASONING LOOP</span> <span class="string">[~400ms]</span><br>
+    &nbsp;&nbsp;&rarr; REASON: Select tools [order_lookup, shipment_track] from DecisionTreeRouter (Tier 1)<br>
+    &nbsp;&nbsp;&rarr; ACT: asyncio.gather(order_lookup(id=12345), shipment_track(order_id=12345))<br>
+    &nbsp;&nbsp;&rarr; OBSERVE: Order found, AWB=9876543210, status=IN_TRANSIT, location=Mumbai Hub<br>
+    &nbsp;&nbsp;&rarr; EVALUATE: confidence=0.91 (&ge;0.8) &rarr; <span class="highlight">RESPOND (no retry needed)</span><br><br>
+
+    <span class="keyword">7. GUARDRAIL POST-CHECK</span> <span class="string">[&lt;5ms]</span><br>
+    &nbsp;&nbsp;&rarr; PIIProtection: mask customer phone in response &rarr; ***XXXX7890<br>
+    &nbsp;&nbsp;&rarr; HallucinationGuard: "Mumbai Hub" verified against shipment_track result &rarr; OK<br>
+    &nbsp;&nbsp;&rarr; InternalLeakage: no file paths or SQL in response &rarr; OK<br><br>
+
+    <span class="keyword">8. RALPH SELF-CORRECTION</span> <span class="string">[~50ms]</span><br>
+    &nbsp;&nbsp;&rarr; REVIEW: response covers order status + AWB + location + EDD &rarr; complete<br>
+    &nbsp;&nbsp;&rarr; quality_score=0.94 &rarr; <span class="string">no rewrite needed</span><br><br>
+
+    <span class="highlight">9. PATTERN LEARNING</span> <span class="string">[async, after response]</span><br>
+    &nbsp;&nbsp;&rarr; Record: "lookup:order:track_order_{id}" → [shipment_track] → confidence +0.02<br>
+    &nbsp;&nbsp;&rarr; After 30 successes: fast path activated (skip steps 2-6 next time)<br><br>
+
+    <span class="highlight">10. RESPONSE TO USER</span> <span class="string">[total: ~750ms (normal) / ~400ms (fast path)]</span><br>
+    &nbsp;&nbsp;"Order 12345 ka AWB 9876543210 currently Mumbai Hub pe hai. Status: IN_TRANSIT.<br>
+    &nbsp;&nbsp;&nbsp;Courier: Delhivery. Expected delivery: 2 April 2026."<br><br>
+
+    <span class="keyword">MULTI-INTENT FLOW (e.g., "Cancel order 12345 and refund")</span><br>
+    &nbsp;&nbsp;&rarr; Classifier detects 2 intents: [cancel, refund]<br>
+    &nbsp;&nbsp;&rarr; Planner: Step 1: order_ops(cancel) → Step 2: billing_wallet(refund, depends_on=1)<br>
+    &nbsp;&nbsp;&rarr; Step 1 executes: order_lookup → cancel_order → success<br>
+    &nbsp;&nbsp;&rarr; <span class="highlight">HANDOFF</span>: order_ops → billing_wallet (context: order=12345, cancel=success, amount=1249)<br>
+    &nbsp;&nbsp;&rarr; Step 2 executes: initiate_refund → success<br>
+    &nbsp;&nbsp;&rarr; Response: "Order cancelled. Rs 1,249 refund in 5-7 business days."<br><br>
+
+    <span class="keyword">CIRCUIT BREAKER (LLM failure)</span><br>
+    &nbsp;&nbsp;&rarr; RIPER timeout (15s standard / 30s complex)<br>
+    &nbsp;&nbsp;&rarr; Fallback: tool-only response from KB context<br>
+    &nbsp;&nbsp;&rarr; Never shows empty/error to user
+  </div>
+</div>
+
+<!-- SLIDE 10d: New — Pattern Cache + Multi-Agent + Skills -->
+<div class="slide" id="s10d">
+  <h2>Advanced Engine Features</h2>
+  <p class="subtitle">Pattern Fast Path + Multi-Agent Handoff + Skill System + Scoped Retrieval</p>
+
+  <div class="cols">
+    <div>
+      <h3>Pattern Match Fast Path <span class="badge badge-green">4x Speed</span></h3>
+      <div class="code" style="font-size:12px;">
+        <span class="comment">// Query: "Track order 99999"</span><br>
+        <span class="comment">// Pattern "track_order_{id}" seen 50+ times</span><br>
+        <br>
+        <span class="keyword">Normal path:</span> ~2000ms<br>
+        &nbsp;&nbsp;Classifier &rarr; Retriever &rarr; ReAct &rarr; Tools &rarr; Response<br>
+        <br>
+        <span class="highlight">Fast path:</span> ~400ms<br>
+        &nbsp;&nbsp;Pattern Match (conf=0.96) &rarr; <span class="string">SKIP M2-M8</span><br>
+        &nbsp;&nbsp;&rarr; Execute cached [shipment_track(id)]<br>
+        &nbsp;&nbsp;&rarr; M9 Safety &rarr; Response<br>
+        <br>
+        <span class="comment">// Confidence builds: +0.02 per success</span><br>
+        <span class="comment">// Threshold: 30 successes + 0.90 confidence</span><br>
+        <span class="comment">// 60-70% of queries hit fast path after 2 weeks</span>
+      </div>
+
+      <h3 style="margin-top:16px;">Skill System <span class="badge badge-purple">10 Skills</span></h3>
+      <div class="code" style="font-size:12px;">
+        <span class="keyword">Skill = Instructions + Actions + Triggers</span><br>
+        <br>
+        <span class="string">cancellation:</span><br>
+        &nbsp;&nbsp;triggers: ["cancel order", "cancel karo"]<br>
+        &nbsp;&nbsp;actions:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;1. api_call: order_lookup<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;2. internal: check status &lt; SHIPPED<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;3. api_call: cancel_order<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;4. respond: confirm with order ID<br>
+        <br>
+        <span class="string">cancel_and_refund:</span> <span class="comment">(cross-agent)</span><br>
+        &nbsp;&nbsp;actions:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;1. api_call: cancel_order<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;2. <span class="highlight">handoff: billing_wallet</span> (refund)<br>
+        <br>
+        <span class="comment">// 7 action types: api_call, prompt, handoff,</span><br>
+        <span class="comment">// notification, workflow, respond, internal</span>
+      </div>
+    </div>
+    <div>
+      <h3>Multi-Agent Handoff <span class="badge badge-orange">18 Agents</span></h3>
+      <div class="code" style="font-size:12px;">
+        <span class="comment">// "Cancel order 12345 and process refund"</span><br>
+        <br>
+        <span class="keyword">M2 Planner:</span><br>
+        &nbsp;&nbsp;Detect: 2 intents [cancel, refund]<br>
+        &nbsp;&nbsp;Plan: SEQUENTIAL (refund depends on cancel)<br>
+        <br>
+        <span class="keyword">Step 1: order_ops</span> (cancel)<br>
+        &nbsp;&nbsp;&rarr; order_lookup(12345) &rarr; status=NEW &rarr; eligible<br>
+        &nbsp;&nbsp;&rarr; cancel_order(12345) &rarr; <span class="string">success</span><br>
+        <br>
+        <span class="highlight">&equiv; HANDOFF</span> order_ops &rarr; billing_wallet<br>
+        &nbsp;&nbsp;Context: {order=12345, cancel=success, amount=1249}<br>
+        <br>
+        <span class="keyword">Step 2: billing_wallet</span> (refund)<br>
+        &nbsp;&nbsp;&rarr; initiate_refund(order=12345, amount=1249)<br>
+        &nbsp;&nbsp;&rarr; <span class="string">refund queued</span><br>
+        <br>
+        <span class="comment">// Invisible to user — seamless transition</span>
+      </div>
+
+      <h3 style="margin-top:16px;">Per-Agent Knowledge Scoping <span class="badge badge-blue">2x Precision</span></h3>
+      <div class="code" style="font-size:12px;">
+        <span class="keyword">Without scoping:</span><br>
+        &nbsp;&nbsp;NDR query &rarr; search ALL 31K chunks<br>
+        &nbsp;&nbsp;Top-5: orders doc, billing doc, <span class="highlight">NDR doc (rank 3)</span><br>
+        <br>
+        <span class="keyword">With scoping:</span><br>
+        &nbsp;&nbsp;NDR agent scope: ["ndr", "ndr_data"]<br>
+        &nbsp;&nbsp;NDR query &rarr; search ~2K NDR chunks only<br>
+        &nbsp;&nbsp;Top-5: <span class="string">NDR doc (rank 1)</span>, shipment doc, courier doc<br>
+        <br>
+        <span class="comment">// 2x precision, 2-6x faster retrieval</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:12px;">
+    <h3>18 Predefined Agents (3 Tiers)</h3>
+    <div class="flow" style="flex-wrap:nowrap; overflow-x:auto;">
+      <div class="flow-box fb-green" style="font-size:11px;">Tier 1 (63%): OrderOps, ShipmentOps, CourierOps, SettingsAdmin, BillingWallet, NDRResolver</div>
+      <div class="flow-arrow">|</div>
+      <div class="flow-box fb-blue" style="font-size:11px;">Tier 2 (25%): ReturnExchange, ChannelSync, Catalog, WeightDispute, International, Reports</div>
+      <div class="flow-arrow">|</div>
+      <div class="flow-box fb-purple" style="font-size:11px;">Tier 3 (12%): Escalation, Pickup, CustomerComm, Fraud, SystemDebugger, Auth</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 11: Guardrails -->
+<div class="slide" id="s11">
+  <h2>25 Guardrails &mdash; Safety at Every Layer</h2>
+  <p class="subtitle">Pre-query, in-flight, and post-response protection</p>
+  <div class="cols-3" style="margin-top:20px;">
+    <div>
+      <h3>Security <span class="badge" style="background:rgba(239,68,68,0.2);color:#fca5a5;">Critical</span></h3>
+      <div class="card" style="margin-bottom:8px;"><h4>MarsSafetyGuardrail</h4><p>12 injection patterns (jailbreak, DAN mode). Risk scored 0-10.</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>CrossTenantLeakGuard</h4><p>Prevents company_id mismatch across tenants.</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>SessionPoisoningGuard</h4><p>Detects manipulated session context.</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>HinglishInjectionGuard</h4><p>Catches injection in Hindi/Hinglish text.</p></div>
+      <div class="card"><h4>PromptInjectionGuardrail</h4><p>Second-layer injection detection.</p></div>
+    </div>
+    <div>
+      <h3>Business <span class="badge badge-orange">Safety</span></h3>
+      <div class="card" style="margin-bottom:8px;"><h4>RoleAccessGuardrail</h4><p>ICRM role vs tool permissions.</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>TenantIsolationGuardrail</h4><p>company_id scoping on every query.</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>PIIProtectionGuardrail</h4><p>Masks phone, email, Aadhaar.</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>BlastRadiusGuardrail</h4><p>Limits write scope (1 order OK, 10K BLOCK).</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>ApprovalModeGuardrail</h4><p>Medium/high risk &rarr; supervisor queue.</p></div>
+      <div class="card"><h4>CostBudgetGuardrail</h4><p>Daily $50 + session $1 caps.</p></div>
+    </div>
+    <div>
+      <h3>Quality <span class="badge badge-blue">Trust</span></h3>
+      <div class="card" style="margin-bottom:8px;"><h4>HallucinationGuard</h4><p>Verifies claims against KB chunks.</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>LegalCommitmentGuard</h4><p>Blocks promises ("guaranteed refund").</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>CompetitorMentionGuard</h4><p>No competitor names in responses.</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>InternalLeakageGuard</h4><p>Blocks file paths, DB queries, code.</p></div>
+      <div class="card" style="margin-bottom:8px;"><h4>FinancialDataMaskingGuard</h4><p>Masks bank accounts, large balances.</p></div>
+      <div class="card"><h4>LanguageConsistencyGuard</h4><p>Response language matches query.</p></div>
+    </div>
+  </div>
+  <div style="margin-top:16px;">
+    <div class="flow">
+      <div class="flow-box fb-red">PRE: Injection + Tenant + Role</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box fb-orange">PRE: Cost + Blast Radius</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box fb-green">EXECUTE: Tools + LLM</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box fb-purple">POST: PII Mask + Hallucination + Legal + Leakage</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 12: Agents Deep Dive -->
+<div class="slide" id="s12">
+  <h2>Forged Agents &mdash; Dynamic Specialization</h2>
+  <p class="subtitle">When confidence &lt; 0.6, AgentForge creates a specialist at runtime</p>
+  <div class="cols">
+    <div>
+      <h3>7 Agent Capabilities</h3>
+      <table>
+        <tr><th>Agent</th><th>Trigger</th><th>Tools</th></tr>
+        <tr><td><strong>Order Trace</strong></td><td>"trace lifecycle"</td><td>order_lookup, shipment_track, tracking_timeline</td></tr>
+        <tr><td><strong>NDR Diagnosis</strong></td><td>"NDR root cause"</td><td>ndr_details, shipment_track, seller_info</td></tr>
+        <tr><td><strong>Billing Dispute</strong></td><td>"weight discrepancy"</td><td>billing_query, order_lookup, shipment_track</td></tr>
+        <tr><td><strong>Courier Compare</strong></td><td>"courier performance"</td><td>shipment_track, seller_health, elk_search</td></tr>
+        <tr><td><strong>Sync Debug</strong></td><td>"orders not syncing"</td><td>elk_search, order_search, endpoint_usage</td></tr>
+        <tr><td><strong>Role Audit</strong></td><td>"permission check"</td><td>seller_info, seller_plan</td></tr>
+        <tr><td><strong>Custom</strong></td><td>Fallback</td><td>All read tools</td></tr>
+      </table>
+      <h3 style="margin-top:16px;">Agent Lifecycle</h3>
+      <div class="flow">
+        <div class="flow-box fb-purple">Forge</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box fb-blue">Execute (1-3 loops)</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box fb-green">Learn</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box fb-orange">Promote if &gt;80%</div>
+      </div>
+    </div>
+    <div>
+      <h3>Example: NDR Diagnosis Agent</h3>
+      <div class="example">
+        <div class="q">"AWB 5544332211 pe 3 baar NDR aaya, customer ka phone nahi lag raha"</div>
+        <div class="a" style="margin-top:8px;">
+          <strong>FORGE:</strong> "NDR" + "3 baar" &rarr; NDR_DIAGNOSIS<br><br>
+          <strong>ACT (parallel):</strong><br>
+          &bull; ndr_details &rarr; 3 attempts, reason: Customer Unavailable<br>
+          &bull; shipment_track &rarr; Status: NDR, Delhi Hub<br>
+          &bull; order_lookup &rarr; COD Rs 2,499<br><br>
+          <strong>RESPONSE:</strong><br>
+          "3 NDR attempts, sabka reason 'Customer Unavailable'.<br>
+          1. Alternate phone update karein<br>
+          2. WhatsApp notification for delivery slot<br>
+          3. 4th fail = auto RTO (freight deducted)"
+        </div>
+        <div class="tool">Agent: NDR_DIAGNOSIS | 3 tools parallel | 1.8s</div>
+      </div>
+      <h3 style="margin-top:12px;">Example: Billing Dispute Agent</h3>
+      <div class="example">
+        <div class="q">"Order 887766 ka freight charge galat hai, 2kg bheja tha par 5kg charge hua"</div>
+        <div class="a" style="margin-top:8px;">
+          <strong>FORGE:</strong> "freight" + "galat" + "kg" &rarr; BILLING_DISPUTE<br>
+          <strong>Tools:</strong> billing_query + order_lookup + shipment_track<br>
+          <strong>Finding:</strong> Applied weight 5kg (courier scan) vs declared 2kg<br>
+          <strong>Action:</strong> "Weight discrepancy case filed. Escalation ID: WD-44521."
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 13: Full API + Route Coverage -->
+<div class="slide" id="s13">
+  <h2>API Coverage &mdash; 10,671 Routes</h2>
+  <p class="subtitle">From PHP codebase to knowledge graph to tool execution</p>
+  <div class="stat-grid">
+    <div class="stat"><div class="num">10,671</div><div class="label">PHP Routes (codebase)</div></div>
+    <div class="stat"><div class="num">5,617</div><div class="label">KB API Entries</div></div>
+    <div class="stat"><div class="num">21,172</div><div class="label">Embedding Chunks</div></div>
+    <div class="stat"><div class="num">25</div><div class="label">Guardrails Active</div></div>
+  </div>
+  <div class="cols" style="margin-top:20px;">
+    <div>
+      <h3>What RocketMind Knows Per API</h3>
+      <table>
+        <tr><th>Signal</th><th>Coverage</th></tr>
+        <tr><td>Endpoint path + method</td><td>100%</td></tr>
+        <tr><td>Controller class</td><td>92% (5,033)</td></tr>
+        <tr><td>Request parameters</td><td>90% (4,955)</td></tr>
+        <tr><td>Response fields</td><td>94% (5,147)</td></tr>
+        <tr><td>Domain + intent classification</td><td>100%</td></tr>
+        <tr><td>Tool + agent assignment</td><td>100%</td></tr>
+        <tr><td>Usage examples</td><td>100% (5,483)</td></tr>
+        <tr><td>Events/jobs triggered</td><td>23% (1,271)</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Embedding Pipeline Per Chunk</h3>
+      <div class="code">
+        <span class="keyword">1.</span> KB high/ folder &rarr; ~900 tokens/chunk<br>
+        <span class="keyword">2.</span> AI Gateway &rarr; text-embedding-3-small (1536d)<br>
+        <span class="keyword">3.</span> Kafka &rarr; text-embedding-3-large (3072d) <span class="comment">[shadow]</span><br>
+        <span class="keyword">4.</span> Kafka &rarr; voyage-3-large (1024d) <span class="comment">[shadow, 3 RPM]</span><br>
+        <span class="keyword">5.</span> content_hash dedup at 3 layers<br>
+        <span class="keyword">6.</span> Graph nodes + edges rebuilt<br>
+        <br>
+        <span class="highlight">Result: every chunk searchable by vector,</span><br>
+        <span class="highlight">graph, lexical, and exact entity lookup</span>
+      </div>
+      <h3 style="margin-top:16px;">Per-API Knowledge Structure</h3>
+      <div class="code" style="font-size:12px;">
+        apis/orders.create.post/high/<br>
+        &nbsp;&nbsp;identity.yaml <span class="string">&rarr; domain, agent, tool, keywords</span><br>
+        &nbsp;&nbsp;params.yaml &nbsp;&nbsp;<span class="string">&rarr; 33 fields + validation rules</span><br>
+        &nbsp;&nbsp;response.yaml <span class="string">&rarr; transformer fields + events</span><br>
+        &nbsp;&nbsp;examples.yaml <span class="string">&rarr; query&rarr;param pairs</span>
+      </div>
     </div>
   </div>
 </div>
@@ -549,7 +973,7 @@
   <button onclick="prev()">&#8592; Prev</button>
   <button onclick="next()">Next &#8594;</button>
 </div>
-<div class="slide-counter" id="counter">1 / 10</div>
+<div class="slide-counter" id="counter">1 / 13</div>
 
 <script>
 let current = 0;

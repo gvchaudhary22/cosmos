@@ -18,7 +18,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.graph.retrieval import RelationshipChain, RetrievalResult, RetrievedNode
 from app.services.graphrag_models import GraphEdge, GraphNode
@@ -32,6 +32,14 @@ BUDGET_RELATIONSHIPS = 0.35
 BUDGET_API_TOOL = 0.30
 BUDGET_TABLE_SCHEMA = 0.20
 BUDGET_DOCUMENT_EVIDENCE = 0.15
+
+# Post-RRF boost multipliers (applied after retrieval score is set)
+BOOST_ENTITY_EXACT = 2.0    # node.entity_value == wave1.entity_id
+BOOST_ROLE_MATCH = 1.5      # page hit and page roles ∩ user role ≠ ∅
+BOOST_SAME_DOMAIN = 1.3     # chunk domain == query domain
+BOOST_TRAINING_READY = 1.1  # trust_score >= 0.8
+BOOST_FIELD_TRACE = 2.0     # chunk_type == page_field_trace AND field in query
+BOOST_MAX_CAP = 3.0         # global cap so no single signal dominates
 
 
 @dataclass
@@ -131,6 +139,172 @@ class ContextAssembler:
             docs_included=doc_count,
             truncated=truncated,
         )
+
+    def apply_boosts(
+        self,
+        ranked_nodes: List[RetrievedNode],
+        entity_id: Optional[str] = None,
+        user_role: Optional[str] = None,
+        scope_domain: Optional[str] = None,
+        field_names_in_query: Optional[List[str]] = None,
+    ) -> List[RetrievedNode]:
+        """Apply post-RRF score boosts and re-sort ranked nodes.
+
+        Multipliers (capped at BOOST_MAX_CAP × original score):
+          entity_exact  ×2.0 — node entity_value matches wave1 entity_id
+          role_match    ×1.5 — page hit with matching role
+          same_domain   ×1.3 — chunk domain matches query domain
+          training_ready ×1.1 — trust_score ≥ 0.8
+          field_trace   ×2.0 — chunk_type==page_field_trace AND field in query
+
+        Returns a new list sorted by boosted score descending.
+        """
+        field_set = set(field_names_in_query or [])
+        boosted: List[Tuple[float, RetrievedNode]] = []
+
+        for rn in ranked_nodes:
+            multiplier = 1.0
+            props = rn.node.properties or {}
+            meta = props.get("metadata") or props  # some nodes store metadata nested
+
+            # Entity exact match
+            if entity_id:
+                ev = props.get("entity_value") or props.get("entity_id") or rn.node.id
+                if str(ev) == str(entity_id):
+                    multiplier *= BOOST_ENTITY_EXACT
+
+            # Role match (page nodes with roles_required)
+            if user_role:
+                roles_required = props.get("roles_required", [])
+                if isinstance(roles_required, list) and user_role in roles_required:
+                    multiplier *= BOOST_ROLE_MATCH
+
+            # Same domain
+            if scope_domain:
+                node_domain = props.get("domain") or meta.get("domain", "")
+                if node_domain and node_domain == scope_domain:
+                    multiplier *= BOOST_SAME_DOMAIN
+
+            # Training-ready (high trust score)
+            trust = props.get("trust_score") or meta.get("trust_score", 0.0)
+            try:
+                if float(trust) >= 0.8:
+                    multiplier *= BOOST_TRAINING_READY
+            except (TypeError, ValueError):
+                pass
+
+            # Field trace chunk
+            if field_set:
+                chunk_type = props.get("chunk_type") or meta.get("chunk_type", "")
+                if chunk_type == "page_field_trace":
+                    multiplier *= BOOST_FIELD_TRACE
+
+            # Apply cap and store
+            raw_score = rn.score
+            boosted_score = min(raw_score * multiplier, raw_score * BOOST_MAX_CAP)
+            boosted.append((boosted_score, rn))
+
+        # Re-sort descending by boosted score
+        boosted.sort(key=lambda x: x[0], reverse=True)
+        return [rn for _, rn in boosted]
+
+    def assemble_with_extras(
+        self,
+        result: RetrievalResult,
+        neighbor_chunks: Optional[List[Any]] = None,
+        module_context: Optional[Dict[str, Any]] = None,
+        field_traces: Optional[List[Any]] = None,
+        entity_id: Optional[str] = None,
+        user_role: Optional[str] = None,
+        scope_domain: Optional[str] = None,
+        field_names_in_query: Optional[List[str]] = None,
+    ) -> AssembledContext:
+        """Assemble context with Phase 2 extras: boosts + neighbor chunks + module context.
+
+        Priority order for LLM prompt:
+          1. Field traces (deterministic, highest value for ICRM queries)
+          2. Top-3 api_overview chunks (from boosted ranked nodes)
+          3. Top-2 graph relationship chains
+          4. Top-2 neighbor chunks (sibling evidence from same parent_doc_id)
+          5. Module context (if module/debug intent)
+          6. Remaining ranked nodes within budget
+        """
+        # Apply boosts to re-rank
+        boosted_nodes = self.apply_boosts(
+            result.ranked_nodes,
+            entity_id=entity_id,
+            user_role=user_role,
+            scope_domain=scope_domain,
+            field_names_in_query=field_names_in_query,
+        )
+
+        # Build enhanced result with boosted ordering
+        from dataclasses import replace as dc_replace
+        import copy
+        boosted_result = copy.copy(result)
+        boosted_result.ranked_nodes = boosted_nodes
+
+        # Start with base assembly
+        ctx = self.assemble(boosted_result)
+
+        extra_parts = []
+
+        # Field traces section (always first when present)
+        if field_traces:
+            lines = ["## Field Traces (field → API → DB column)"]
+            for ft in field_traces[:5]:
+                if isinstance(ft, dict):
+                    field_name = ft.get("field_name", ft.get("field", "?"))
+                    api = ft.get("api_endpoint", ft.get("api", "?"))
+                    col = ft.get("db_column", ft.get("column", ""))
+                    lines.append(f"  {field_name} → {api}" + (f" → {col}" if col else ""))
+                elif isinstance(ft, str):
+                    lines.append(f"  {ft}")
+            extra_parts.append("\n".join(lines))
+
+        # Neighbor chunks section
+        if neighbor_chunks:
+            lines = ["## Neighbor Chunks (sibling evidence)"]
+            for nc in neighbor_chunks[:4]:
+                if hasattr(nc, "content"):
+                    chunk_type = nc.chunk_type or ""
+                    content = nc.content[:250]
+                    lines.append(f"  [{chunk_type}] {content}")
+                elif isinstance(nc, dict):
+                    content = nc.get("content", "")[:250]
+                    lines.append(f"  {content}")
+            extra_parts.append("\n".join(lines))
+
+        # Module context section
+        if module_context:
+            lines = ["## Module Context"]
+            for mod_name, mod_data in list(module_context.items())[:3]:
+                if isinstance(mod_data, dict):
+                    lines.append(f"  [{mod_name}]")
+                    sections = mod_data.get("sections", [])
+                    for sec in sections[:2]:
+                        if isinstance(sec, str):
+                            lines.append(f"    {sec[:200]}")
+                    edges = mod_data.get("graph_edges", [])
+                    if edges:
+                        lines.append(f"    edges: {', '.join(str(e) for e in edges[:5])}")
+                elif isinstance(mod_data, str):
+                    lines.append(f"  [{mod_name}] {mod_data[:200]}")
+            extra_parts.append("\n".join(lines))
+
+        if extra_parts:
+            extra_text = "\n\n".join(extra_parts)
+            # Prepend extras to full text (highest priority)
+            combined = extra_text + "\n\n" + ctx.text
+            char_limit = self._max_tokens * CHARS_PER_TOKEN
+            truncated = len(combined) > char_limit
+            if truncated:
+                combined = combined[:char_limit] + "\n... (truncated)"
+            ctx.text = combined
+            ctx.token_estimate = len(combined) // CHARS_PER_TOKEN
+            ctx.truncated = truncated
+
+        return ctx
 
     # -------------------------------------------------------------------
     # Section builders

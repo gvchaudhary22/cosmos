@@ -81,7 +81,7 @@ class EmbeddingProducer:
                 bootstrap_servers=KAFKA_BROKERS.split(","),
                 value_serializer=lambda v: json.dumps(v).encode("utf-8"),
                 security_protocol="SASL_PLAINTEXT",
-                sasl_mechanism="SCRAM-SHA-256",
+                sasl_mechanism="SCRAM-SHA-512",
                 sasl_plain_username=KAFKA_USERNAME,
                 sasl_plain_password=KAFKA_PASSWORD,
                 acks="all",
@@ -288,7 +288,7 @@ class EmbeddingConsumer:
             KAFKA_TOPIC,
             bootstrap_servers=KAFKA_BROKERS.split(","),
             security_protocol="SASL_PLAINTEXT",
-            sasl_mechanism="SCRAM-SHA-256",
+            sasl_mechanism="SCRAM-SHA-512",
             sasl_plain_username=KAFKA_USERNAME,
             sasl_plain_password=KAFKA_PASSWORD,
             group_id="cosmos-embedding-shadow-consumer",  # separate from WooCommerce consumers
@@ -369,19 +369,30 @@ class EmbeddingConsumer:
             content = doc["content"][:8000]
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(
-                    f"{self._aigateway_url}/v1/embeddings",
-                    headers={"Authorization": f"Bearer {self._aigateway_key}"},
+                    f"{self._aigateway_url}/api/v1/embedding",
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-api-key": self._aigateway_key,
+                    },
                     json={
                         "model": LARGE_MODEL,
                         "provider": "openai",
-                        "project_key": "cosmos",
                         "input": content,
                     },
                 )
                 if resp.status_code != 200:
                     self._stats["large_err"] += 1
+                    logger.debug("consumer.large_api_error", status=resp.status_code, body=resp.text[:200])
                     return
-                embedding = resp.json()["data"][0]["embedding"]
+                resp_data = resp.json()
+                if not resp_data.get("success"):
+                    self._stats["large_err"] += 1
+                    return
+                output = resp_data.get("data", {})
+                embedding = output.get("embedding") or output.get("output", {}).get("embedding")
+                if not embedding:
+                    self._stats["large_err"] += 1
+                    return
 
             stored = await self._store_embedding(
                 LARGE_TABLE, doc, embedding, LARGE_MODEL
@@ -530,7 +541,7 @@ class EmbeddingConsumer:
                      embedding, trust_score, embedding_model, metadata, embedded_at)
                 VALUES
                     (:repo_id, :entity_type, :entity_id, :content, :content_hash,
-                     :embedding::vector, :trust_score, :model, :metadata::jsonb, now())
+                     CAST(:embedding AS vector), :trust_score, :model, CAST(:metadata AS jsonb), now())
                 ON CONFLICT (repo_id, entity_type, entity_id)
                 DO UPDATE SET
                     content = EXCLUDED.content,

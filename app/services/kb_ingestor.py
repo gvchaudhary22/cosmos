@@ -79,14 +79,33 @@ class KBIngestor:
         logger.info("kb_ingestor.pillar1_read", repo=repo_id, tables=len(docs))
         return docs
 
+    # Maps high/ folder filenames to typed chunk_type values for Pillar 3 APIs
+    _P3_CHUNK_TYPE_MAP = {
+        "overview": "api_overview",
+        "tool_agent_tags": "api_tool_tags",
+        "examples": "api_example",
+        "db_mapping": "api_db_mapping",
+        "request_schema": "api_schema",
+        "response_fields": "api_schema",
+        "index": "api_overview",
+    }
+
     def _read_high_folder(self, high_dir: Path, entity_name: str, repo_id: str, entity_type: str) -> List[Dict]:
         """Read all YAML chunk files from a high/ folder.
 
         Each file becomes a separate embedding doc with entity_id suffixed
         by the chunk name (e.g., table:orders:identity, table:orders:states).
+        Adds typed metadata (chunk_type, parent_doc_id, section, pillar, chunk_index)
+        to the metadata JSONB for post-retrieval filtering.
         """
         docs = []
-        for yf in sorted(high_dir.glob("*.yaml")):
+        is_api = entity_type == "api_tool"
+        is_schema = entity_type == "schema"
+        entity_prefix = "table" if is_schema else "api"
+        pillar = "pillar_3" if is_api else "pillar_1"
+        parent_doc_id = f"{'api_endpoint' if is_api else 'schema'}:{repo_id}:{entity_name}"
+
+        for chunk_index, yf in enumerate(sorted(high_dir.glob("*.yaml"))):
             data = self._read_yaml(yf)
             if not data:
                 continue
@@ -94,11 +113,15 @@ class KBIngestor:
             chunk_name = yf.stem
             content = str(data)[:3600]  # cap at ideal embedding size
 
-            # Build a readable text representation
             if len(content) < 30:
                 continue
 
-            entity_prefix = "table" if entity_type == "schema" else "api"
+            # Determine typed chunk_type
+            if is_api:
+                chunk_type = self._P3_CHUNK_TYPE_MAP.get(chunk_name, "api_doc")
+            else:
+                chunk_type = f"schema_{chunk_name}"
+
             docs.append({
                 "entity_type": entity_type,
                 "entity_id": f"{entity_prefix}:{entity_name}:{chunk_name}",
@@ -108,7 +131,11 @@ class KBIngestor:
                 "trust_score": 0.8,
                 "metadata": {
                     "entity_name": entity_name,
-                    "chunk_type": chunk_name,
+                    "chunk_type": chunk_type,
+                    "section": chunk_name,
+                    "parent_doc_id": parent_doc_id,
+                    "chunk_index": chunk_index,
+                    "pillar": pillar,
                     "source": "high_folder",
                 },
             })
@@ -745,63 +772,164 @@ class KBIngestor:
     # ------------------------------------------------------------------
 
     def read_pillar4_pages(self, repo_id: str = "SR_Web") -> List[Dict]:
-        """Read Pillar 4 page intelligence: actions, fields, API bindings, roles."""
+        """Read Pillar 4 page intelligence as typed chunks.
+
+        Each page produces up to 4 typed embedding docs:
+          page_summary    — route, domain, page_type, roles_required
+          page_fields     — all field names and descriptions
+          page_api_bindings — endpoint + method + params
+          page_field_trace  — field→api→column traces (highest value for ICRM queries)
+
+        Each chunk includes chunk_type, parent_doc_id, pillar in metadata JSONB
+        for post-retrieval filtering in Wave 2 context assembly.
+        """
         docs = []
         p4_path = self.kb_path / repo_id / "pillar_4_page_role_intelligence"
         if not p4_path.exists():
             return docs
 
-        # --- Pages ---
+        # --- Pages: emit typed chunks ---
         pages_dir = p4_path / "pages"
         if pages_dir.exists():
             for page_dir in sorted(pages_dir.iterdir()):
                 if not page_dir.is_dir():
                     continue
                 page_id = page_dir.name
+                parent_doc_id = f"page:{repo_id}:{page_id}"
 
-                # Read key files
-                parts = [f"Page: {page_id}"]
+                # trust_score from index.yaml confidence field
+                index_data = self._read_yaml(page_dir / "index.yaml") or {}
+                confidence_str = index_data.get("confidence", "medium") if isinstance(index_data, dict) else "medium"
+                trust = {"high": 0.9, "medium": 0.8, "low": 0.7}.get(str(confidence_str).lower(), 0.8)
 
+                base_meta = {
+                    "page_id": page_id,
+                    "parent_doc_id": parent_doc_id,
+                    "pillar": "pillar_4",
+                    "repo_id": repo_id,
+                    "source": "pillar4",
+                }
+
+                # ── Chunk 1: page_summary ─────────────────────────────────
                 page_meta = self._read_yaml(page_dir / "page_meta.yaml")
                 if page_meta and isinstance(page_meta, dict):
-                    parts.append(f"Title: {page_meta.get('title', page_id)}")
+                    route = page_meta.get("route", page_meta.get("path", ""))
+                    domain = page_meta.get("domain", "")
+                    page_type = page_meta.get("page_type", page_meta.get("type", ""))
+                    title = page_meta.get("title", page_id)
+                    roles = page_meta.get("roles_required", page_meta.get("roles", []))
+                    roles_str = ", ".join(roles) if isinstance(roles, list) else str(roles)
 
-                actions = self._read_yaml(page_dir / "actions.yaml")
-                if actions and isinstance(actions, (list, dict)):
-                    action_list = actions if isinstance(actions, list) else actions.get("actions", [])
-                    action_names = [a.get("label", a.get("id", "")) for a in action_list[:10] if isinstance(a, dict)]
-                    if action_names:
-                        parts.append(f"Actions: {', '.join(action_names)}")
+                    summary_content = (
+                        f"Page: {title} | ID: {page_id}"
+                        f"{f' | Route: {route}' if route else ''}"
+                        f"{f' | Domain: {domain}' if domain else ''}"
+                        f"{f' | Type: {page_type}' if page_type else ''}"
+                        f"{f' | Roles: {roles_str}' if roles_str else ''}"
+                    )
+                    docs.append({
+                        "entity_type": "page_intel",
+                        "entity_id": f"page:{repo_id}:{page_id}:summary",
+                        "content": summary_content,
+                        "repo_id": repo_id,
+                        "capability": "retrieval",
+                        "trust_score": trust,
+                        "metadata": {**base_meta, "chunk_type": "page_summary", "chunk_index": 0},
+                    })
 
-                fields = self._read_yaml(page_dir / "fields.yaml")
-                if fields and isinstance(fields, (list, dict)):
-                    field_list = fields if isinstance(fields, list) else fields.get("fields", [])
-                    field_names = [f.get("name", f.get("label", "")) for f in field_list[:15] if isinstance(f, dict)]
-                    if field_names:
-                        parts.append(f"Fields: {', '.join(field_names)}")
+                # ── Chunk 2: page_fields ──────────────────────────────────
+                fields_data = self._read_yaml(page_dir / "fields.yaml")
+                if fields_data:
+                    field_list = fields_data if isinstance(fields_data, list) else (
+                        fields_data.get("fields", []) if isinstance(fields_data, dict) else []
+                    )
+                    if field_list:
+                        field_lines = []
+                        for f in field_list[:30]:
+                            if isinstance(f, dict):
+                                name = f.get("name", f.get("label", ""))
+                                desc = f.get("description", f.get("desc", ""))
+                                field_lines.append(f"{name}: {desc}" if desc else name)
+                        if field_lines:
+                            fields_content = (
+                                f"Page fields for {page_id}:\n" + "\n".join(field_lines)
+                            )
+                            docs.append({
+                                "entity_type": "page_intel",
+                                "entity_id": f"page:{repo_id}:{page_id}:fields",
+                                "content": fields_content,
+                                "repo_id": repo_id,
+                                "capability": "retrieval",
+                                "trust_score": trust,
+                                "metadata": {**base_meta, "chunk_type": "page_fields", "chunk_index": 1},
+                            })
 
-                api_bindings = self._read_yaml(page_dir / "api_bindings.yaml")
-                if api_bindings and isinstance(api_bindings, (list, dict)):
-                    binding_list = api_bindings if isinstance(api_bindings, list) else api_bindings.get("bindings", [])
-                    apis = [b.get("api_id", "") for b in binding_list[:10] if isinstance(b, dict)]
-                    if apis:
-                        parts.append(f"APIs: {', '.join(apis)}")
+                # ── Chunk 3: page_api_bindings ────────────────────────────
+                api_bindings_data = self._read_yaml(page_dir / "api_bindings.yaml")
+                if api_bindings_data:
+                    binding_list = api_bindings_data if isinstance(api_bindings_data, list) else (
+                        api_bindings_data.get("bindings", []) if isinstance(api_bindings_data, dict) else []
+                    )
+                    if binding_list:
+                        binding_lines = []
+                        for b in binding_list[:15]:
+                            if isinstance(b, dict):
+                                api_id = b.get("api_id", b.get("endpoint", ""))
+                                method = b.get("method", "")
+                                action = b.get("action", b.get("trigger", ""))
+                                line = f"{method} {api_id}".strip()
+                                if action:
+                                    line += f" (triggered by: {action})"
+                                binding_lines.append(line)
+                        if binding_lines:
+                            bindings_content = (
+                                f"API bindings for {page_id}:\n" + "\n".join(binding_lines)
+                            )
+                            docs.append({
+                                "entity_type": "page_intel",
+                                "entity_id": f"page:{repo_id}:{page_id}:api_bindings",
+                                "content": bindings_content,
+                                "repo_id": repo_id,
+                                "capability": "retrieval",
+                                "trust_score": trust,
+                                "metadata": {**base_meta, "chunk_type": "page_api_bindings", "chunk_index": 2},
+                            })
 
-                roles = self._read_yaml(page_dir / "role_permissions.yaml")
-                if roles and isinstance(roles, dict):
-                    role_names = list(roles.keys())[:5]
-                    parts.append(f"Roles: {', '.join(role_names)}")
-
-                content = " | ".join(parts)
-                docs.append({
-                    "entity_type": "page_intelligence",
-                    "entity_id": f"page:{repo_id}:{page_id}",
-                    "content": content,
-                    "repo_id": repo_id,
-                    "capability": "retrieval",
-                    "trust_score": 0.85,
-                    "metadata": {"page_id": page_id, "source": "pillar4"},
-                })
+                # ── Chunk 4: page_field_trace (highest value) ─────────────
+                field_trace_data = self._read_yaml(page_dir / "field_trace_chain.yaml")
+                if field_trace_data:
+                    trace_list = field_trace_data if isinstance(field_trace_data, list) else (
+                        field_trace_data.get("traces", field_trace_data.get("fields", [])) if isinstance(field_trace_data, dict) else []
+                    )
+                    if trace_list:
+                        trace_lines = []
+                        for t in trace_list[:20]:
+                            if isinstance(t, dict):
+                                field = t.get("field_name", t.get("field", t.get("name", "")))
+                                api = t.get("api", t.get("api_id", t.get("endpoint", "")))
+                                col = t.get("db_column", t.get("column", t.get("table_column", "")))
+                                table = t.get("table", t.get("db_table", ""))
+                                line = f"{field}"
+                                if api:
+                                    line += f" → API: {api}"
+                                if table and col:
+                                    line += f" → {table}.{col}"
+                                elif col:
+                                    line += f" → column: {col}"
+                                trace_lines.append(line)
+                        if trace_lines:
+                            trace_content = (
+                                f"Field trace chains for {page_id}:\n" + "\n".join(trace_lines)
+                            )
+                            docs.append({
+                                "entity_type": "page_intel",
+                                "entity_id": f"page:{repo_id}:{page_id}:field_trace",
+                                "content": trace_content,
+                                "repo_id": repo_id,
+                                "capability": "retrieval",
+                                "trust_score": min(trust + 0.05, 0.95),  # slight boost — highest value
+                                "metadata": {**base_meta, "chunk_type": "page_field_trace", "chunk_index": 3},
+                            })
 
         # --- role_matrix.yaml ---
         rm = self._read_yaml(p4_path / "role_matrix.yaml")
@@ -854,15 +982,24 @@ class KBIngestor:
         if not modules_dir.exists():
             return docs
 
+        # Maps section names to typed chunk_type values for Pillar 5
+        _P5_CHUNK_TYPE_MAP = {
+            "api_routes": "module_routes",
+            "routes": "module_routes",
+            "cross_links": "module_cross_links",
+            "dependencies": "module_cross_links",
+        }
+
         for mod_dir in sorted(modules_dir.iterdir()):
             if not mod_dir.is_dir():
                 continue
             module_name = mod_dir.name
             high_dir = mod_dir / "high"
+            parent_doc_id = f"module:{repo_id}:{module_name}"
 
             if high_dir.is_dir():
                 # Preferred: read chunk files from high/ folder
-                for yf in sorted(high_dir.glob("*.yaml")):
+                for chunk_index, yf in enumerate(sorted(high_dir.glob("*.yaml"))):
                     data = self._read_yaml(yf)
                     if not data:
                         continue
@@ -871,6 +1008,7 @@ class KBIngestor:
                         continue
                     quality = data.get("quality_score", 50)
                     section = data.get("section", yf.stem)
+                    chunk_type = _P5_CHUNK_TYPE_MAP.get(section, "module_summary")
 
                     docs.append({
                         "entity_type": "module_doc",
@@ -882,6 +1020,10 @@ class KBIngestor:
                         "metadata": {
                             "module": module_name,
                             "section": section,
+                            "chunk_type": chunk_type,
+                            "parent_doc_id": parent_doc_id,
+                            "chunk_index": chunk_index,
+                            "pillar": "pillar_5",
                             "quality_score": quality,
                             "source": "pillar5_chunked",
                         },
@@ -898,15 +1040,25 @@ class KBIngestor:
                     if not content or not isinstance(content, str) or len(content) < 50:
                         continue
                     quality = data.get("quality_score", 50)
+                    section = yf.stem
+                    chunk_type = _P5_CHUNK_TYPE_MAP.get(section, "module_summary")
 
                     docs.append({
                         "entity_type": "module_doc",
-                        "entity_id": f"module:{repo_id}:{module_name}:{yf.stem}",
-                        "content": f"[{module_name}:{yf.stem}] {content[:3600]}",
+                        "entity_id": f"module:{repo_id}:{module_name}:{section}",
+                        "content": f"[{module_name}:{section}] {content[:3600]}",
                         "repo_id": repo_id,
                         "capability": "retrieval",
                         "trust_score": min(quality / 100, 0.95),
-                        "metadata": {"module": module_name, "source": "pillar5"},
+                        "metadata": {
+                            "module": module_name,
+                            "section": section,
+                            "chunk_type": chunk_type,
+                            "parent_doc_id": parent_doc_id,
+                            "pillar": "pillar_5",
+                            "quality_score": quality,
+                            "source": "pillar5",
+                        },
                     })
 
         logger.info("kb_ingestor.pillar5_read", repo=repo_id, docs=len(docs))

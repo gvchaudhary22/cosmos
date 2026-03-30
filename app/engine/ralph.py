@@ -291,6 +291,38 @@ class RALPHEngine:
         else:
             result.entity_correct = True
 
+        # Check 3b: Completeness — does response actually answer the query?
+        # Detect question words in query that need answering
+        question_indicators = {
+            "kya": "what", "kahan": "where", "kab": "when", "kyun": "why",
+            "kitna": "how much", "kaun": "who", "kaise": "how",
+            "what": "what", "where": "where", "when": "when", "why": "why",
+            "how": "how", "which": "which", "status": "status",
+        }
+        query_questions = []
+        for hindi, eng in question_indicators.items():
+            if hindi in query_lower:
+                query_questions.append(eng)
+
+        # If query asks multiple things (e.g., "status kya hai aur kab deliver hoga")
+        # check if response addresses each
+        if len(query_questions) >= 2:
+            # Response should be at least 50 chars per question asked
+            min_response_len = len(query_questions) * 50
+            if len(response) < min_response_len:
+                result.issues.append(
+                    f"Response too short ({len(response)} chars) for {len(query_questions)} questions. "
+                    f"Expected at least {min_response_len} chars."
+                )
+
+        # Check for "and" / "aur" / "also" in query — indicates multi-part
+        multi_part_words = ["and", "aur", "also", "bhi", "saath", "plus", "along with"]
+        query_parts = sum(1 for w in multi_part_words if w in query_lower)
+        if query_parts > 0 and len(response) < 100:
+            result.issues.append(
+                f"Multi-part query ('{query_parts}' conjunctions) but response is only {len(response)} chars"
+            )
+
         # Check 4: Context grounding (response should reference provided data)
         chunks = context.get("knowledge_chunks", [])
         if chunks:

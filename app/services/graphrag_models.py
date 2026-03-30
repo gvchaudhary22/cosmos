@@ -30,6 +30,9 @@ class NodeType(str, Enum):
     intent = "intent"
     tool = "tool"
     agent = "agent"
+    # Phase 3: Pillar 4 page/role nodes
+    page = "page"
+    role = "role"
 
 
 class EdgeType(str, Enum):
@@ -50,6 +53,10 @@ class EdgeType(str, Enum):
     reads_table = "reads_table"
     writes_table = "writes_table"
     cross_repo_shares = "cross_repo_shares"
+    has_api = "has_api"
+    # Phase 3: Pillar 4 page graph edges
+    has_action = "has_action"       # page → api_endpoint (from api_bindings.yaml)
+    requires_role = "requires_role"  # page → role (from role_permissions.yaml)
 
 
 # ── Universal identity context ─────────────────────────────────────────────

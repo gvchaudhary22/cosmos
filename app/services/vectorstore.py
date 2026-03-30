@@ -606,13 +606,15 @@ class VectorStoreService:
                     cap_clause = f"""
                               * CASE WHEN capability = '{capability}' THEN 1.0 ELSE 0.8 END"""
 
+                # Use CAST syntax instead of :: to avoid asyncpg parameter conflict
+                emb_str = params.pop("embedding")
                 result = await session.execute(
                     text(f"""
                         SELECT
                             id, repo_id, entity_type, entity_id, capability, content, metadata,
                             trust_score, embedding_model, embedded_at, freshness,
-                            1 - (embedding <=> :embedding::vector) AS similarity,
-                            (1 - (embedding <=> :embedding::vector))
+                            1 - (embedding <=> CAST(:emb AS vector)) AS similarity,
+                            (1 - (embedding <=> CAST(:emb AS vector)))
                               * COALESCE(trust_score, 0.5)
                               * CASE
                                   WHEN COALESCE(freshness, embedded_at) > now() - interval '7 days' THEN 1.0
@@ -627,7 +629,7 @@ class VectorStoreService:
                         ORDER BY relevance DESC
                         LIMIT :limit
                     """),
-                    params,
+                    {**params, "emb": emb_str},
                 )
                 rows = result.fetchall()
                 results = []

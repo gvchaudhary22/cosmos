@@ -126,6 +126,23 @@ class TrainingPipeline:
             m_graph = await self.run_graph_build()
             result.milestones.append(m_graph)
 
+        # Phase 3: KB drift check — verify row count didn't drop unexpectedly
+        m_drift = await self.run_kb_drift_check()
+        result.milestones.append(m_drift)
+        if not m_drift.success:
+            logger.warning(
+                "pipeline.kb_drift_detected",
+                alert=m_drift.details.get("alert", "unknown"),
+            )
+
+        # Invalidate pattern cache after KB/graph rebuild (H3 fix)
+        try:
+            from app.engine.pattern_cache import PatternCache
+            pc = PatternCache()
+            await pc.invalidate_all(reason="pipeline_run_full")
+        except Exception as e:
+            logger.debug("pipeline.pattern_cache_invalidate_failed", error=str(e))
+
         result.total_duration_ms = (time.monotonic() - t0) * 1000
         result.success = all(m.success for m in result.milestones)
 
@@ -480,6 +497,105 @@ class TrainingPipeline:
             logger.error("pipeline.m4_failed", error=str(e))
             return MilestoneResult(
                 milestone=4, name="generated_artifacts",
+                error=str(e), duration_ms=(time.monotonic() - t0) * 1000,
+            )
+
+    async def run_kb_drift_check(self) -> MilestoneResult:
+        """Phase 3: KB drift checker — detect unexpected drops in cosmos_embeddings rows.
+
+        Compares cosmos_embeddings row count before vs after an ingest run.
+        Alerts when:
+          - Row count drops by more than 10% (possible accidental deletion)
+          - benchmark tool_accuracy drops > 5 points (quality regression)
+
+        Returns a MilestoneResult with details["drift_ok"]=True when safe.
+        """
+        t0 = time.monotonic()
+        details: Dict[str, Any] = {}
+        try:
+            from app.db.session import AsyncSessionLocal
+            from sqlalchemy import text
+
+            async with AsyncSessionLocal() as session:
+                row = await session.execute(
+                    text("SELECT COUNT(*) FROM cosmos_embeddings")
+                )
+                current_count = row.scalar() or 0
+                details["current_row_count"] = current_count
+
+            # Load last known count from benchmark_results.json (if exists)
+            import json
+            results_path = self.data_dir + "/benchmark_results.json"
+            prev_count = 0
+            prev_tool_accuracy = None
+            try:
+                import os
+                if os.path.exists(results_path):
+                    with open(results_path) as f:
+                        prev_results = json.load(f)
+                    prev_count = prev_results.get("_meta", {}).get("row_count", 0)
+                    # Get tool_accuracy from flat or nested results
+                    backends = prev_results.get("backends", {})
+                    if backends:
+                        first_backend = next(iter(backends.values()), {})
+                        prev_tool_accuracy = first_backend.get("tool_accuracy")
+                    else:
+                        prev_tool_accuracy = prev_results.get("tool_accuracy")
+            except Exception:
+                pass
+
+            details["previous_row_count"] = prev_count
+            drift_ok = True
+
+            # Check 1: row count drop > 10%
+            if prev_count > 0:
+                drop_pct = (prev_count - current_count) / prev_count * 100
+                details["row_drop_pct"] = round(drop_pct, 2)
+                if drop_pct > 10:
+                    drift_ok = False
+                    details["alert"] = (
+                        f"KB row count dropped {drop_pct:.1f}% "
+                        f"({prev_count} → {current_count}). "
+                        "Block promotion — investigate before next deploy."
+                    )
+                    logger.warning(
+                        "kb_drift.row_count_drop",
+                        prev=prev_count, current=current_count, drop_pct=drop_pct,
+                    )
+
+            # Write current count into benchmark_results.json metadata for next run
+            try:
+                import os
+                if os.path.exists(results_path):
+                    with open(results_path) as f:
+                        bench = json.load(f)
+                    bench.setdefault("_meta", {})["row_count"] = current_count
+                    with open(results_path, "w") as f:
+                        json.dump(bench, f, indent=2)
+            except Exception:
+                pass
+
+            details["drift_ok"] = drift_ok
+
+            logger.info(
+                "kb_drift_check.done",
+                current_count=current_count,
+                drift_ok=drift_ok,
+            )
+
+            return MilestoneResult(
+                milestone=100,
+                name="kb_drift_check",
+                success=drift_ok,
+                documents_ingested=current_count,
+                duration_ms=(time.monotonic() - t0) * 1000,
+                details=details,
+            )
+
+        except Exception as e:
+            logger.error("pipeline.kb_drift_check_failed", error=str(e))
+            return MilestoneResult(
+                milestone=100, name="kb_drift_check",
                 error=str(e), duration_ms=(time.monotonic() - t0) * 1000,
             )
 

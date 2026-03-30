@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     AIGATEWAY_PROVIDER: str = "openai"
     VOYAGE_API_KEY: Optional[str] = None
 
+    # Neo4j
+    NEO4J_URI: str = "bolt://127.0.0.1:7687"
+    NEO4J_USER: str = "neo4j"
+    NEO4J_PASSWORD: str = "cosmospass123"
+
     # Elasticsearch
     ELASTICSEARCH_HOSTS: str = "http://localhost:9200"
     ELASTICSEARCH_USERNAME: Optional[str] = None

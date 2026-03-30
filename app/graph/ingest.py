@@ -227,6 +227,20 @@ class CanonicalIngestionPipeline:
             except Exception as exc:
                 logger.warning("kb.ingest.connections_error", error=str(exc))
 
+        # ── Pillar 4: Page intelligence → page + role nodes + edges ──────────
+        pillar4 = base / "pillar_4_page_role_intelligence"
+        if pillar4.exists():
+            pages_dir = pillar4 / "pages"
+            if pages_dir.exists():
+                for page_dir in sorted(pages_dir.iterdir()):
+                    if page_dir.is_dir():
+                        try:
+                            await self._ingest_page(str(page_dir), repo_name)
+                        except Exception as exc:
+                            msg = f"repo={repo_name} page={page_dir.name} error={exc}"
+                            logger.warning("kb.ingest.page_error", page=page_dir.name, error=str(exc))
+                            self._report.errors.append(msg)
+
         # ── Pillar 5: Module docs → module nodes + edges ───────────────────
         pillar5 = base / "pillar_5_module_docs" / "modules"
         if pillar5.exists():
@@ -676,10 +690,23 @@ class CanonicalIngestionPipeline:
 
         # Extract rich metadata from index.yaml
         top_entities = index_data.get("top_entities", {})
+        controllers = 0
+        api_routes = 0
+        db_tables = 0
         if isinstance(top_entities, dict):
-            props["controllers"] = top_entities.get("controllers", 0)
-            props["api_routes"] = top_entities.get("api_routes", 0)
-            props["db_tables"] = top_entities.get("db_tables", 0)
+            controllers = top_entities.get("controllers", 0)
+            api_routes = top_entities.get("api_routes", 0)
+            db_tables = top_entities.get("db_tables", 0)
+            props["controllers"] = controllers
+            props["api_routes"] = api_routes
+            props["db_tables"] = db_tables
+
+        # Build searchable embedding_text so graph keyword search can surface this module
+        props["embedding_text"] = (
+            f"module {module_name}: controllers={controllers} "
+            f"api_routes={api_routes} db_tables={db_tables} "
+            f"repo={repo_name}"
+        )
 
         # Extract file list, features, dependencies from other YAML files
         for extra_file in ["dependencies.yaml", "CLAUDE.yaml"]:
@@ -722,24 +749,199 @@ class CanonicalIngestionPipeline:
             properties={},
         )
 
-        # Link module → tables (from index.yaml pillar1_links or cross_links.yaml)
-        cross_links_path = mod_path.parent.parent / "cross_links.yaml"
-        cross_links = self._read_yaml(str(cross_links_path))
+        # Link module → tables + APIs from index.yaml cross_links
+        # This replaces the old top-level cross_links.yaml approach.
+        cross_links = index_data.get("cross_links", {})
         if isinstance(cross_links, dict):
-            module_tables = cross_links.get("module_to_tables", {}).get(module_name, [])
-            for table_ref in module_tables:
-                # table_ref like "pillar_1_schema/tables/orders"
+            # pillar_1_schema → reads_table edges
+            table_refs = cross_links.get("pillar_1_schema", []) or []
+            for table_ref in table_refs:
                 table_name = table_ref.split("/")[-1] if "/" in str(table_ref) else str(table_ref)
-                table_node_id = f"table:{table_name}"
-                await self._upsert_edge(
+                if table_name:
+                    table_node_id = f"table:{table_name}"
+                    edge_new = await self._upsert_edge(
+                        source_id=node_id,
+                        target_id=table_node_id,
+                        edge_type=EdgeType.reads_table.value,
+                        repo_id=repo_name,
+                        properties={"source": "pillar5_cross_link"},
+                    )
+                    self._report.bump_edge(EdgeType.reads_table.value, edge_new)
+
+            # pillar_3_api → has_api edges (skip empty lists)
+            api_refs = cross_links.get("pillar_3_api", []) or []
+            resolved_apis = 0
+            seen_api_ids: set = set()
+            for api_ref in api_refs:
+                # path format: "pillar_3_api_mcp_tools/apis/{api_id}"
+                api_id = api_ref.split("/")[-1] if "/" in str(api_ref) else str(api_ref)
+                if not api_id or api_id in seen_api_ids:
+                    continue
+                seen_api_ids.add(api_id)
+                api_node_id = f"api:{api_id}"
+                edge_new = await self._upsert_edge(
                     source_id=node_id,
-                    target_id=table_node_id,
-                    edge_type=EdgeType.reads_table.value,
+                    target_id=api_node_id,
+                    edge_type=EdgeType.has_api.value,
                     repo_id=repo_name,
                     properties={"source": "pillar5_cross_link"},
                 )
+                self._report.bump_edge(EdgeType.has_api.value, edge_new)
+                resolved_apis += 1
+
+            if api_refs:
+                logger.debug(
+                    "kb.ingest.module_apis",
+                    module=module_name,
+                    total_refs=len(api_refs),
+                    resolved=resolved_apis,
+                )
 
         logger.debug("kb.ingest.module_done", module=module_name, repo=repo_name)
+
+    # -----------------------------------------------------------------------
+    # Phase 3: Pillar 4 page ingestion
+    # -----------------------------------------------------------------------
+
+    async def _ingest_page(self, page_dir: str, repo_name: str) -> None:
+        """Ingest a Pillar 4 page directory into the graph.
+
+        Creates:
+          - page node (from page_meta.yaml)
+          - role nodes (from role_permissions.yaml)
+          - page → has_action → api_endpoint edges (from api_bindings.yaml)
+          - page → requires_role → role edges (from role_permissions.yaml)
+        """
+        page_path = Path(page_dir)
+        page_id = page_path.name
+
+        # ── 1. page_meta.yaml → page node ─────────────────────────────────
+        meta_file = page_path / "page_meta.yaml"
+        if not meta_file.exists():
+            return  # skip stub pages
+
+        meta = self._read_yaml(str(meta_file))
+        if not isinstance(meta, dict):
+            return
+
+        node_id = f"page:{repo_name}:{page_id}"
+        domain_name: Optional[str] = meta.get("domain") or None
+        route = meta.get("route", "")
+        page_type = meta.get("page_type", "")
+        roles_required: List[str] = meta.get("roles_required", []) or []
+        label = meta.get("title") or meta.get("page_title") or route or page_id
+
+        page_props: Dict[str, Any] = {
+            "route": route,
+            "page_type": page_type,
+            "roles_required": roles_required,
+            "domain": domain_name,
+            "source_file": str(meta_file),
+        }
+
+        is_new = await self._upsert_node(
+            node_id=node_id,
+            node_type=NodeType.page.value,
+            label=label,
+            repo_id=repo_name,
+            domain=domain_name,
+            properties=page_props,
+        )
+        self._report.bump_node(NodeType.page.value, is_new)
+
+        # Entity lookup for route
+        if route:
+            await self._upsert_lookup("page_route", route, node_id, repo_name)
+        await self._upsert_lookup("page_id", page_id, node_id, repo_name)
+
+        # ── 2. role_permissions.yaml → role nodes + requires_role edges ────
+        role_file = page_path / "role_permissions.yaml"
+        role_data = self._read_yaml(str(role_file)) if role_file.exists() else {}
+        all_roles: List[str] = list(roles_required)
+        if isinstance(role_data, dict):
+            for section_roles in role_data.values():
+                if isinstance(section_roles, list):
+                    all_roles.extend(section_roles)
+
+        seen_roles: set = set()
+        for role_name in all_roles:
+            if not role_name or not isinstance(role_name, str) or role_name in seen_roles:
+                continue
+            seen_roles.add(role_name)
+            role_node_id = f"role:{role_name}"
+            role_new = await self._upsert_node(
+                node_id=role_node_id,
+                node_type=NodeType.role.value,
+                label=role_name,
+                repo_id=repo_name,
+                domain=None,
+                properties={"role_name": role_name},
+            )
+            self._report.bump_node(NodeType.role.value, role_new)
+
+            edge_new = await self._upsert_edge(
+                source_id=node_id,
+                target_id=role_node_id,
+                edge_type=EdgeType.requires_role.value,
+                repo_id=repo_name,
+                properties={"page_id": page_id},
+            )
+            self._report.bump_edge(EdgeType.requires_role.value, edge_new)
+
+        # ── 3. api_bindings.yaml → page → has_action → api_endpoint edges ─
+        bindings_file = page_path / "api_bindings.yaml"
+        bindings = self._read_yaml(str(bindings_file)) if bindings_file.exists() else {}
+        if not isinstance(bindings, dict):
+            bindings = {}
+
+        seen_apis: set = set()
+        # api_bindings can be a dict of action_name → {endpoint, method, ...}
+        # or a list of {endpoint, method, ...}
+        binding_items = []
+        if isinstance(bindings, dict):
+            for action_name, action_data in bindings.items():
+                if isinstance(action_data, dict):
+                    binding_items.append((action_name, action_data))
+                elif isinstance(action_data, list):
+                    for item in action_data:
+                        if isinstance(item, dict):
+                            binding_items.append((action_name, item))
+        elif isinstance(bindings, list):
+            for item in bindings:
+                if isinstance(item, dict):
+                    binding_items.append((item.get("action", ""), item))
+
+        for action_name, action_data in binding_items:
+            endpoint = action_data.get("endpoint") or action_data.get("api_path") or action_data.get("path", "")
+            api_id = action_data.get("api_id") or action_data.get("id") or ""
+            # Derive target node_id — prefer api_id, else try to match by endpoint suffix
+            if api_id:
+                target_api_id = f"api:{api_id}"
+            elif endpoint:
+                # Use last path segment as approximation
+                target_api_id = f"api:{endpoint.strip('/').replace('/', '.')}"
+            else:
+                continue
+
+            if target_api_id in seen_apis:
+                continue
+            seen_apis.add(target_api_id)
+
+            edge_new = await self._upsert_edge(
+                source_id=node_id,
+                target_id=target_api_id,
+                edge_type=EdgeType.has_action.value,
+                repo_id=repo_name,
+                properties={
+                    "action": str(action_name),
+                    "method": action_data.get("method", ""),
+                    "endpoint": endpoint,
+                },
+            )
+            self._report.bump_edge(EdgeType.has_action.value, edge_new)
+
+        logger.debug("kb.ingest.page_done", page=page_id, repo=repo_name,
+                     roles=len(seen_roles), api_edges=len(seen_apis))
 
     # -----------------------------------------------------------------------
     # Primitive upsert helpers
