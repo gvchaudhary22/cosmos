@@ -26,8 +26,8 @@ Pillar 1: Control Plane
   .claude/skills/             ← lazy-loaded process skills
 
 Pillar 2: Execution Layer
-  11 specialist agents        ← architect, engineer, strategist, ...
-  19 reusable skills          ← tdd, riper, architecture, ...
+  18 specialist agents        ← architect, engineer, strategist, ...
+  25 reusable skills          ← tdd, riper, architecture, ...
   .cosmos/extensions/         ← project-specific userland agents
 
 Pillar 3: Persistence Layer
@@ -64,6 +64,15 @@ if match_score < 0.60: activate forge agent
 | kb-specialist | ENGINEERING + RESEARCH | knowledge base, pillar, ingest |
 | researcher | RESEARCH | research, feasibility, compare |
 | forge | SYNTHESIS | no match, new agent needed |
+| business-analyst | PRODUCT | functional spec, use cases, edge cases, process maps |
+| designer | PRODUCT | UX flows, IA, component specs |
+| launch-planner | PRODUCT | GTM templates, launch checklists, positioning |
+| pedagogue | RESEARCH + SYNTHESIS | explain, teach, masterclass, deep dive |
+| product-manager | PRODUCT | PRD, user stories, acceptance criteria |
+| safety-evaluator | REVIEW | pre-tool-use security, adversarial review, prompt injection |
+| technical-writer | PRODUCT | API docs, user guides, changelogs, onboarding |
+
+For the full self-hosting protocol, reference `docs/playbooks/self-orchestration.md`.
 
 ---
 
@@ -71,11 +80,13 @@ if match_score < 0.60: activate forge agent
 
 ```
 /cosmos:new         → strategist: PROJECT.md + ROADMAP.md + STATE.md
+/cosmos:discover    → researcher + designer: problem validation, go/no-go
 /cosmos:plan        → strategist + architect: PHASE-N-PLAN.md
 /cosmos:build       → engineer: autonomous implementation
 /cosmos:verify      → reviewer + qa-engineer: PHASE-N-UAT.md
 /cosmos:ship        → reviewer: release + STATE.md update
 /cosmos:next        → strategist: auto-detect next action
+/cosmos:clarify     → strategist: resolve pending clarification requests
 /cosmos:quick       → engineer: focused ad-hoc task
 /cosmos:riper       → full RIPER cycle (all agents)
 /cosmos:forge       → forge: new agent definition

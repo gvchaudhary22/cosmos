@@ -57,6 +57,7 @@ COSMOS  (Python — port 10001)          ← YOU ARE HERE
 | [docs/security-model.md](docs/security-model.md) | Integrity verification, hook safety, prompt injection defense, SCA, OWASP mapping |
 | [docs/runtime-adapters.md](docs/runtime-adapters.md) | Claude Code (native), Codex (stable), other runtime adapter contracts |
 | [docs/playbooks.md](docs/playbooks.md) | Runbooks for startup failures, recall drops, hallucination spikes, Kafka lag |
+| [docs/playbooks/self-orchestration.md](docs/playbooks/self-orchestration.md) | How COSMOS uses its own workflows to evolve itself safely |
 | [docs/evals.md](docs/evals.md) | Eval framework, recall@5 methodology, CI gate, EVAL-REPORT format |
 | [docs/eval-dataset.md](docs/eval-dataset.md) | 201 ICRM seed queries for regression testing |
 | [docs/mcp-guide.md](docs/mcp-guide.md) | MCP server integration for Claude Code and Cursor |
@@ -71,7 +72,7 @@ COSMOS  (Python — port 10001)          ← YOU ARE HERE
 | [.claude/agents/](.claude/agents/) | 11 specialist agent definitions |
 | [.claude/skills/](.claude/skills/) | 19 reusable process skills |
 | [.claude/hooks/](.claude/hooks/) | Lifecycle and safety gate hooks |
-| [.claude/commands/cosmos.md](.claude/commands/cosmos.md) | /cosmos:* slash command surface |
+| [.claude/commands/cosmos/](.claude/commands/cosmos/) | /cosmos:* slash command surface (16 individual commands) |
 
 ---
 
