@@ -16,12 +16,44 @@ echo "╚═══════════════════════�
 echo -e "${NC}"
 
 # ── 1. Python environment ────────────────────────────────────────────────────
+# pydantic-core 2.23.2 supports Python 3.8–3.13 only (not 3.14+)
 echo -e "${BLUE}▶ Checking Python environment...${NC}"
+
+# Pick Python 3.13 if available, else 3.12, else fall back to system python3
+# Never use 3.14+ — pydantic-core wheel not yet available for it
+PYTHON_BIN=""
+for candidate in python3.13 python3.12 python3.11; do
+  if command -v "$candidate" &>/dev/null; then
+    PYTHON_BIN="$candidate"
+    break
+  fi
+done
+if [ -z "$PYTHON_BIN" ]; then
+  echo -e "${YELLOW}  ⚠ python3.13/3.12/3.11 not found, using system python3 (may fail on 3.14)${NC}"
+  PYTHON_BIN="python3"
+fi
+echo -e "  Using: $PYTHON_BIN ($(${PYTHON_BIN} --version))"
+
+# If venv exists, check its Python version — rebuild if it's 3.14+
+if [ -d "$ROOT/.venv" ]; then
+  VENV_MINOR=$("$ROOT/.venv/bin/python" -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
+  VENV_MAJOR=$("$ROOT/.venv/bin/python" -c "import sys; print(sys.version_info.major)" 2>/dev/null || echo "3")
+  if [ "$VENV_MAJOR" -eq 3 ] && [ "$VENV_MINOR" -ge 14 ]; then
+    echo -e "${YELLOW}  ⚠ Existing .venv uses Python 3.${VENV_MINOR} — pydantic-core unsupported. Rebuilding with ${PYTHON_BIN}...${NC}"
+    rm -rf "$ROOT/.venv"
+  else
+    echo -e "  Existing .venv: Python 3.${VENV_MINOR} ✓"
+  fi
+fi
+
 if [ ! -d "$ROOT/.venv" ]; then
-  echo "  Creating virtualenv..."
-  python3.12 -m venv "$ROOT/.venv"
+  echo "  Creating virtualenv with $PYTHON_BIN..."
+  "$PYTHON_BIN" -m venv "$ROOT/.venv"
 fi
 source "$ROOT/.venv/bin/activate"
+
+echo -e "  Active Python: $(python --version)"
+pip install --upgrade pip -q
 pip install -r "$ROOT/requirements.txt" -q
 echo -e "${GREEN}  ✓ Python dependencies installed${NC}"
 
