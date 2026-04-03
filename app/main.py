@@ -96,6 +96,17 @@ async def lifespan(app: FastAPI):
     init_metrics()
     await init_db()
 
+    # Initialize COSMOS Workflow Engine (Orbit-powered command orchestration)
+    try:
+        from app.services.cosmos_workflow import CosmosWorkflowService
+        cosmos_wf = CosmosWorkflowService()
+        await cosmos_wf.ensure_schema()
+        app.state.cosmos_workflow = cosmos_wf
+        logger.info("cosmos_workflow.initialized")
+    except Exception as _e:
+        logger.warning("cosmos_workflow.init_failed", error=str(_e))
+        app.state.cosmos_workflow = None
+
     # Initialize Cosmos Workflow Settings cache (three-layer: MySQL → Postgres → in-memory)
     try:
         from app.services.workflow_settings_repo import WorkflowSettingsRepo

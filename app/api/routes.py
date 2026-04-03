@@ -1,7 +1,9 @@
 from fastapi import APIRouter
 from app.api.endpoints import chat, sessions, tools, admin, actions, feedback, knowledge, costs, health, bridge, brain, graphrag, vectorstore, reportagent, sandbox, training, page_intelligence, hybrid_chat, training_pipeline, tournament, cosmos_settings, learning
+from app.api.endpoints import cosmos_cmd
 
 router = APIRouter()
+router.include_router(cosmos_cmd.router, prefix="/cmd", tags=["cosmos-commands"])
 router.include_router(chat.router, prefix="/chat", tags=["chat"])
 router.include_router(sessions.router, prefix="/sessions", tags=["sessions"])
 router.include_router(tools.router, prefix="/tools", tags=["tools"])

@@ -1,0 +1,130 @@
+{
+  "$schema": "./cosmos.config.schema.json",
+  "project": {
+    "name": "cosmos",
+    "org": "shiprocket",
+    "codename": "rocketmind",
+    "state_dir": ".cosmos/state",
+    "hooks_dir": ".claude/hooks",
+    "orbit_source": "../orbit"
+  },
+  "mode": {
+    "default": "collaborative",
+    "options": ["autonomous", "collaborative", "audit"],
+    "description": "autonomous=hands-off, collaborative=human-in-loop, audit=review-only"
+  },
+  "models": {
+    "routing": {
+      "classify":  "claude-haiku-4-5-20251001",
+      "standard":  "claude-sonnet-4-6",
+      "reasoning": "claude-opus-4-6",
+      "security":  "claude-opus-4-6"
+    },
+    "profiles": {
+      "classify":    { "model": "claude-haiku-4-5-20251001",  "max_tokens": 1024,  "use_for": ["intent classification", "command routing", "quick lookups"] },
+      "implement":   { "model": "claude-sonnet-4-6",          "max_tokens": 8192,  "use_for": ["coding", "KB generation", "pipeline tasks"] },
+      "architect":   { "model": "claude-opus-4-6",            "max_tokens": 16384, "use_for": ["KB architecture", "wave design", "complex reasoning"] },
+      "quick":       { "model": "claude-haiku-4-5-20251001",  "max_tokens": 2048,  "use_for": ["state checks", "progress queries", "health"] }
+    },
+    "cost_guard": {
+      "warn_at_tokens": 100000,
+      "hard_limit_tokens": 180000,
+      "auto_resume_on_compact": true
+    }
+  },
+  "agents": {
+    "forge_threshold": 0.6,
+    "recommended_parallel_sessions": 8,
+    "context_per_subagent": 200000,
+    "auto_register_forged": true,
+    "registry_table": "cosmos_agents",
+    "state_table": "cosmos_workflow_state"
+  },
+  "cosmos": {
+    "port": 10001,
+    "grpc_port": 50051,
+    "api_prefix": "/cosmos/api/v1",
+    "cmd_endpoint": "/cosmos/api/v1/cmd/execute",
+    "state_endpoint": "/cosmos/api/v1/cmd/state",
+    "kb_path_env": "KB_PATH",
+    "wave_legs": 5,
+    "rrf_weights": {
+      "exact": 2.0,
+      "ppr": 1.8,
+      "graph": 1.5,
+      "vector": 1.0,
+      "lexical": 0.8
+    }
+  },
+  "git": {
+    "strategy": "phase",
+    "options": ["none", "task", "phase", "milestone"],
+    "atomic_commits": true,
+    "conventional_commits": true,
+    "worktree_per_task": true,
+    "branch_prefix": {
+      "feat": "feat",
+      "fix": "fix",
+      "arch": "arch",
+      "chore": "chore",
+      "refactor": "refactor",
+      "test": "test",
+      "docs": "docs"
+    }
+  },
+  "skills": {
+    "auto_load": true,
+    "lazy_load": true,
+    "cache_loaded": true,
+    "source": "../orbit/skills",
+    "local": ".claude/skills"
+  },
+  "hooks": {
+    "pre_compact": true,
+    "stop": true,
+    "pre_tool_use": true,
+    "post_tool_use": true,
+    "on_error": true
+  },
+  "security": {
+    "prompt_injection_detection": true,
+    "secret_scan_on_commit": true,
+    "destructive_command_guard": true,
+    "identity_separation": false
+  },
+  "loop_detection": {
+    "enabled": true,
+    "window_size": 8,
+    "threshold": 3
+  },
+  "commands": {
+    "prefix": "/cosmos:",
+    "orbit_prefix": "/orbit:",
+    "map": {
+      "/cosmos:new":      "/orbit:new-project",
+      "/cosmos:plan":     "/orbit:plan",
+      "/cosmos:build":    "/orbit:build",
+      "/cosmos:verify":   "/orbit:verify",
+      "/cosmos:ship":     "/orbit:ship",
+      "/cosmos:next":     "/orbit:next",
+      "/cosmos:quick":    "/orbit:quick",
+      "/cosmos:riper":    "/orbit:riper",
+      "/cosmos:forge":    "/orbit:forge",
+      "/cosmos:review":   "/orbit:review",
+      "/cosmos:audit":    "/orbit:audit",
+      "/cosmos:debug":    "/orbit:debug",
+      "/cosmos:resume":   "/orbit:resume",
+      "/cosmos:progress": "/orbit:progress",
+      "/cosmos:state":    "GET /cosmos/api/v1/cmd/state",
+      "/cosmos:train":    "POST /cosmos/api/v1/pipeline/run",
+      "/cosmos:eval":     "POST /cosmos/api/v1/cmd/eval",
+      "/cosmos:help":     "/orbit:help"
+    }
+  },
+  "notifications": {
+    "slack_webhook_url": "",
+    "on_phase_complete": false,
+    "on_train_complete": false,
+    "on_error": false
+  }
+}
