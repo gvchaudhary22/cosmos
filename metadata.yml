@@ -1,0 +1,59 @@
+apiVersion: platform.shiprocket.com/v1alpha1
+kind: Service
+
+metadata:
+  name: cosmos
+  annotations:
+    platform.shiprocket.com/profile: standard
+    platform.shiprocket.com/team: ai-platform
+    platform.shiprocket.com/orbit-version: "2.8.1"
+
+spec:
+  type: standard
+  runtime: python
+
+  topology:
+    type: single-service
+
+  workload:
+    kind: api-server
+
+  runtime_config:
+    language: python
+    build_tool: pip
+    package_manager: pip
+    python_version: "3.12"
+    entry_point: app/main.py
+    port: 8001
+
+  policy:
+    profile: standard
+    secret_scanning: true
+    owasp_dependency_check: false
+    sonarqube:
+      enabled: false
+
+  provider:
+    pipeline: github-actions
+
+  delivery:
+    strategy: recreate
+
+  observability:
+    logging:
+      provider: structlog
+    metrics:
+      provider: prometheus
+    tracing:
+      provider: none
+
+  gates:
+    pre_commit:
+      - pytest
+      - ruff_check
+      - secret_scan
+    ci:
+      - lint
+      - test
+      - type_check
+      - security_scan
