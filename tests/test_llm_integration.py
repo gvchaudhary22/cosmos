@@ -16,15 +16,15 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from cosmos.app.engine.llm_client import (
+from app.engine.llm_client import (
     LLMClient,
     LLMClientError,
     BudgetExceededError,
 )
-from cosmos.app.engine.model_router import ModelRouter, ModelTier, PROFILES
-from cosmos.app.engine.cost_tracker import CostTracker
-from cosmos.app.engine.prompt_cache import PromptCacheManager
-from cosmos.app.engine.context_budget import ContextBudgeter
+from app.engine.model_router import ModelRouter, ModelTier, PROFILES
+from app.engine.cost_tracker import CostTracker
+from app.engine.prompt_cache import PromptCacheManager
+from app.engine.context_budget import ContextBudgeter
 
 
 def _run(coro):
@@ -95,12 +95,12 @@ class TestNoApiKey:
     """When no API key / client is provided, existing behavior is preserved."""
 
     def test_no_client_raises_llm_error(self):
-        client = LLMClient()
-        with pytest.raises(LLMClientError, match="No Anthropic client"):
+        client = LLMClient(llm_mode="api")
+        with pytest.raises(LLMClientError, match="No LLM backend"):
             _run(client.complete("hello"))
 
     def test_has_client_false(self):
-        client = LLMClient()
+        client = LLMClient(llm_mode="api")
         assert client.has_client() is False
 
     def test_has_client_true_with_mock(self):
@@ -126,34 +126,34 @@ class TestNoApiKey:
 class TestCompleteRouting:
     def test_lookup_high_confidence_uses_haiku(self):
         mock = _mock_anthropic_client()
-        client = LLMClient(anthropic_client=mock)
+        client = LLMClient(anthropic_client=mock, llm_mode="api")
         _run(client.complete("show order 123", intent="lookup", confidence=0.95))
         model_used = mock.messages.create.call_args.kwargs["model"]
         assert "haiku" in model_used
 
     def test_explain_uses_sonnet(self):
         mock = _mock_anthropic_client()
-        client = LLMClient(anthropic_client=mock)
+        client = LLMClient(anthropic_client=mock, llm_mode="api")
         _run(client.complete("why is order delayed", intent="explain", confidence=0.7))
         model_used = mock.messages.create.call_args.kwargs["model"]
         assert "sonnet" in model_used
 
     def test_low_confidence_uses_opus(self):
         mock = _mock_anthropic_client()
-        client = LLMClient(anthropic_client=mock)
+        client = LLMClient(anthropic_client=mock, llm_mode="api")
         _run(client.complete("some ambiguous thing", intent="lookup", confidence=0.3))
         model_used = mock.messages.create.call_args.kwargs["model"]
         assert "opus" in model_used
 
     def test_complete_returns_text(self):
         mock = _mock_anthropic_client(text="Order #123 was shipped yesterday.")
-        client = LLMClient(anthropic_client=mock)
+        client = LLMClient(anthropic_client=mock, llm_mode="api")
         result = _run(client.complete("show order 123"))
         assert result == "Order #123 was shipped yesterday."
 
     def test_complete_records_cost(self):
         mock = _mock_anthropic_client(input_tokens=200, output_tokens=100)
-        client = LLMClient(anthropic_client=mock)
+        client = LLMClient(anthropic_client=mock, llm_mode="api")
         _run(client.complete("hello", session_id="s1"))
         summary = client.get_cost_tracker().get_session_summary("s1")
         assert summary["query_count"] == 1
@@ -162,7 +162,7 @@ class TestCompleteRouting:
 
     def test_custom_system_prompt_passed_through(self):
         mock = _mock_anthropic_client()
-        client = LLMClient(anthropic_client=mock)
+        client = LLMClient(anthropic_client=mock, llm_mode="api")
         _run(client.complete("hello", system_prompt="You are a pirate."))
         call_kwargs = mock.messages.create.call_args.kwargs
         system_blocks = call_kwargs["system"]
@@ -180,7 +180,7 @@ class TestStream:
     def test_stream_yields_chunks(self):
         chunks = ["Hello", " world", "!"]
         mock = _mock_streaming_client(chunks=chunks)
-        client = LLMClient(anthropic_client=mock)
+        client = LLMClient(anthropic_client=mock, llm_mode="api")
 
         collected = []
 
@@ -193,7 +193,7 @@ class TestStream:
 
     def test_stream_records_cost_after_completion(self):
         mock = _mock_streaming_client(chunks=["Hi"], input_tokens=50, output_tokens=10)
-        client = LLMClient(anthropic_client=mock)
+        client = LLMClient(anthropic_client=mock, llm_mode="api")
 
         async def _drain():
             async for _ in client.stream("hi", session_id="stream_s"):
@@ -204,7 +204,7 @@ class TestStream:
         assert summary["query_count"] == 1
 
     def test_stream_no_client_raises(self):
-        client = LLMClient()
+        client = LLMClient(llm_mode="api")
 
         async def _try():
             async for _ in client.stream("hello"):
@@ -217,7 +217,7 @@ class TestStream:
         """If client.messages.stream is None, falls back to complete()."""
         mock = _mock_anthropic_client(text="Fallback complete.")
         # messages.stream is already None from _mock_anthropic_client
-        client = LLMClient(anthropic_client=mock)
+        client = LLMClient(anthropic_client=mock, llm_mode="api")
 
         collected = []
 
@@ -243,7 +243,7 @@ class TestBudgetEnforcement:
             tracker.record("s1", "opus", 5000, 5000, "explain")
 
         mock = _mock_anthropic_client()
-        client = LLMClient(anthropic_client=mock, cost_tracker=tracker)
+        client = LLMClient(anthropic_client=mock, cost_tracker=tracker, llm_mode="api")
         with pytest.raises(BudgetExceededError):
             _run(client.complete("hello", session_id="s1"))
 
@@ -253,7 +253,7 @@ class TestBudgetEnforcement:
             tracker.record("s1", "opus", 5000, 5000, "explain")
 
         mock = _mock_streaming_client()
-        client = LLMClient(anthropic_client=mock, cost_tracker=tracker)
+        client = LLMClient(anthropic_client=mock, cost_tracker=tracker, llm_mode="api")
 
         async def _try():
             async for _ in client.stream("hello", session_id="s1"):
@@ -265,7 +265,7 @@ class TestBudgetEnforcement:
     def test_fresh_session_passes_budget(self):
         tracker = CostTracker(daily_budget_usd=50.0, per_session_budget_usd=1.0)
         mock = _mock_anthropic_client()
-        client = LLMClient(anthropic_client=mock, cost_tracker=tracker)
+        client = LLMClient(anthropic_client=mock, cost_tracker=tracker, llm_mode="api")
         # Should not raise
         result = _run(client.complete("hello", session_id="fresh"))
         assert result is not None
@@ -279,7 +279,7 @@ class TestBudgetEnforcement:
 class TestClassify:
     def test_classify_routes_to_haiku(self):
         mock = _mock_anthropic_client(text='{"intent": "lookup"}')
-        client = LLMClient(anthropic_client=mock)
+        client = LLMClient(anthropic_client=mock, llm_mode="api")
         result = _run(client.classify("show order 12345"))
         model_used = mock.messages.create.call_args.kwargs["model"]
         assert "haiku" in model_used
@@ -296,7 +296,7 @@ class TestSSEChatEndpoint:
 
     def test_stream_endpoint_returns_sse(self):
         from starlette.testclient import TestClient
-        from cosmos.app.api.endpoints.chat import router
+        from app.api.endpoints.chat import router
         from fastapi import FastAPI
 
         app = FastAPI()
@@ -329,7 +329,7 @@ class TestSSEChatEndpoint:
 
     def test_stream_endpoint_has_correct_headers(self):
         from starlette.testclient import TestClient
-        from cosmos.app.api.endpoints.chat import router
+        from app.api.endpoints.chat import router
         from fastapi import FastAPI
 
         app = FastAPI()
@@ -345,7 +345,7 @@ class TestSSEChatEndpoint:
 
     def test_stream_endpoint_chunk_events_present(self):
         from starlette.testclient import TestClient
-        from cosmos.app.api.endpoints.chat import router
+        from app.api.endpoints.chat import router
         from fastapi import FastAPI
 
         app = FastAPI()
@@ -369,7 +369,7 @@ class TestSSEChatEndpoint:
 
 class TestSSEHelper:
     def test_sse_format(self):
-        from cosmos.app.api.endpoints.chat import _sse
+        from app.api.endpoints.chat import _sse
         result = _sse("phase", {"phase": "classifying"})
         assert result.startswith("event: phase\n")
         assert "data: " in result
