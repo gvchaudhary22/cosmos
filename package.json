@@ -7,27 +7,27 @@
     "cosmos": "bin/cosmos.js"
   },
   "scripts": {
-    "start":            "uvicorn app.main:app --reload --port 10001",
-    "start:grpc":       "python app/grpc_server.py",
-    "start:all":        "uvicorn app.main:app --reload --port 10001 & python app/grpc_server.py",
+    "start":            ".venv/bin/uvicorn app.main:app --reload --port 10001",
+    "start:grpc":       ".venv/bin/python app/grpc_server.py",
+    "start:all":        ".venv/bin/uvicorn app.main:app --reload --port 10001 & .venv/bin/python app/grpc_server.py",
 
     "build":            "node bin/cosmos.js build",
-    "build:kb":         "python scripts/orbit_sync.py --target kb",
-    "build:graph":      "python scripts/orbit_sync.py --target graph",
-    "build:all":        "python scripts/orbit_sync.py --target all",
+    "build:kb":         ".venv/bin/python scripts/orbit_sync.py --target kb",
+    "build:graph":      ".venv/bin/python scripts/orbit_sync.py --target graph",
+    "build:all":        ".venv/bin/python scripts/orbit_sync.py --target all",
 
-    "train":            "python -c \"import asyncio; from app.services.training_pipeline import TrainingPipeline; print('Use /cosmos:train or POST /cosmos/api/v1/pipeline/run')\"",
+    "train":            ".venv/bin/python -c \"import asyncio; from app.services.training_pipeline import TrainingPipeline; print('Use /cosmos:train or POST /cosmos/api/v1/pipeline/run')\"",
     "train:kb":         "node bin/cosmos.js train --source kb",
     "train:code":       "node bin/cosmos.js train --source code",
     "train:eval":       "node bin/cosmos.js eval",
 
     "eval":             "node bin/cosmos.js eval",
-    "eval:bench":       "python scripts/run_eval.py",
+    "eval:bench":       ".venv/bin/python scripts/run_eval.py",
 
-    "sync":             "python scripts/orbit_sync.py",
-    "sync:agents":      "python scripts/orbit_sync.py --target agents",
-    "sync:skills":      "python scripts/orbit_sync.py --target skills",
-    "sync:workflows":   "python scripts/orbit_sync.py --target workflows",
+    "sync":             ".venv/bin/python scripts/orbit_sync.py",
+    "sync:agents":      ".venv/bin/python scripts/orbit_sync.py --target agents",
+    "sync:skills":      ".venv/bin/python scripts/orbit_sync.py --target skills",
+    "sync:workflows":   ".venv/bin/python scripts/orbit_sync.py --target workflows",
 
     "cosmos:new":       "node bin/cosmos.js cmd new-project",
     "cosmos:plan":      "node bin/cosmos.js cmd plan",
@@ -46,14 +46,14 @@
     "cosmos:state":     "node bin/cosmos.js cmd state",
     "cosmos:help":      "node bin/cosmos.js cmd help",
 
-    "test":             "python -m pytest tests/ -x -q --tb=short",
-    "test:watch":       "python -m pytest tests/ -x -q --tb=short -f",
-    "test:coverage":    "python -m pytest tests/ --cov=app --cov-report=term-missing",
+    "test":             ".venv/bin/python -m pytest tests/ -x -q --tb=short",
+    "test:watch":       ".venv/bin/python -m pytest tests/ -x -q --tb=short -f",
+    "test:coverage":    ".venv/bin/python -m pytest tests/ --cov=app --cov-report=term-missing",
 
-    "lint":             "ruff check app/ tests/",
-    "lint:fix":         "ruff check app/ tests/ --fix",
-    "format":           "ruff format app/ tests/",
-    "typecheck":        "mypy app/ --ignore-missing-imports",
+    "lint":             ".venv/bin/ruff check app/ tests/",
+    "lint:fix":         ".venv/bin/ruff check app/ tests/ --fix",
+    "format":           ".venv/bin/ruff format app/ tests/",
+    "typecheck":        ".venv/bin/mypy app/ --ignore-missing-imports",
 
     "health":           "curl -s http://localhost:10001/cosmos/health | python -m json.tool",
     "state":            "curl -s http://localhost:10001/cosmos/api/v1/cmd/state | python -m json.tool",
