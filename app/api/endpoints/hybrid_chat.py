@@ -356,8 +356,10 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
         llm_latency = (orch_result.response_metadata or {}).get("latency_ms", 0)
 
     elif orchestrator.riper_engine:
-        # RIPER for ALL non-cached queries
-        # COMPLEX → Full RIPER (R+I+P+E+R), STANDARD/QUICK → RIPER Lite (R+P+E+R)
+        # RIPER routing by complexity tier:
+        #   COMPLEX → Full RIPER (R+I+P+E+R, 30s budget)
+        #   STANDARD → RIPER Lite (R+P+E+R, 15s) with pillar hints from query intelligence
+        #   QUICK → RIPER Lite with tighter 8s budget (entity lookups, schema queries)
         t0 = time.monotonic()
         try:
             if complexity == "complex":
@@ -367,16 +369,35 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
                         context=orch_result.context,
                         intents=orch_result.intents,
                     ),
-                    timeout=30.0,  # 30s max for complex queries
+                    timeout=30.0,
+                )
+            elif complexity == "standard":
+                # Inject pillar hints from query intelligence so RIPER Research phase
+                # focuses on the right KB pillar instead of scanning all chunks.
+                riper_ctx = dict(orch_result.context or {})
+                _qintel = getattr(orchestrator, "_query_intel", {}) or {}
+                if _qintel.get("target_pillars"):
+                    riper_ctx["pillar_hints"] = _qintel["target_pillars"]
+                if _qintel.get("intent"):
+                    riper_ctx["query_intent"] = _qintel["intent"]
+                riper_result = await asyncio.wait_for(
+                    orchestrator.riper_engine.process_lite(
+                        query=chat_req.message,
+                        context=riper_ctx,
+                        intents=orch_result.intents,
+                    ),
+                    timeout=15.0,
                 )
             else:
+                # QUICK: RIPER Lite with tight timeout — simple entity lookups
+                # don't benefit from long reasoning phases
                 riper_result = await asyncio.wait_for(
                     orchestrator.riper_engine.process_lite(
                         query=chat_req.message,
                         context=orch_result.context,
                         intents=orch_result.intents,
                     ),
-                    timeout=15.0,  # 15s max for standard/quick
+                    timeout=8.0,
                 )
 
             llm_latency = (time.monotonic() - t0) * 1000

@@ -310,6 +310,78 @@ class LearningMemory:
             },
         )
 
+    # --- Tier 1: Working Memory — session-scoped entity tracking ---
+
+    async def record_entity_resolution(
+        self,
+        operator_id: str,
+        session_id: str,
+        entity_id: str,
+        entity_type: str,
+        resolved_data: Dict[str, Any],
+    ):
+        """Track entities resolved in this session to avoid re-fetching.
+
+        Stored as episodic memory with memory_type='session_entity' and
+        key '{session_id}:{entity_id}'. Used by get_session_state() to
+        build a per-session entity cache that RIPER Research phase can
+        skip re-retrieving.
+        """
+        if not operator_id or not session_id or not entity_id:
+            return
+        await self._upsert_episodic(
+            operator_id=operator_id,
+            memory_type="session_entity",
+            memory_key=f"{session_id}:{entity_id}",
+            value={
+                "entity_type": entity_type,
+                "session_id": session_id,
+                "resolved_at": int(time.time()),
+                **{k: v for k, v in resolved_data.items() if k not in ("session_id",)},
+            },
+        )
+
+    async def get_session_state(
+        self, operator_id: str, session_id: str
+    ) -> Dict[str, Any]:
+        """Return entities resolved this session + recent query fingerprints.
+
+        Mirrors the STATE.md cross-session entity tracking from Orbit:
+          - 'resolved_entities': {entity_id: {type, data}} for this session
+          - 'session_id': the session being queried
+
+        RIPER Research phase reads this to skip re-retrieval when the same
+        entity (e.g. order_id, AWB) appears across turns in the same session.
+        """
+        if not operator_id or not session_id:
+            return {"resolved_entities": {}, "session_id": session_id}
+
+        try:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    text("""SELECT memory_key, memory_value, updated_at
+                            FROM cosmos_operator_memory
+                            WHERE operator_id = :oid
+                              AND memory_type = 'session_entity'
+                              AND memory_key LIKE :prefix
+                            ORDER BY updated_at DESC
+                            LIMIT 50"""),
+                    {"oid": operator_id, "prefix": f"{session_id}:%"},
+                )
+
+                resolved: Dict[str, Any] = {}
+                for row in result.fetchall():
+                    # key is "{session_id}:{entity_id}" — strip session prefix
+                    entity_id = row.memory_key.split(":", 1)[1] if ":" in row.memory_key else row.memory_key
+                    value = json.loads(row.memory_value) if row.memory_value else {}
+                    resolved[entity_id] = value
+
+                return {"resolved_entities": resolved, "session_id": session_id}
+
+        except Exception as e:
+            logger.debug("learning_memory.get_session_state_failed", error=str(e))
+            return {"resolved_entities": {}, "session_id": session_id}
+
     def _classify_query_type(self, query: str) -> str:
         """Simple query type classification for memory tracking."""
         q = query.lower()

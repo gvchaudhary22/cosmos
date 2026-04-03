@@ -812,6 +812,48 @@ class QueryOrchestrator:
         self.cost_tracker.record_tier_cost(cost_record, tier=1, api_calls=1 if live_data else 0, latency_ms=tier1_ms)
 
         # ---------------------------------------------------------------
+        # CLARIFICATION GATE (Orbit pattern — middle confidence tier)
+        # When confidence is 0.3-0.6 AND KB evidence is sparse AND entity
+        # is unresolved, ask ONE targeted clarifying question instead of
+        # returning a low-confidence answer. This is the active clarification
+        # path — the 0.3-0.6 tier gets a specific question, not just an
+        # uncertainty marker. Only skips for QUICK queries (entity ID already
+        # requested by entity probe) and budget-exceeded cases.
+        # ---------------------------------------------------------------
+        _cls_conf = (result.request_classification or {}).get("confidence", 1.0)
+        if (
+            not result.needs_clarification
+            and 0.3 <= _cls_conf < 0.6
+            and evidence_count < 3
+            and not entity_resolved
+            and classification.complexity != QueryComplexity.QUICK
+        ):
+            clarification = self._generate_clarification_question(
+                query=query,
+                intents=result.intents,
+                entity_probe=probe_results.get(PipelineName.ENTITY),
+                context=result.context,
+            )
+            if clarification:
+                result.needs_clarification = True
+                result.clarification_prompt = clarification
+                result.response_metadata = {
+                    "resolution_tier": 0,
+                    "reason": "clarification_needed",
+                    "cls_confidence": round(_cls_conf, 2),
+                    "evidence_count": evidence_count,
+                }
+                self.cost_tracker.finalize(cost_record)
+                result.total_latency_ms = (time.monotonic() - total_start) * 1000
+                logger.info(
+                    "orchestrator.clarification_gate_fired",
+                    confidence=round(_cls_conf, 2),
+                    evidence_count=evidence_count,
+                    query=query[:60],
+                )
+                return result
+
+        # ---------------------------------------------------------------
         # TIER 1 GATE: Multi-signal policy
         # ---------------------------------------------------------------
         tier1_signals = TierSignals(
@@ -1078,6 +1120,28 @@ class QueryOrchestrator:
                 tools_used=tools_used_names,
                 domain=domain,
             )
+
+            # Session entity tracking (STATE.md pattern from Orbit):
+            # When an entity was resolved, store it so future turns in the
+            # same session can skip re-retrieval for the same entity.
+            if entity_resolved and self._current_session_id:
+                entity_data = {}
+                if entity_probe and entity_probe.data:
+                    entity_data = entity_probe.data
+                entity_id_val = entity_data.get("entity_id", "")
+                entity_type_val = entity_data.get("entity_type", "unknown")
+                if entity_id_val:
+                    await memory.record_entity_resolution(
+                        operator_id=uid,
+                        session_id=self._current_session_id,
+                        entity_id=entity_id_val,
+                        entity_type=entity_type_val,
+                        resolved_data={
+                            "entity_id": entity_id_val,
+                            "domain": domain,
+                            "query_snippet": query[:100],
+                        },
+                    )
         except Exception as e:
             logger.debug("orchestrator.learning_memory_failed", error=str(e))
 
@@ -1091,6 +1155,71 @@ class QueryOrchestrator:
         )
 
         return result
+
+    def _generate_clarification_question(
+        self,
+        query: str,
+        intents: List[Dict],
+        entity_probe,
+        context: Dict,
+    ) -> Optional[str]:
+        """Generate ONE targeted clarifying question when query is ambiguous.
+
+        Orbit clarification gate pattern: detect what specifically blocks
+        retrieval and ask a precise question to unlock it. Returns None
+        when no targeted question can be generated (fall through to normal
+        uncertain answer path).
+
+        Ambiguity types detected (priority order):
+        1. Missing entity ID (order, AWB, seller) — most common blocker
+        2. Intent ambiguous between lookup/action
+        3. Temporal scope missing for report-type queries
+        """
+        q = query.lower()
+
+        # 1. Entity probe ran but found no entity → ask for the ID
+        if entity_probe is not None and not entity_probe.found_data:
+            # Use clarification hint from probe data if available
+            probe_hint = (entity_probe.data or {}).get("clarification", "")
+            if probe_hint:
+                return probe_hint
+
+            # Derive entity type from intent or query keywords
+            intent_domain = ""
+            if intents:
+                first = intents[0]
+                intent_domain = (first.get("domain", "") if isinstance(first, dict) else "").lower()
+
+            if any(w in q for w in ("awb", "shipment", "tracking", "track")):
+                return "Could you share the AWB or tracking number so I can look this up?"
+            if any(w in q for w in ("order", "order_id", "order id")):
+                return "Could you share the order ID so I can pull up the details?"
+            if any(w in q for w in ("seller", "company", "account", "merchant")):
+                return "Could you provide the seller ID or company name?"
+            if "ticket" in q or "issue" in q or "complaint" in q:
+                return "Could you share the ticket or complaint reference number?"
+
+        # 2. Intent is ambiguous between lookup and action
+        if intents:
+            intent_vals = [
+                (i.get("intent", "") if isinstance(i, dict) else "").lower()
+                for i in intents
+            ]
+            if all(v in ("unknown", "") for v in intent_vals):
+                is_action = any(w in q for w in ("cancel", "update", "change", "assign", "create", "delete", "modify"))
+                is_lookup = any(w in q for w in ("status", "check", "where", "what", "show", "find"))
+                if is_action and is_lookup:
+                    return "Are you looking to check the current status, or would you like to make a change?"
+                if is_action and not is_lookup:
+                    return "Which order or shipment should I apply this change to?"
+
+        # 3. Temporal scope missing for report/list queries
+        is_report = any(w in q for w in ("report", "list", "show all", "how many", "count", "total"))
+        has_time = any(w in q for w in ("today", "yesterday", "week", "month", "last", "this", "since", "from", "to"))
+        if is_report and not has_time:
+            return "What time period should I look at — today, this week, or last month?"
+
+        return None
 
     def _build_metadata(self, tier: int, signals, gate, result: OrchestratorResult) -> Dict:
         """Build response metadata for every answer."""

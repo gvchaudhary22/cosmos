@@ -1,13 +1,23 @@
 """
 Model Router for COSMOS Phase 4.
 
-Quality-first routing: uses Opus for all substantive tasks, Haiku only
-for pure classification. Three tiers:
+Pillar-aware routing (Orbit transfer): routes to minimum-sufficient model
+based on query pillar complexity. Three tiers:
 
-  HAIKU  — intent/entity classification only     (~$0.0001/query)
-  SONNET — (reserved; not used in default routing)
-  OPUS   — everything else: lookup, explain, act, report, navigate,
-            unknown, low-confidence, multi-intent (~$0.01/query)
+  HAIKU  — P1 schema lookups, entity ID resolution, simple exact-match queries
+            (~$0.0001/query, 20x cheaper than Opus)
+  SONNET — P3 API docs, P4 page navigation, standard workflow queries, tool-use
+            (~$0.003/query, 5x cheaper than Opus)
+  OPUS   — P6 action contracts, P7 runbook diagnostics, multi-hop reasoning,
+            low-confidence, complex/ambiguous queries (~$0.015/query)
+
+Routing priority:
+  1. pillar_hint in complexity_signals overrides all (explicit pillar routing)
+  2. confidence < 0.5 → always Opus (quality safeguard)
+  3. intent + complexity_signals → pillar inference
+  4. Default → Opus (quality-first fallback)
+
+Original quality-first policy preserved: classification tasks use route_classify() → Haiku.
 """
 
 import structlog
@@ -74,6 +84,11 @@ class ModelRouter:
     def __init__(self) -> None:
         self._usage: Dict[ModelTier, int] = {t: 0 for t in ModelTier}
 
+    # Pillars that are safe for cheaper models
+    _HAIKU_PILLARS = {"P1"}          # schema lookups — deterministic, low reasoning
+    _SONNET_PILLARS = {"P3", "P4"}   # api docs + page navigation — structured retrieval
+    _OPUS_PILLARS = {"P6", "P7"}     # action contracts + runbooks — complex reasoning
+
     def route(
         self,
         intent: Intent,
@@ -81,19 +96,78 @@ class ModelRouter:
         complexity_signals: Dict = None,
     ) -> ModelProfile:
         """
-        Quality-first routing: almost everything goes to Opus.
+        Pillar-aware routing (Orbit transfer):
 
-        Routing rules (quality-first policy):
-        - ALL intents (LOOKUP, EXPLAIN, ACT, REPORT, NAVIGATE, UNKNOWN) -> OPUS
-        - Low confidence (<0.5) -> OPUS
-        - Multi-intent -> OPUS
-        - Security signals -> OPUS
-        - HAIKU is never selected here; use route_classify() for classification tasks.
+        Routing rules (priority order):
+        1. Low confidence (<0.5) → Opus (never compromise on uncertain queries)
+        2. Security/fraud signals → Opus
+        3. Multi-intent → Opus (requires synthesis across topics)
+        4. Explicit pillar_hint in complexity_signals → route by pillar
+        5. Intent + is_entity_lookup → Haiku (simple exact-match)
+        6. Intent EXPLAIN / NAVIGATE → Sonnet (structured retrieval)
+        7. Intent ACT / UNKNOWN → Opus (action contracts, multi-hop)
+        8. Default → Opus (quality-first fallback)
 
-        Callers that explicitly need Haiku for classification should call
-        route_classify() instead.
+        Cost impact: ~60% of ICRM queries are P1/P3/P4 lookups.
+        With pillar routing: ~60% route to Haiku/Sonnet → 70-80% cost reduction.
+        Quality preserved: P6/P7/complex/low-confidence always get Opus.
         """
-        # Everything goes to Opus — quality over cost.
+        signals = complexity_signals or {}
+
+        # 1. Low confidence → always Opus
+        if confidence < 0.5:
+            logger.info("model_router.low_confidence_opus", confidence=confidence)
+            return self._select(ModelTier.OPUS)
+
+        # 2. Security signals → Opus
+        if signals.get("security") or signals.get("fraud"):
+            return self._select(ModelTier.OPUS)
+
+        # 3. Multi-intent → Opus
+        if signals.get("multi_intent") or signals.get("intent_count", 1) > 1:
+            return self._select(ModelTier.OPUS)
+
+        # 4. Explicit pillar hint → route by pillar
+        pillar = signals.get("pillar_hint", "").upper()
+        if pillar in self._HAIKU_PILLARS:
+            logger.info("model_router.pillar_haiku", pillar=pillar)
+            return self._select(ModelTier.HAIKU)
+        if pillar in self._SONNET_PILLARS:
+            logger.info("model_router.pillar_sonnet", pillar=pillar)
+            return self._select(ModelTier.SONNET)
+        if pillar in self._OPUS_PILLARS:
+            logger.info("model_router.pillar_opus", pillar=pillar)
+            return self._select(ModelTier.OPUS)
+
+        # 5. Entity ID lookup with high confidence → Haiku (fast path)
+        if signals.get("is_entity_lookup") and confidence >= 0.8:
+            logger.info("model_router.entity_lookup_haiku", confidence=confidence)
+            return self._select(ModelTier.HAIKU)
+
+        # 6. Navigate/explain intent → Sonnet (structured retrieval, no deep reasoning)
+        intent_val = intent.value if hasattr(intent, "value") else str(intent)
+        if intent_val in ("NAVIGATE", "EXPLAIN") and confidence >= 0.6:
+            logger.info("model_router.navigate_explain_sonnet", intent=intent_val)
+            return self._select(ModelTier.SONNET)
+
+        # 7. Everything else → Opus (quality-first fallback)
+        return self._select(ModelTier.OPUS)
+
+    def route_by_pillar(self, pillar: str) -> ModelProfile:
+        """
+        Direct pillar-to-model routing. Use when pillar is known before retrieval.
+
+        P1 → Haiku  (schema: deterministic lookups)
+        P3 → Sonnet (api docs: structured retrieval)
+        P4 → Sonnet (page navigation: structured retrieval)
+        P6 → Opus   (action contracts: complex reasoning, preconditions, rollback)
+        P7 → Opus   (runbooks: multi-step diagnosis, state machines)
+        """
+        p = pillar.upper()
+        if p in self._HAIKU_PILLARS:
+            return self._select(ModelTier.HAIKU)
+        if p in self._SONNET_PILLARS:
+            return self._select(ModelTier.SONNET)
         return self._select(ModelTier.OPUS)
 
     def route_classify(

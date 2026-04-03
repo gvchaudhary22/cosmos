@@ -1,0 +1,72 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Edit",
+      "Read",
+      "Write",
+      "WebSearch",
+      "WebFetch",
+      "Agent"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/gauravchaudhary/Documents/project/marsproject/cosmos/.claude/hooks/pre-tool-use.sh"
+          }
+        ],
+        "description": "Block destructive commands, secret writes, --no-verify bypasses, base64 payloads, eval injection"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/gauravchaudhary/Documents/project/marsproject/cosmos/.claude/hooks/post-tool-use.sh",
+            "timeout": 5
+          }
+        ],
+        "description": "Log tool usage to session state"
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/gauravchaudhary/Documents/project/marsproject/cosmos/.claude/hooks/stop.sh"
+          }
+        ],
+        "description": "Log session end and warn about uncommitted Python changes"
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/gauravchaudhary/Documents/project/marsproject/cosmos/.claude/hooks/pre-compact.sh"
+          }
+        ],
+        "description": "Save git state snapshot before context compaction"
+      }
+    ]
+  },
+  "context": {
+    "skills_directory": ".claude/skills/",
+    "agents_directory": ".claude/agents/",
+    "rules_directory": ".claude/rules/",
+    "session_state": ".claude/session-state/STATE.md",
+    "decisions": "docs/decisions/",
+    "playbooks": "docs/operations/playbooks.md"
+  }
+}
