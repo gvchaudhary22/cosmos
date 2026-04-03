@@ -36,7 +36,7 @@ router = APIRouter()
 # ─── Request / Response models ────────────────────────────────────────────────
 
 class CommandRequest(BaseModel):
-    command: str                          # e.g. "plan", "/cosmos:plan", "/orbit:plan"
+    command: str                          # e.g. "plan", "/cosmos:plan"
     session_id: Optional[str] = "default"
     context: Optional[str] = ""
     args: Optional[Dict[str, Any]] = {}
@@ -234,10 +234,9 @@ async def list_skills():
     """List all available COSMOS skills (from Orbit skills directory)."""
     from pathlib import Path
     skills = []
-    orbit_skills = Path(__file__).parent.parent.parent.parent.parent / "orbit" / "skills"
     local_skills = Path(__file__).parent.parent.parent / ".claude" / "skills"
 
-    for base in [local_skills, orbit_skills]:
+    for base in [local_skills]:
         if base.exists():
             for f in sorted(base.glob("*.md")):
                 skills.append({
@@ -326,7 +325,7 @@ async def cmd_health():
 def _agents_from_registry() -> List[Dict]:
     import json
     from pathlib import Path
-    reg_path = Path(__file__).parent.parent.parent.parent.parent / "orbit" / "orbit.registry.json"
+    reg_path = Path(__file__).parent.parent.parent.parent / "rocketmind.registry.json"
     if reg_path.exists():
         try:
             reg = json.loads(reg_path.read_text())
@@ -338,7 +337,7 @@ def _agents_from_registry() -> List[Dict]:
 def _workflows_from_registry() -> List[Dict]:
     import json
     from pathlib import Path
-    reg_path = Path(__file__).parent.parent.parent.parent.parent / "orbit" / "orbit.registry.json"
+    reg_path = Path(__file__).parent.parent.parent.parent / "rocketmind.registry.json"
     if reg_path.exists():
         try:
             reg = json.loads(reg_path.read_text())

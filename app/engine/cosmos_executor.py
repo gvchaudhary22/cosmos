@@ -200,7 +200,7 @@ class CosmosExecutor:
         args = args or {}
 
         # Normalise command (strip /cosmos: prefix if present)
-        cmd = command.replace("/cosmos:", "").replace("/orbit:", "").strip()
+        cmd = command.replace("/cosmos:", "").replace("/rocketmind:", "").strip()
 
         result = CosmosCommandResult(
             command=cmd,
@@ -328,12 +328,12 @@ class CosmosExecutor:
         """Load skill markdown content as context for Claude."""
         import os
         from pathlib import Path
-        orbit_skills = Path(__file__).parent.parent.parent.parent / "orbit" / "skills"
+        rocketmind_skills = Path(__file__).parent.parent.parent / ".claude" / "skills"
         local_skills = Path(__file__).parent.parent.parent / ".claude" / "skills"
 
         combined = []
         for name in skill_names:
-            for base in [local_skills, orbit_skills]:
+            for base in [local_skills, rocketmind_skills]:
                 p = base / f"{name}.md"
                 if p.exists():
                     combined.append(f"## Skill: {name}\n{p.read_text()[:3000]}")

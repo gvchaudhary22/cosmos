@@ -16,7 +16,7 @@ import time
 import pytest
 
 from app.guardrails.base import GuardrailAction
-from app.guardrails.orbit_safety import MarsSafetyGuardrail
+from app.guardrails.mars_safety import MarsSafetyGuardrail
 from app.guardrails.context_tagger import ContextTagger, TrustLevel
 from app.engine.ecommerce import IdempotencyManager, OrderStateMachine
 from app.engine.session_state import SessionStateManager
@@ -704,8 +704,8 @@ class TestHealthEndpoints:
         assert "/health/live" in paths
         assert "/health/dependencies" in paths
 
-    def test_guardrail_pipeline_includes_orbit(self):
+    def test_guardrail_pipeline_includes_mars_safety(self):
         from app.guardrails.setup import create_guardrail_pipeline
         pipeline = create_guardrail_pipeline()
         guard_names = [g.name for g in pipeline.pre_guards]
-        assert "orbit_safety" in guard_names
+        assert "mars_safety" in guard_names

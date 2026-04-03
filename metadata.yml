@@ -6,7 +6,7 @@ metadata:
   annotations:
     platform.shiprocket.com/profile: standard
     platform.shiprocket.com/team: ai-platform
-    platform.shiprocket.com/orbit-version: "2.8.1"
+    platform.shiprocket.com/rocketmind-version: "1.0.0"
 
 spec:
   type: standard

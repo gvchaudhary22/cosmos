@@ -1,173 +1,88 @@
 # COSMOS Commands
+> RocketMind-powered orchestration commands running inside COSMOS wave execution.
+> Use in Claude Code session: `/cosmos:<command>`
 
-> Orbit-powered slash commands for COSMOS. All commands route through COSMOS wave execution.
+## Workflow Commands
 
-## Available Commands
+### `/cosmos:new`
+> Command: `/cosmos:new` | Mode: `collaborative`
 
-### `/cosmos:discover`
-> Maps to `/orbit:discover`
+**Inputs:** scope, users, constraints
 
-**Inputs:** problem statement, target user hypothesis
+**Outputs:** PROJECT.md, ROADMAP.md, STATE.md
 
-**Outputs:** DISCOVERY.md
+**Agents:** strategist
 
-**Agents:** researcher, designer
-
-### `/cosmos:new-project`
-> Maps to `/orbit:new-project`
-
-**Inputs:** scope, users, constraints, existing systems
-
-**Outputs:** PROJECT.md, REQUIREMENTS.md, ROADMAP.md, STATE.md
+---
 
 ### `/cosmos:plan`
-> Maps to `/orbit:plan`
+> Command: `/cosmos:plan` | Mode: `collaborative`
 
-**Inputs:** STATE.md, ROADMAP.md, REQUIREMENTS.md
+**Inputs:** STATE.md, ROADMAP.md
 
-**Outputs:** PHASE-{N}-PLAN.md
+**Outputs:** PHASE-N-PLAN.md
+
+**Agents:** strategist, architect
+
+---
 
 ### `/cosmos:build`
-> Maps to `/orbit:build`
+> Command: `/cosmos:build` | Mode: `autonomous`
 
-**Inputs:** PHASE-{N}-PLAN.md, ARCH.md, STATE.md
+**Inputs:** PHASE-N-PLAN.md, ARCH.md, STATE.md
 
-**Outputs:** task outputs, SUMMARY.md, PHASE-{N}-VERIFICATION.md
+**Outputs:** source files, tests, SUMMARY.md
+
+**Agents:** engineer
+
+---
 
 ### `/cosmos:verify`
-> Maps to `/orbit:verify`
+> Command: `/cosmos:verify` | Mode: `audit`
 
-**Inputs:** PHASE-{N}-PLAN.md, build outputs
+**Inputs:** PHASE-N-PLAN.md, build outputs
 
-**Outputs:** PHASE-{N}-UAT.md
+**Outputs:** PHASE-N-UAT.md
+
+**Agents:** reviewer, qa-engineer
+
+---
 
 ### `/cosmos:ship`
-> Maps to `/orbit:ship`
+> Command: `/cosmos:ship` | Mode: `audit`
 
-**Inputs:** PHASE-{N}-UAT.md, review output, CHANGELOG.md, README.md
+**Inputs:** PHASE-N-UAT.md, CHANGELOG.md
 
-**Outputs:** release summary, CHANGELOG.md update, documentation updates, STATE.md update
-
-**Agents:** reviewer, technical-writer
-
-### `/cosmos:launch`
-> Maps to `/orbit:launch`
-
-**Inputs:** release artifacts, target audience, launch channels
-
-**Outputs:** LAUNCH-PLAN.md, GTM-CHECKLIST.md, ANNOUNCEMENT-DRAFT.md
-
-**Agents:** launch-planner, technical-writer
-
-### `/cosmos:quick`
-> Maps to `/orbit:quick`
-
-**Inputs:** task description
-
-**Outputs:** focused task result, verification, state update
-
-### `/cosmos:forge`
-> Maps to `/orbit:forge`
-
-**Inputs:** task description
-
-**Outputs:** new agent file, registry update
-
-### `/cosmos:review`
-> Maps to `/orbit:review`
-
-**Inputs:** changed files, ARCH.md, REQUIREMENTS.md
-
-**Outputs:** review report
-
-### `/cosmos:audit`
-> Maps to `/orbit:audit`
-
-**Inputs:** changed files, dependency graph
-
-**Outputs:** security audit report
-
-### `/cosmos:eval`
-> Maps to `/orbit:eval`
-
-**Inputs:** README.md, registry, runtime adapters, workflow docs
-
-**Outputs:** EVAL-REPORT.md, eval-report.json
+**Outputs:** release summary, STATE.md update
 
 **Agents:** reviewer
 
-### `/cosmos:resume`
-> Maps to `/orbit:resume`
-
-**Inputs:** STATE.md, pre-compact snapshot, git log
-
-**Outputs:** reconstructed context
+---
 
 ### `/cosmos:next`
-> Maps to `/orbit:next`
+> Command: `/cosmos:next` | Mode: `collaborative`
 
 **Inputs:** STATE.md, ROADMAP.md
 
 **Outputs:** next action
 
-### `/cosmos:progress`
-> Maps to `/orbit:progress`
+**Agents:** strategist
 
-**Inputs:** STATE.md, ROADMAP.md
+---
 
-**Outputs:** project status summary
+### `/cosmos:quick`
+> Command: `/cosmos:quick` | Mode: `collaborative`
 
-### `/cosmos:map-codebase`
-> Maps to `/orbit:map-codebase`
+**Inputs:** task description
 
-**Inputs:** repo tree, source files, STATE.md
+**Outputs:** focused task result, verification
 
-**Outputs:** CODEBASE-MAP.md
+**Agents:** engineer
 
-### `/cosmos:monitor`
-> Maps to `/orbit:monitor`
-
-**Inputs:** health endpoints, metrics, alerts
-
-**Outputs:** HEALTH-REPORT.md
-
-### `/cosmos:debug`
-> Maps to `/orbit:debug`
-
-**Inputs:** bug description, failing test or reproduction
-
-**Outputs:** root cause analysis, fix, regression test
-
-### `/cosmos:deploy`
-> Maps to `/orbit:deploy`
-
-**Inputs:** environment, release artifacts
-
-**Outputs:** deployment summary
-
-### `/cosmos:rollback`
-> Maps to `/orbit:rollback`
-
-**Inputs:** failed deployment, release metadata
-
-**Outputs:** rollback summary
-
-### `/cosmos:milestone`
-> Maps to `/orbit:milestone`
-
-**Inputs:** shipped phases, state, release tags
-
-**Outputs:** milestone archive
-
-### `/cosmos:help`
-> Maps to `/orbit:help`
-
-**Inputs:** none
-
-**Outputs:** command reference
+---
 
 ### `/cosmos:riper`
-> Maps to `/orbit:riper`
+> Command: `/cosmos:riper` | Mode: `collaborative`
 
 **Inputs:** task description, context
 
@@ -175,42 +90,111 @@
 
 **Agents:** researcher, strategist, engineer, reviewer
 
-### `/cosmos:worktree`
-> Maps to `/orbit:worktree`
+---
 
-**Inputs:** parallel task plan
+### `/cosmos:forge`
+> Command: `/cosmos:forge` | Mode: `collaborative`
 
-**Outputs:** worktree setup guidance
+**Inputs:** agent description
 
-### `/cosmos:cost`
-> Maps to `/orbit:cost`
+**Outputs:** new agent spec, registry update
 
-**Inputs:** session usage
+**Agents:** forge
 
-**Outputs:** token and cost estimate
+---
 
-### `/cosmos:promote`
-> Maps to `/orbit:promote`
+### `/cosmos:review`
+> Command: `/cosmos:review` | Mode: `audit`
 
-**Inputs:** local patterns, agents, skills
+**Inputs:** changed files, ARCH.md
 
-**Outputs:** core repository PR, registry update
+**Outputs:** review report
 
-### `/cosmos:ask`
-> Maps to `/orbit:ask`
+**Agents:** reviewer, security-engineer
 
-**Inputs:** question about project state
+---
 
-**Outputs:** answer from STATE.md or context.db with source citation
+### `/cosmos:audit`
+> Command: `/cosmos:audit` | Mode: `audit`
+
+**Inputs:** changed files, dependency graph
+
+**Outputs:** security audit report
+
+**Agents:** security-engineer
+
+---
+
+### `/cosmos:debug`
+> Command: `/cosmos:debug` | Mode: `collaborative`
+
+**Inputs:** bug description, failing test
+
+**Outputs:** root cause analysis, fix, regression test
+
+**Agents:** engineer
+
+---
+
+### `/cosmos:resume`
+> Command: `/cosmos:resume` | Mode: `collaborative`
+
+**Inputs:** STATE.md, git log
+
+**Outputs:** reconstructed context
 
 **Agents:** strategist
 
-### `/cosmos:clarify`
-> Maps to `/orbit:clarify`
+---
 
-**Inputs:** pending clarification requests, operator answer
+### `/cosmos:progress`
+> Command: `/cosmos:progress` | Mode: `audit`
 
-**Outputs:** clarification queue, clarification resolution
+**Inputs:** STATE.md
+
+**Outputs:** project status summary
 
 **Agents:** strategist
 
+---
+
+### `/cosmos:train`
+> Command: `/cosmos:train` | Mode: `autonomous`
+
+**Inputs:** KB_PATH, kb files
+
+**Outputs:** embeddings, graph nodes, eval score
+
+---
+
+### `/cosmos:eval`
+> Command: `/cosmos:eval` | Mode: `audit`
+
+**Inputs:** 201 eval seeds
+
+**Outputs:** recall@5 score, EVAL-REPORT.md
+
+---
+
+### `/cosmos:help`
+> Command: `/cosmos:help` | Mode: `collaborative`
+
+**Outputs:** command reference
+
+---
+
+## Available Agents
+
+| Agent | Domains | Triggers |
+|-------|---------|----------|
+| architect | ENGINEERING, SYNTHESIS | system design, tech selection, architecture review, design |
+| engineer | ENGINEERING | implement, build, code, debug, refactor, fix |
+| strategist | PRODUCT, SYNTHESIS | plan, roadmap, milestones, project, phase |
+| reviewer | REVIEW | review, audit, quality gate, ship gate, check |
+| security-engineer | REVIEW, ENGINEERING | security review, threat model, audit, auth changes, owasp |
+| devops | OPERATIONS | deploy, monitor, ci/cd, infra, pipeline |
+| data-engineer | ENGINEERING, OPERATIONS | etl, kafka, stream processing, pipeline, data |
+| qa-engineer | REVIEW, ENGINEERING | test strategy, test plan, qa, quality assurance, regression |
+| kb-specialist | ENGINEERING, RESEARCH | knowledge base, kb, embedding, retrieval, pillar, ingest |
+| researcher | RESEARCH | research, compare, feasibility, investigate, unknown |
+| forge | SYNTHESIS | no matching agent, forge new agent, create agent, new specialist |

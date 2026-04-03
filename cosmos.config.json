@@ -6,7 +6,7 @@
     "codename": "rocketmind",
     "state_dir": ".cosmos/state",
     "hooks_dir": ".claude/hooks",
-    "orbit_source": "../orbit"
+    "registry": "rocketmind.registry.json"
   },
   "mode": {
     "default": "collaborative",
@@ -37,8 +37,9 @@
     "recommended_parallel_sessions": 8,
     "context_per_subagent": 200000,
     "auto_register_forged": true,
-    "registry_table": "cosmos_agents",
-    "state_table": "cosmos_workflow_state"
+    "registry_table": "rocketmind_agents",
+    "state_table": "cosmos_workflow_state",
+    "workflows_table": "rocketmind_workflows"
   },
   "cosmos": {
     "port": 10001,
@@ -76,8 +77,7 @@
     "auto_load": true,
     "lazy_load": true,
     "cache_loaded": true,
-    "source": "../orbit/skills",
-    "local": ".claude/skills"
+    "source": ".claude/skills"
   },
   "hooks": {
     "pre_compact": true,
@@ -99,26 +99,25 @@
   },
   "commands": {
     "prefix": "/cosmos:",
-    "orbit_prefix": "/orbit:",
     "map": {
-      "/cosmos:new":      "/orbit:new-project",
-      "/cosmos:plan":     "/orbit:plan",
-      "/cosmos:build":    "/orbit:build",
-      "/cosmos:verify":   "/orbit:verify",
-      "/cosmos:ship":     "/orbit:ship",
-      "/cosmos:next":     "/orbit:next",
-      "/cosmos:quick":    "/orbit:quick",
-      "/cosmos:riper":    "/orbit:riper",
-      "/cosmos:forge":    "/orbit:forge",
-      "/cosmos:review":   "/orbit:review",
-      "/cosmos:audit":    "/orbit:audit",
-      "/cosmos:debug":    "/orbit:debug",
-      "/cosmos:resume":   "/orbit:resume",
-      "/cosmos:progress": "/orbit:progress",
+      "/cosmos:new":      "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:plan":     "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:build":    "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:verify":   "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:ship":     "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:next":     "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:quick":    "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:riper":    "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:forge":    "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:review":   "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:audit":    "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:debug":    "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:resume":   "POST /cosmos/api/v1/cmd/execute",
+      "/cosmos:progress": "GET /cosmos/api/v1/cmd/progress",
       "/cosmos:state":    "GET /cosmos/api/v1/cmd/state",
       "/cosmos:train":    "POST /cosmos/api/v1/pipeline/run",
       "/cosmos:eval":     "POST /cosmos/api/v1/cmd/eval",
-      "/cosmos:help":     "/orbit:help"
+      "/cosmos:help":     "GET /cosmos/api/v1/cmd/health"
     }
   },
   "notifications": {

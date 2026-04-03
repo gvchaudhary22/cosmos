@@ -8,8 +8,8 @@ This is the control plane backbone — every /cosmos:* command reads/writes here
 
 Tables:
   cosmos_workflow_state   — per-session STATE.md equivalent
-  cosmos_orbit_agents     — registered agents (synced from Orbit via orbit_sync.py)
-  cosmos_orbit_workflows  — registered workflow commands
+  rocketmind_agents     — registered agents (synced from RocketMind via rocketmind_sync.py)
+  rocketmind_workflows  — registered workflow commands
   cosmos_wave_trace       — per-wave execution trace
 
 Usage:
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS cosmos_wave_trace (
 """
 
 CREATE_AGENTS_TABLE = """
-CREATE TABLE IF NOT EXISTS cosmos_orbit_agents (
+CREATE TABLE IF NOT EXISTS rocketmind_agents (
     id        VARCHAR(64)  PRIMARY KEY,
     name      VARCHAR(128) NOT NULL,
     file      VARCHAR(256) DEFAULT NULL,
@@ -84,14 +84,14 @@ CREATE TABLE IF NOT EXISTS cosmos_orbit_agents (
     triggers  JSON         DEFAULT NULL,
     skills    JSON         DEFAULT NULL,
     outputs   JSON         DEFAULT NULL,
-    source    VARCHAR(32)  DEFAULT 'cosmos',
+    source    VARCHAR(32)  DEFAULT 'rocketmind',
     synced_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """
 
 CREATE_WORKFLOWS_TABLE = """
-CREATE TABLE IF NOT EXISTS cosmos_orbit_workflows (
+CREATE TABLE IF NOT EXISTS rocketmind_workflows (
     id          VARCHAR(64)  PRIMARY KEY,
     name        VARCHAR(128) NOT NULL,
     command     VARCHAR(128) NOT NULL,
@@ -301,7 +301,7 @@ _None._
         """List all registered COSMOS agents."""
         async with AsyncSessionLocal() as db:
             result = await db.execute(
-                text("SELECT name, domains, triggers, skills, outputs, source FROM cosmos_orbit_agents ORDER BY name")
+                text("SELECT name, domains, triggers, skills, outputs, source FROM rocketmind_agents ORDER BY name")
             )
             rows = result.mappings().all()
             agents = []
@@ -318,7 +318,7 @@ _None._
         """Get a single agent by name."""
         async with AsyncSessionLocal() as db:
             result = await db.execute(
-                text("SELECT * FROM cosmos_orbit_agents WHERE name = :name"),
+                text("SELECT * FROM rocketmind_agents WHERE name = :name"),
                 {"name": name},
             )
             row = result.mappings().first()
@@ -353,7 +353,7 @@ _None._
         """List all registered COSMOS workflow commands."""
         async with AsyncSessionLocal() as db:
             result = await db.execute(
-                text("SELECT name, cosmos_cmd, mode, agents, inputs, outputs FROM cosmos_orbit_workflows ORDER BY name")
+                text("SELECT name, cosmos_cmd, mode, agents, inputs, outputs FROM rocketmind_workflows ORDER BY name")
             )
             rows = result.mappings().all()
             workflows = []
@@ -370,7 +370,7 @@ _None._
         """Get a workflow definition by name."""
         async with AsyncSessionLocal() as db:
             result = await db.execute(
-                text("SELECT * FROM cosmos_orbit_workflows WHERE name = :name OR cosmos_cmd = :cmd"),
+                text("SELECT * FROM rocketmind_workflows WHERE name = :name OR cosmos_cmd = :cmd"),
                 {"name": name, "cmd": f"/cosmos:{name}"},
             )
             row = result.mappings().first()

@@ -4,7 +4,7 @@
 set -e
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ORBIT_DIR="$ROOT/../orbit"
+REGISTRY="$ROOT/rocketmind.registry.json"
 
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -73,15 +73,15 @@ echo -e "${GREEN}  ✓ .claude/commands/cosmos.md generated${NC}"
 echo -e "${GREEN}  ✓ .cosmos/state/STATE.md initialized${NC}"
 
 # ── 5. Sync Orbit into COSMOS ─────────────────────────────────────────────────
-echo -e "${BLUE}▶ Syncing Orbit agents + skills → COSMOS...${NC}"
-if [ -d "$ORBIT_DIR" ]; then
-  python "$ROOT/scripts/orbit_sync.py" --target all 2>/dev/null || {
-    echo -e "${YELLOW}  ⚠ Sync to DB skipped (COSMOS not running). Files generated.${NC}"
-    python "$ROOT/scripts/orbit_sync.py" --dry-run 2>/dev/null || true
+echo -e "${BLUE}▶ Syncing RocketMind agents + skills → COSMOS...${NC}"
+if [ -f "$REGISTRY" ]; then
+  "$ROOT/.venv/bin/python" "$ROOT/scripts/rocketmind_sync.py" --target all 2>/dev/null || {
+    echo -e "${YELLOW}  ⚠ DB sync skipped (COSMOS not running). Command surface generated.${NC}"
+    "$ROOT/.venv/bin/python" "$ROOT/scripts/rocketmind_sync.py" --dry-run 2>/dev/null || true
   }
-  echo -e "${GREEN}  ✓ Orbit synced into COSMOS${NC}"
+  echo -e "${GREEN}  ✓ RocketMind registry synced into COSMOS${NC}"
 else
-  echo -e "${YELLOW}  ⚠ Orbit repo not found at $ORBIT_DIR. Skipping sync.${NC}"
+  echo -e "${YELLOW}  ⚠ rocketmind.registry.json not found. Run: npm run generate${NC}"
 fi
 
 # ── 6. Copy config ────────────────────────────────────────────────────────────

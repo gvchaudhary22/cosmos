@@ -1,0 +1,143 @@
+{
+  "version": "1.0.0",
+  "framework": "rocketmind",
+  "project": "cosmos",
+  "description": "RocketMind — AI orchestration framework embedded in COSMOS",
+  "sources": {
+    "agents": ".claude/agents",
+    "skills": ".claude/skills",
+    "commands": ".claude/commands/cosmos.md",
+    "state": ".cosmos/state/STATE.md",
+    "config": "cosmos.config.json"
+  },
+  "agents": [
+    {
+      "name": "architect",
+      "file": ".claude/agents/architect.md",
+      "domains": ["ENGINEERING", "SYNTHESIS"],
+      "triggers": ["system design", "tech selection", "architecture review", "design"],
+      "skills": ["architecture", "security-and-identity", "scalability"],
+      "outputs": ["ARCH.md", "ADR-*.md", "INTERFACES.md", "DATA-MODEL.md"]
+    },
+    {
+      "name": "engineer",
+      "file": ".claude/agents/engineer.md",
+      "domains": ["ENGINEERING"],
+      "triggers": ["implement", "build", "code", "debug", "refactor", "fix"],
+      "skills": ["tdd", "debugging", "reflection"],
+      "outputs": ["source files", "tests", "SUMMARY.md", "atomic commit"]
+    },
+    {
+      "name": "strategist",
+      "file": ".claude/agents/strategist.md",
+      "domains": ["PRODUCT", "SYNTHESIS"],
+      "triggers": ["plan", "roadmap", "milestones", "project", "phase"],
+      "skills": ["planning", "brainstorming"],
+      "outputs": ["PROJECT.md", "ROADMAP.md", "PHASE-*.md", "STATE.md"]
+    },
+    {
+      "name": "reviewer",
+      "file": ".claude/agents/reviewer.md",
+      "domains": ["REVIEW"],
+      "triggers": ["review", "audit", "quality gate", "ship gate", "check"],
+      "skills": ["review", "reflection"],
+      "outputs": ["review report with severity ranking"]
+    },
+    {
+      "name": "security-engineer",
+      "file": ".claude/agents/security-engineer.md",
+      "domains": ["REVIEW", "ENGINEERING"],
+      "triggers": ["security review", "threat model", "audit", "auth changes", "owasp"],
+      "skills": ["security-and-identity", "review", "compliance-checklist"],
+      "outputs": ["security audit", "threat model", "dependency scan"]
+    },
+    {
+      "name": "devops",
+      "file": ".claude/agents/devops.md",
+      "domains": ["OPERATIONS"],
+      "triggers": ["deploy", "monitor", "ci/cd", "infra", "pipeline"],
+      "skills": ["deployment", "observability"],
+      "outputs": ["deployment config", "runbooks", "monitoring config"]
+    },
+    {
+      "name": "data-engineer",
+      "file": ".claude/agents/data-engineer.md",
+      "domains": ["ENGINEERING", "OPERATIONS"],
+      "triggers": ["etl", "kafka", "stream processing", "pipeline", "data"],
+      "skills": ["architecture", "observability", "tdd", "scalability"],
+      "outputs": ["PIPELINE.md", "DATA-QUALITY.md", "RUNBOOK.md"]
+    },
+    {
+      "name": "qa-engineer",
+      "file": ".claude/agents/qa-engineer.md",
+      "domains": ["REVIEW", "ENGINEERING"],
+      "triggers": ["test strategy", "test plan", "qa", "quality assurance", "regression"],
+      "skills": ["tdd", "review", "observability"],
+      "outputs": ["TEST-PLAN.md", "QA-REPORT.md", "RELEASE-GATE.md"]
+    },
+    {
+      "name": "kb-specialist",
+      "file": ".claude/agents/kb-specialist.md",
+      "domains": ["ENGINEERING", "RESEARCH"],
+      "triggers": ["knowledge base", "kb", "embedding", "retrieval", "pillar", "ingest"],
+      "skills": ["knowledge-base", "retrieval-engineering", "tdd"],
+      "outputs": ["KB docs", "pillar YAML", "eval seeds"]
+    },
+    {
+      "name": "researcher",
+      "file": ".claude/agents/researcher.md",
+      "domains": ["RESEARCH"],
+      "triggers": ["research", "compare", "feasibility", "investigate", "unknown"],
+      "skills": ["brainstorming"],
+      "outputs": ["research report", "trade-off matrix", "recommendation"]
+    },
+    {
+      "name": "forge",
+      "file": ".claude/agents/forge.md",
+      "domains": ["SYNTHESIS"],
+      "triggers": ["no matching agent", "forge new agent", "create agent", "new specialist"],
+      "skills": ["ai-systems", "brainstorming"],
+      "outputs": ["new agent spec", "registry update"]
+    }
+  ],
+  "skills": [
+    { "name": "tdd",                   "file": ".claude/skills/tdd.md",                   "purpose": "test-driven development",           "loaded_by": ["engineer", "reviewer", "qa-engineer", "data-engineer"] },
+    { "name": "architecture",          "file": ".claude/skills/architecture.md",           "purpose": "system design",                     "loaded_by": ["architect", "data-engineer"] },
+    { "name": "planning",              "file": ".claude/skills/planning.md",               "purpose": "phase planning",                    "loaded_by": ["strategist"] },
+    { "name": "brainstorming",         "file": ".claude/skills/brainstorming.md",          "purpose": "spec extraction",                   "loaded_by": ["strategist", "researcher"] },
+    { "name": "debugging",             "file": ".claude/skills/debugging.md",              "purpose": "root cause analysis",               "loaded_by": ["engineer"] },
+    { "name": "review",                "file": ".claude/skills/review.md",                 "purpose": "quality review",                    "loaded_by": ["reviewer", "security-engineer"] },
+    { "name": "deployment",            "file": ".claude/skills/deployment.md",             "purpose": "ship safety",                       "loaded_by": ["devops"] },
+    { "name": "observability",         "file": ".claude/skills/observability.md",          "purpose": "logs metrics tracing",              "loaded_by": ["devops", "data-engineer"] },
+    { "name": "security-and-identity", "file": ".claude/skills/security-and-identity.md", "purpose": "auth, identity, tenancy",           "loaded_by": ["architect", "security-engineer"] },
+    { "name": "context-management",    "file": ".claude/skills/context-management.md",     "purpose": "session and token control",         "loaded_by": ["all"] },
+    { "name": "riper",                 "file": ".claude/skills/riper.md",                  "purpose": "structured reasoning",              "loaded_by": ["all"] },
+    { "name": "git-worktree",          "file": ".claude/skills/git-worktree.md",           "purpose": "parallel development",              "loaded_by": ["engineer", "strategist"] },
+    { "name": "scalability",           "file": ".claude/skills/scalability.md",            "purpose": "capacity planning",                 "loaded_by": ["architect", "data-engineer"] },
+    { "name": "ai-systems",            "file": ".claude/skills/ai-systems.md",             "purpose": "agent systems and routing",         "loaded_by": ["forge", "architect"] },
+    { "name": "reflection",            "file": ".claude/skills/reflection.md",             "purpose": "RALPH self-correction loop",        "loaded_by": ["reviewer", "engineer"] },
+    { "name": "knowledge-base",        "file": ".claude/skills/knowledge-base.md",         "purpose": "KB ingestion and retrieval",        "loaded_by": ["kb-specialist"] },
+    { "name": "retrieval-engineering", "file": ".claude/skills/retrieval-engineering.md",  "purpose": "RAG, embeddings, wave execution",   "loaded_by": ["kb-specialist", "architect"] },
+    { "name": "python-async",          "file": ".claude/skills/python-async.md",           "purpose": "async Python patterns",             "loaded_by": ["engineer"] },
+    { "name": "debugging",             "file": ".claude/skills/debugging.md",              "purpose": "root cause + RALPH",                "loaded_by": ["engineer"] }
+  ],
+  "workflows": [
+    { "name": "new",      "command": "/cosmos:new",      "mode": "collaborative", "agents": ["strategist"],                               "inputs": ["scope", "users", "constraints"],              "outputs": ["PROJECT.md", "ROADMAP.md", "STATE.md"] },
+    { "name": "plan",     "command": "/cosmos:plan",     "mode": "collaborative", "agents": ["strategist", "architect"],                  "inputs": ["STATE.md", "ROADMAP.md"],                     "outputs": ["PHASE-N-PLAN.md"] },
+    { "name": "build",    "command": "/cosmos:build",    "mode": "autonomous",    "agents": ["engineer"],                                 "inputs": ["PHASE-N-PLAN.md", "ARCH.md", "STATE.md"],     "outputs": ["source files", "tests", "SUMMARY.md"] },
+    { "name": "verify",   "command": "/cosmos:verify",   "mode": "audit",         "agents": ["reviewer", "qa-engineer"],                  "inputs": ["PHASE-N-PLAN.md", "build outputs"],           "outputs": ["PHASE-N-UAT.md"] },
+    { "name": "ship",     "command": "/cosmos:ship",     "mode": "audit",         "agents": ["reviewer"],                                 "inputs": ["PHASE-N-UAT.md", "CHANGELOG.md"],             "outputs": ["release summary", "STATE.md update"] },
+    { "name": "next",     "command": "/cosmos:next",     "mode": "collaborative", "agents": ["strategist"],                               "inputs": ["STATE.md", "ROADMAP.md"],                     "outputs": ["next action"] },
+    { "name": "quick",    "command": "/cosmos:quick",    "mode": "collaborative", "agents": ["engineer"],                                 "inputs": ["task description"],                           "outputs": ["focused task result", "verification"] },
+    { "name": "riper",    "command": "/cosmos:riper",    "mode": "collaborative", "agents": ["researcher", "strategist", "engineer", "reviewer"], "inputs": ["task description", "context"],       "outputs": ["RIPER analysis"] },
+    { "name": "forge",    "command": "/cosmos:forge",    "mode": "collaborative", "agents": ["forge"],                                    "inputs": ["agent description"],                          "outputs": ["new agent spec", "registry update"] },
+    { "name": "review",   "command": "/cosmos:review",   "mode": "audit",         "agents": ["reviewer", "security-engineer"],            "inputs": ["changed files", "ARCH.md"],                   "outputs": ["review report"] },
+    { "name": "audit",    "command": "/cosmos:audit",    "mode": "audit",         "agents": ["security-engineer"],                        "inputs": ["changed files", "dependency graph"],          "outputs": ["security audit report"] },
+    { "name": "debug",    "command": "/cosmos:debug",    "mode": "collaborative", "agents": ["engineer"],                                 "inputs": ["bug description", "failing test"],            "outputs": ["root cause analysis", "fix", "regression test"] },
+    { "name": "resume",   "command": "/cosmos:resume",   "mode": "collaborative", "agents": ["strategist"],                               "inputs": ["STATE.md", "git log"],                        "outputs": ["reconstructed context"] },
+    { "name": "progress", "command": "/cosmos:progress", "mode": "audit",         "agents": ["strategist"],                               "inputs": ["STATE.md"],                                   "outputs": ["project status summary"] },
+    { "name": "train",    "command": "/cosmos:train",    "mode": "autonomous",    "agents": [],                                           "inputs": ["KB_PATH", "kb files"],                        "outputs": ["embeddings", "graph nodes", "eval score"] },
+    { "name": "eval",     "command": "/cosmos:eval",     "mode": "audit",         "agents": [],                                           "inputs": ["201 eval seeds"],                             "outputs": ["recall@5 score", "EVAL-REPORT.md"] },
+    { "name": "help",     "command": "/cosmos:help",     "mode": "collaborative", "agents": [],                                           "inputs": [],                                             "outputs": ["command reference"] }
+  ]
+}

@@ -12,9 +12,9 @@
     "start:all":        ".venv/bin/uvicorn app.main:app --reload --port 10001 & .venv/bin/python app/grpc_server.py",
 
     "build":            "node bin/cosmos.js build",
-    "build:kb":         ".venv/bin/python scripts/orbit_sync.py --target kb",
-    "build:graph":      ".venv/bin/python scripts/orbit_sync.py --target graph",
-    "build:all":        ".venv/bin/python scripts/orbit_sync.py --target all",
+    "build:kb":         ".venv/bin/python scripts/rocketmind_sync.py --target kb",
+    "build:graph":      ".venv/bin/python scripts/rocketmind_sync.py --target graph",
+    "build:all":        ".venv/bin/python scripts/rocketmind_sync.py --target all",
 
     "train":            ".venv/bin/python -c \"import asyncio; from app.services.training_pipeline import TrainingPipeline; print('Use /cosmos:train or POST /cosmos/api/v1/pipeline/run')\"",
     "train:kb":         "node bin/cosmos.js train --source kb",
@@ -24,10 +24,10 @@
     "eval":             "node bin/cosmos.js eval",
     "eval:bench":       ".venv/bin/python scripts/run_eval.py",
 
-    "sync":             ".venv/bin/python scripts/orbit_sync.py",
-    "sync:agents":      ".venv/bin/python scripts/orbit_sync.py --target agents",
-    "sync:skills":      ".venv/bin/python scripts/orbit_sync.py --target skills",
-    "sync:workflows":   ".venv/bin/python scripts/orbit_sync.py --target workflows",
+    "sync":             ".venv/bin/python scripts/rocketmind_sync.py",
+    "sync:agents":      ".venv/bin/python scripts/rocketmind_sync.py --target agents",
+    "sync:skills":      ".venv/bin/python scripts/rocketmind_sync.py --target skills",
+    "sync:workflows":   ".venv/bin/python scripts/rocketmind_sync.py --target workflows",
 
     "cosmos:new":       "node bin/cosmos.js cmd new-project",
     "cosmos:plan":      "node bin/cosmos.js cmd plan",
@@ -61,7 +61,7 @@
     "skills":           "curl -s http://localhost:10001/cosmos/api/v1/cmd/skills | python -m json.tool",
 
     "setup":            "bash scripts/setup.sh",
-    "install:orbit":    "bash scripts/install_orbit.sh",
+    
     "validate":         "bash scripts/validate.sh",
     "generate":         "node bin/cosmos.js generate"
   },
@@ -73,7 +73,7 @@
     "icrm",
     "rag",
     "knowledge-graph",
-    "orbit",
+    "rocketmind",
     "orchestration",
     "wave-execution"
   ],

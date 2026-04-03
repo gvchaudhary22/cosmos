@@ -147,25 +147,26 @@ _None._
   }
 }
 
-// ─── Run orbit command via claude CLI ─────────────────────────────────────────
-function runOrbitCmd(orbitCmd, extraArgs) {
-  // Map /cosmos:X → /orbit:X
-  const mapped = (config.commands && config.commands.map && config.commands.map[`/cosmos:${orbitCmd}`]) || `/orbit:${orbitCmd}`;
+// ─── Run RocketMind command ────────────────────────────────────────────────────
+function runCosmosCmd(cmd, extraArgs) {
+  // Map /cosmos:X → COSMOS API endpoint
+  const mapped = (config.commands && config.commands.map && config.commands.map[`/cosmos:${cmd}`]) || `POST /cosmos/api/v1/cmd/execute`;
   const isHttpCmd = mapped.startsWith("GET ") || mapped.startsWith("POST ");
 
   if (isHttpCmd) {
     const [method, apiPath] = mapped.split(" ");
     return method === "GET"
       ? getApi(apiPath).then((r) => { console.log(JSON.stringify(r, null, 2)); })
-      : postCmd(orbitCmd, extraArgs).then((r) => { console.log(JSON.stringify(r, null, 2)); });
+      : postCmd(cmd, extraArgs).then((r) => { console.log(JSON.stringify(r, null, 2)); });
   }
 
   console.log(C.dim(`  Delegating to: ${mapped}`));
   console.log(C.yellow(`  Note: Open Claude Code and run: ${mapped}\n`));
-  console.log(C.dim(`  Or use: npm run cosmos:${orbitCmd} -- [args]\n`));
+  console.log(C.dim(`  Or use: npm run cosmos:${cmd} -- [args]\n`));
+  
 
   // Attempt to call COSMOS API if it's running
-  return postCmd(orbitCmd, extraArgs).catch(() => {
+  return postCmd(cmd, extraArgs).catch(() => {
     console.log(C.yellow(`  COSMOS not running on :${COSMOS_PORT}. Start with: npm start`));
   });
 }
@@ -194,7 +195,7 @@ const commands = {
     if (name === "agents") { commands.agents([]); return; }
     if (name === "skills") { commands.skills([]); return; }
 
-    await runOrbitCmd(name, rest);
+    await runCosmosCmd(name, rest);
   },
 
   // ── cosmos build ──────────────────────────────────────────────────────────
@@ -206,12 +207,12 @@ const commands = {
     console.log(C.dim(`  Target: ${target}`));
 
     try {
-      execSync(`python scripts/orbit_sync.py --target ${target}`, {
+      execSync(`python scripts/rocketmind_sync.py --target ${target}`, {
         cwd: ROOT, stdio: "inherit",
       });
       console.log(C.green("\n  ✓ COSMOS build complete"));
     } catch (e) {
-      console.error(C.red("  ✗ Build failed. Run: python scripts/orbit_sync.py"));
+      console.error(C.red("  ✗ Build failed. Run: python scripts/rocketmind_sync.py"));
     }
   },
 
@@ -254,9 +255,9 @@ const commands = {
       } else console.log(JSON.stringify(r, null, 2));
     } catch {
       // Print from registry file
-      const orbitRegistry = path.join(ROOT, "..", "orbit", "orbit.registry.json");
-      if (fs.existsSync(orbitRegistry)) {
-        const reg = JSON.parse(fs.readFileSync(orbitRegistry, "utf8"));
+      const registry = path.join(ROOT, "rocketmind.registry.json");
+      if (fs.existsSync(registry)) {
+        const reg = JSON.parse(fs.readFileSync(registry, "utf8"));
         reg.agents.forEach(a => {
           console.log(`  ${C.green("•")} ${C.bold(a.name.padEnd(22))} ${C.dim(a.domains?.join(", ") || "")}`);
         });
@@ -267,7 +268,7 @@ const commands = {
   // ── cosmos skills ─────────────────────────────────────────────────────────
   skills: async () => {
     console.log(C.bold("\n  COSMOS Skills Library\n"));
-    const skillsDir = path.join(ROOT, "..", "orbit", "skills");
+    const skillsDir = path.join(ROOT, ".claude", "skills");
     if (fs.existsSync(skillsDir)) {
       fs.readdirSync(skillsDir).filter(f => f.endsWith(".md")).forEach(f => {
         const name = f.replace(".md", "");
@@ -286,12 +287,12 @@ const commands = {
     banner("generate");
     console.log(C.cyan("  Generating COSMOS command surface from Orbit registry...\n"));
 
-    const orbitRegistry = path.join(ROOT, "..", "orbit", "orbit.registry.json");
-    if (!fs.existsSync(orbitRegistry)) {
-      console.error(C.red("  Orbit registry not found at ../orbit/orbit.registry.json"));
+    const registry = path.join(ROOT, "rocketmind.registry.json");
+    if (!fs.existsSync(registry)) {
+      console.error(C.red("  rocketmind.registry.json not found at project root"));
       process.exit(1);
     }
-    const reg = JSON.parse(fs.readFileSync(orbitRegistry, "utf8"));
+    const reg = JSON.parse(fs.readFileSync(registry, "utf8"));
 
     // Generate .claude/commands/cosmos.md
     const commandsDir = path.join(ROOT, ".claude", "commands");
@@ -303,9 +304,9 @@ const commands = {
 
     reg.workflows.forEach(w => {
       const cosmosCmd = `/cosmos:${w.name}`;
-      const orbitCmd  = w.command;
+      
       md += `### \`${cosmosCmd}\`\n`;
-      md += `> Maps to \`${orbitCmd}\`\n\n`;
+      md += `> Command: \`${w.command}\` | Mode: \`${w.mode || "collaborative"}\`\n\n`;
       if (w.inputs?.length)  md += `**Inputs:** ${w.inputs.join(", ")}\n\n`;
       if (w.outputs?.length) md += `**Outputs:** ${w.outputs.join(", ")}\n\n`;
       if (w.agents?.length)  md += `**Agents:** ${w.agents.join(", ")}\n\n`;
@@ -356,7 +357,7 @@ const commands = {
     console.log(`  ${C.dim("npm run state")}          Current workflow state`);
     console.log();
     console.log(C.bold("  In Claude Code, use: /cosmos:<command>"));
-    console.log(C.dim("  All /cosmos:* commands are aliases for /orbit:* routed through COSMOS.\n"));
+    console.log(C.dim("  All /cosmos:* commands run inside COSMOS (RocketMind — self-contained).\n"));
   },
 };
 
