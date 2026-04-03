@@ -105,6 +105,16 @@ async def run_artifacts(request: Request):
     return {"success": m.success, "documents": m.documents_ingested, "details": m.details, "error": m.error}
 
 
+@router.post("/agents-skills-tools")
+async def run_agents_skills_tools(request: Request):
+    """M9/10/11: Ingest Pillar 9 agent defs, Pillar 10 skill defs, Pillar 11 tool defs → Qdrant + MARS DB graph nodes."""
+    pipeline = _get_pipeline(request)
+    if not pipeline:
+        return {"error": "Training pipeline not initialized"}
+    m = await pipeline.run_pillar9_10_11()
+    return {"success": m.success, "documents": m.documents_ingested, "details": m.details, "error": m.error}
+
+
 @router.post("/seeds")
 async def run_seeds(request: Request):
     """Ingest eval seeds and training seeds."""

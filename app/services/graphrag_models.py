@@ -39,6 +39,8 @@ class NodeType(str, Enum):
     action_contract = "action_contract"
     # Pillar 7: Workflow runbooks
     workflow = "workflow"
+    # Pillar 9/10/11: Agent, Skill, Tool definitions
+    skill = "skill"
 
 
 class EdgeType(str, Enum):
@@ -70,6 +72,9 @@ class EdgeType(str, Enum):
     has_precondition = "has_precondition"  # action_contract → table (precondition check)
     dispatches_job = "dispatches_job"      # action_contract → action_contract (async follow-up)
     calls_api = "calls_api"               # action_contract → api_endpoint
+    # Pillar 9/10/11: Agent, Skill, Tool edges
+    agent_has_skill = "agent_has_skill"   # agent → skill
+    skill_calls_tool = "skill_calls_tool" # skill → tool
 
 
 # ── Universal identity context ─────────────────────────────────────────────

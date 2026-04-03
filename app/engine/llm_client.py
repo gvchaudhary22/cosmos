@@ -415,12 +415,18 @@ class LLMClient:
     # ------------------------------------------------------------------
 
     async def classify(self, text: str) -> str:
-        """Always uses Haiku for classification (lookup intent, high confidence)."""
+        """Always uses Haiku for pure classification tasks (no response generation).
+
+        Uses complexity_signals to force Haiku via route_classify path.
+        This is the only call site where Haiku is appropriate — it extracts
+        intent/entity from text, not generating a response for an operator.
+        """
         return await self.complete(
             text,
             max_tokens=200,
-            intent="lookup",
-            confidence=0.9,
+            intent="classify",
+            confidence=1.0,
+            complexity_signals={"_force_classify": True},
         )
 
     async def reason(

@@ -440,7 +440,7 @@ knowledge_base/shiprocket/
   SR_Sidebar/          → UI sidebar component
 ```
 
-**The 8 Pillars:**
+**The 11 Pillars:**
 
 | Pillar | What It Answers |
 |--------|----------------|
@@ -451,7 +451,12 @@ knowledge_base/shiprocket/
 | P6: Action Contracts | "What should I do?" — 25 actions × 11 files each |
 | P7: Workflow Runbooks | "Why did this happen?" — 9 workflows × 13 files each |
 | P8: Negative Routing | "Don't confuse X with Y" — 100 disambiguation examples |
+| P9: Agent Definitions | "Which agent handles this?" — agent capabilities, routing, scope |
+| P10: Skill Definitions | "What skills are available?" — skill inputs, outputs, contracts |
+| P11: Tool Definitions | "What tools can be called?" — tool signatures, side effects, permissions |
 | Hub: Entity Summaries | "Give me everything about X" — cross-pillar summaries |
+
+P9/P10/P11 are ingested via `POST /cosmos/api/v1/pipeline/agents-skills-tools`. Graph nodes use `NodeType.skill` with edges `EdgeType.agent_has_skill` and `EdgeType.skill_calls_tool` (defined in `graphrag_models.py`).
 
 ---
 
@@ -493,11 +498,14 @@ knowledge_base/shiprocket/
 
 | Task | Model | Cost Factor |
 |------|-------|-------------|
-| Intent classification, routing | `claude-haiku-4-5-20251001` | 1× |
-| Code generation, API endpoints, tests | `claude-sonnet-4-6` | 5× |
+| Intent classification only (`classify()`) | `claude-haiku-4-5-20251001` | 1× |
+| High-confidence lookup / navigate queries | `claude-sonnet-4-6` | 5× |
+| act / report / explain queries (always) | `claude-opus-4-6` | 25× |
 | KB content generation, graph schema | `claude-opus-4-6` | 25× |
 | Security / guardrails review | `claude-opus-4-6` | 25× |
 | Cross-encoder reranking | `claude-opus-4-6` | 25× |
+
+**Quality-first routing rule:** Opus is the default for any query that produces a response an operator acts on (`act`, `report`, `explain`). Sonnet is used only when intent is `lookup` or `navigate` and confidence is high. Haiku is used exclusively for the initial `classify()` call.
 
 `LLM_MODE` in `.env`:
 - `cli` — local `claude` binary (Claude Max plan, zero API cost — recommended for dev)
@@ -518,6 +526,7 @@ Base path: `/cosmos/api/v1`
 | `/v1/hybrid-chat` | POST | Hybrid chat (KB + code + DB tiers) |
 | `/v1/brain/query` | POST | Direct brain query with wave trace |
 | `/v1/training-pipeline` | GET/POST | KB ingestion pipeline |
+| `/cosmos/api/v1/pipeline/agents-skills-tools` | POST | Pillar 9/10/11 ingestion (agent, skill, tool definitions) |
 | `/v1/vectorstore` | GET/POST/DELETE | Qdrant collection management |
 | `/v1/graphrag` | POST | GraphRAG query |
 | `/v1/feedback` | POST | Submit operator feedback |

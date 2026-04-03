@@ -107,6 +107,20 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
+# 4. README staleness check — WARN only (not blocking)
+# ---------------------------------------------------------------------------
+echo "--- README Staleness ---"
+STAGED_PY=$(git -C "$COSMOS_ROOT" diff --cached --name-only 2>/dev/null | grep -E '^app/.*\.py$' || true)
+STAGED_README=$(git -C "$COSMOS_ROOT" diff --cached --name-only 2>/dev/null | grep 'README\.md' || true)
+if [[ -n "$STAGED_PY" ]] && [[ -z "$STAGED_README" ]]; then
+    warn "Python files changed but README.md not staged — run: /cosmos:quick update README if new endpoints/modules were added"
+else
+    info "README check passed"
+fi
+
+echo ""
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 if [[ "$FAIL_COUNT" -gt 0 ]]; then

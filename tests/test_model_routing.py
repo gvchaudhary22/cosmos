@@ -36,34 +36,40 @@ class TestModelRouter:
     def setup_method(self):
         self.router = ModelRouter()
 
-    def test_lookup_high_confidence_routes_haiku(self):
+    def test_lookup_high_confidence_routes_sonnet(self):
+        """Quality-first: lookups use Sonnet minimum, not Haiku."""
         profile = self.router.route(Intent.LOOKUP, 0.9)
-        assert profile.tier == ModelTier.HAIKU
-
-    def test_lookup_moderate_confidence_routes_sonnet(self):
-        profile = self.router.route(Intent.LOOKUP, 0.7)
         assert profile.tier == ModelTier.SONNET
 
-    def test_navigate_routes_haiku(self):
+    def test_lookup_moderate_confidence_routes_opus(self):
+        """Confidence 0.7 is below 0.9 threshold — falls to Opus default."""
+        profile = self.router.route(Intent.LOOKUP, 0.7)
+        assert profile.tier == ModelTier.OPUS
+
+    def test_navigate_high_confidence_routes_sonnet(self):
+        """Quality-first: navigate uses Sonnet minimum, not Haiku."""
         profile = self.router.route(Intent.NAVIGATE, 0.9)
-        assert profile.tier == ModelTier.HAIKU
+        assert profile.tier == ModelTier.SONNET
 
     def test_navigate_low_confidence_routes_opus(self):
         """Even NAVIGATE with very low confidence goes to Opus."""
         profile = self.router.route(Intent.NAVIGATE, 0.3)
         assert profile.tier == ModelTier.OPUS
 
-    def test_act_routes_sonnet(self):
+    def test_act_routes_opus(self):
+        """Actions always use Opus — they have real logistics side effects."""
         profile = self.router.route(Intent.ACT, 0.9)
-        assert profile.tier == ModelTier.SONNET
+        assert profile.tier == ModelTier.OPUS
 
-    def test_report_routes_sonnet(self):
+    def test_report_routes_opus(self):
+        """Reports always use Opus — correctness over cost."""
         profile = self.router.route(Intent.REPORT, 0.8)
-        assert profile.tier == ModelTier.SONNET
+        assert profile.tier == ModelTier.OPUS
 
-    def test_explain_single_entity_routes_sonnet(self):
+    def test_explain_routes_opus(self):
+        """Explain always uses Opus — causal reasoning needs depth."""
         profile = self.router.route(Intent.EXPLAIN, 0.8)
-        assert profile.tier == ModelTier.SONNET
+        assert profile.tier == ModelTier.OPUS
 
     def test_explain_multi_entity_routes_opus(self):
         profile = self.router.route(
@@ -93,9 +99,10 @@ class TestModelRouter:
         )
         assert profile.tier == ModelTier.OPUS
 
-    def test_unknown_intent_routes_sonnet(self):
+    def test_unknown_intent_routes_opus(self):
+        """Quality-first: unknown intent falls back to Opus, not Sonnet."""
         profile = self.router.route(Intent.UNKNOWN, 0.6)
-        assert profile.tier == ModelTier.SONNET
+        assert profile.tier == ModelTier.OPUS
 
     def test_estimate_cost_haiku(self):
         cost = self.router.estimate_cost(ModelTier.HAIKU, 1000, 500)
@@ -108,17 +115,17 @@ class TestModelRouter:
         assert cost == pytest.approx(expected, abs=1e-6)
 
     def test_usage_stats_tracking(self):
-        self.router.route(Intent.LOOKUP, 0.9)   # HAIKU
-        self.router.route(Intent.ACT, 0.9)       # SONNET
-        self.router.route(Intent.ACT, 0.8)       # SONNET
-        self.router.route(Intent.LOOKUP, 0.3)    # OPUS
+        self.router.route(Intent.LOOKUP, 0.9)   # SONNET (high confidence lookup)
+        self.router.route(Intent.ACT, 0.9)       # OPUS (act always → Opus)
+        self.router.route(Intent.ACT, 0.8)       # OPUS (act always → Opus)
+        self.router.route(Intent.LOOKUP, 0.3)    # OPUS (low confidence)
 
         stats = self.router.get_usage_stats()
         assert stats["total_queries"] == 4
-        assert stats["by_tier"][ModelTier.HAIKU] == 1
-        assert stats["by_tier"][ModelTier.SONNET] == 2
-        assert stats["by_tier"][ModelTier.OPUS] == 1
-        assert stats["distribution"]["haiku"] == pytest.approx(25.0)
+        assert stats["by_tier"][ModelTier.HAIKU] == 0
+        assert stats["by_tier"][ModelTier.SONNET] == 1
+        assert stats["by_tier"][ModelTier.OPUS] == 3
+        assert stats["distribution"]["sonnet"] == pytest.approx(25.0)
 
     def test_profiles_complete(self):
         """All three tiers have profiles."""

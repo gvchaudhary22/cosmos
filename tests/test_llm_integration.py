@@ -124,19 +124,21 @@ class TestNoApiKey:
 
 
 class TestCompleteRouting:
-    def test_lookup_high_confidence_uses_haiku(self):
+    def test_lookup_high_confidence_uses_sonnet(self):
+        """Quality-first: high-confidence lookups use Sonnet minimum, not Haiku."""
         mock = _mock_anthropic_client()
         client = LLMClient(anthropic_client=mock, llm_mode="api")
         _run(client.complete("show order 123", intent="lookup", confidence=0.95))
         model_used = mock.messages.create.call_args.kwargs["model"]
-        assert "haiku" in model_used
+        assert "sonnet" in model_used
 
-    def test_explain_uses_sonnet(self):
+    def test_explain_uses_opus(self):
+        """Quality-first: explain always uses Opus for causal depth."""
         mock = _mock_anthropic_client()
         client = LLMClient(anthropic_client=mock, llm_mode="api")
         _run(client.complete("why is order delayed", intent="explain", confidence=0.7))
         model_used = mock.messages.create.call_args.kwargs["model"]
-        assert "sonnet" in model_used
+        assert "opus" in model_used
 
     def test_low_confidence_uses_opus(self):
         mock = _mock_anthropic_client()

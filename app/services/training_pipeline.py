@@ -144,6 +144,11 @@ class TrainingPipeline:
         result.milestones.append(m6)
         result.total_documents += m6.documents_ingested
 
+        # M9/10/11: Agent, Skill, Tool definitions → Qdrant + MARS DB graph nodes
+        m9_10_11 = await self.run_pillar9_10_11()
+        result.milestones.append(m9_10_11)
+        result.total_documents += m9_10_11.documents_ingested
+
         # M7: Entity Hub generation (cross-pillar summaries)
         m7 = await self.run_entity_hubs()
         result.milestones.append(m7)
@@ -893,6 +898,230 @@ class TrainingPipeline:
                 milestone=80, name="icrm_eval",
                 error=str(e), duration_ms=(time.monotonic() - t0) * 1000,
             )
+
+    async def run_pillar9_10_11(self) -> MilestoneResult:
+        """Ingest Pillar 9 (agent definitions), Pillar 10 (skill definitions),
+        Pillar 11 (tool definitions) and write graph nodes to MARS DB."""
+        t0 = time.monotonic()
+        try:
+            total = 0
+            details: Dict[str, Any] = {}
+            kb_path_obj = self.kb_reader.kb_path
+
+            p9_docs: list = []
+            p10_docs: list = []
+            p11_docs: list = []
+
+            # Scan all repos — only MultiChannel_API has these today but remain repo-agnostic
+            for repo_dir in sorted(kb_path_obj.iterdir()):
+                if not repo_dir.is_dir():
+                    continue
+                repo = repo_dir.name
+
+                # Pillar 9: Agent definitions
+                if (repo_dir / "pillar_9_agents").exists():
+                    docs = self.kb_reader.read_pillar9_agents(repo)
+                    if docs:
+                        ingest_docs = [IngestDocument(**d) for d in docs]
+                        res = await self.ingestor.ingest(ingest_docs)
+                        total += res.ingested
+                        details[f"p9_agents_{repo}"] = res.ingested
+                        p9_docs.extend(docs)
+
+                # Pillar 10: Skill definitions
+                if (repo_dir / "pillar_10_skills").exists():
+                    docs = self.kb_reader.read_pillar10_skills(repo)
+                    if docs:
+                        ingest_docs = [IngestDocument(**d) for d in docs]
+                        res = await self.ingestor.ingest(ingest_docs)
+                        total += res.ingested
+                        details[f"p10_skills_{repo}"] = res.ingested
+                        p10_docs.extend(docs)
+
+                # Pillar 11: Tool definitions
+                if (repo_dir / "pillar_11_tools").exists():
+                    docs = self.kb_reader.read_pillar11_tools(repo)
+                    if docs:
+                        ingest_docs = [IngestDocument(**d) for d in docs]
+                        res = await self.ingestor.ingest(ingest_docs)
+                        total += res.ingested
+                        details[f"p11_tools_{repo}"] = res.ingested
+                        p11_docs.extend(docs)
+
+            # Write graph nodes + edges to MARS DB
+            graph_details = await self._build_agent_skill_tool_graph(p9_docs, p10_docs, p11_docs)
+            details.update(graph_details)
+
+            logger.info("pipeline.pillar9_10_11_complete", total=total, details=details)
+            return MilestoneResult(
+                milestone=70, name="pillar9_10_11_agents_skills_tools",
+                success=True, documents_ingested=total,
+                duration_ms=(time.monotonic() - t0) * 1000, details=details,
+            )
+        except Exception as e:
+            logger.error("pipeline.pillar9_10_11_failed", error=str(e))
+            return MilestoneResult(
+                milestone=70, name="pillar9_10_11_agents_skills_tools",
+                error=str(e), duration_ms=(time.monotonic() - t0) * 1000,
+            )
+
+    async def _build_agent_skill_tool_graph(
+        self,
+        p9_docs: list,
+        p10_docs: list,
+        p11_docs: list,
+    ) -> Dict:
+        """Create graph nodes and edges for agents, skills, and tools in MARS DB.
+
+        Writes to graph_nodes table:
+          agent:{name}    (NodeType.agent)
+          skill:{name}    (NodeType.skill)
+          tool_def:{name} (NodeType.tool)
+
+        Writes edges:
+          agent → skill  (agent_has_skill, from tools_allowed / skills fields)
+          skill → tool   (skill_calls_tool, from steps[].tool fields)
+        """
+        from app.services.graphrag_models import NodeType, EdgeType
+        graphrag = getattr(self, "_graphrag", None)
+        if graphrag is None:
+            try:
+                from app.services.graphrag import GraphRAGService
+                graphrag = GraphRAGService()
+                self._graphrag = graphrag
+            except Exception:
+                return {"graph_agents": 0, "graph_skills": 0, "graph_tools": 0}
+
+        agent_nodes = 0
+        skill_nodes = 0
+        tool_nodes = 0
+        edge_count = 0
+
+        # Build skill name → entity_id map for edge wiring
+        skill_index: Dict[str, str] = {}
+        for doc in p10_docs:
+            meta = doc.get("metadata", {})
+            sname = meta.get("skill_name", "")
+            if sname:
+                skill_index[sname] = doc.get("entity_id", f"skill:{sname}")
+
+        # Build tool name → entity_id map
+        tool_index: Dict[str, str] = {}
+        for doc in p11_docs:
+            meta = doc.get("metadata", {})
+            tname = meta.get("tool_name", "")
+            if tname:
+                tool_index[tname] = doc.get("entity_id", f"tool_def:{tname}")
+
+        # Ingest agent nodes + agent→skill edges
+        for doc in p9_docs:
+            meta = doc.get("metadata", {})
+            agent_name = meta.get("agent_name", "")
+            if not agent_name:
+                continue
+            repo = doc.get("repo_id", "MultiChannel_API")
+            entity_id = doc.get("entity_id", f"agent:{agent_name}")
+
+            # Reconstruct skills list from content (already rendered as "Skills: a, b, c")
+            raw_skills: list = []
+            content = doc.get("content", "")
+            for line in content.splitlines():
+                if line.startswith("Skills: "):
+                    raw_skills = [s.strip() for s in line[len("Skills: "):].split(",") if s.strip()]
+
+            graphrag.ingest_node(
+                node_id=entity_id,
+                node_type=NodeType.agent,
+                label=agent_name,
+                repo_id=repo,
+                properties={
+                    "domain": meta.get("domain", ""),
+                    "tier": meta.get("tier", ""),
+                    "pillar": "pillar_9",
+                },
+            )
+            agent_nodes += 1
+
+            for sname in raw_skills:
+                target = skill_index.get(sname, f"skill:{sname}")
+                graphrag.ingest_edge(
+                    source_id=entity_id,
+                    target_id=target,
+                    edge_type=EdgeType.agent_has_skill,
+                    repo_id=repo,
+                )
+                edge_count += 1
+
+        # Ingest skill nodes + skill→tool edges
+        for doc in p10_docs:
+            meta = doc.get("metadata", {})
+            skill_name = meta.get("skill_name", "")
+            if not skill_name:
+                continue
+            repo = doc.get("repo_id", "MultiChannel_API")
+            entity_id = doc.get("entity_id", f"skill:{skill_name}")
+
+            graphrag.ingest_node(
+                node_id=entity_id,
+                node_type=NodeType.skill,
+                label=skill_name,
+                repo_id=repo,
+                properties={
+                    "domain": meta.get("domain", ""),
+                    "pillar": "pillar_10",
+                },
+            )
+            skill_nodes += 1
+
+            # Wire skill→tool edges from "Step N: tool_call — <tool_name>" lines
+            content = doc.get("content", "")
+            for line in content.splitlines():
+                if "tool_call" in line or "tool:" in line:
+                    # Extract tool name from "Step N: tool_call — orders_get" style lines
+                    parts = line.split("—")
+                    if len(parts) >= 2:
+                        tname = parts[-1].strip()
+                        if tname in tool_index:
+                            graphrag.ingest_edge(
+                                source_id=entity_id,
+                                target_id=tool_index[tname],
+                                edge_type=EdgeType.skill_calls_tool,
+                                repo_id=repo,
+                            )
+                            edge_count += 1
+
+        # Ingest tool nodes
+        for doc in p11_docs:
+            meta = doc.get("metadata", {})
+            tool_name = meta.get("tool_name", "")
+            if not tool_name:
+                continue
+            repo = doc.get("repo_id", "MultiChannel_API")
+            entity_id = doc.get("entity_id", f"tool_def:{tool_name}")
+
+            graphrag.ingest_node(
+                node_id=entity_id,
+                node_type=NodeType.tool,
+                label=tool_name,
+                repo_id=repo,
+                properties={
+                    "domain": meta.get("domain", ""),
+                    "pillar": "pillar_11",
+                },
+            )
+            tool_nodes += 1
+
+        # graphrag.ingest_node/edge writes to MySQL + Neo4j immediately per call — no flush needed.
+        logger.info(
+            "pipeline.agent_skill_tool_graph_built",
+            agents=agent_nodes, skills=skill_nodes, tools=tool_nodes, edges=edge_count,
+        )
+        return {
+            "graph_agents": agent_nodes,
+            "graph_skills": skill_nodes,
+            "graph_tools": tool_nodes,
+            "graph_edges": edge_count,
+        }
 
     async def run_entity_hubs(self) -> MilestoneResult:
         """Generate cross-pillar Entity Hub summaries (P1+P3+P6+P7 merged per entity)."""
