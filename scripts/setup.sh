@@ -93,6 +93,17 @@ else
   echo -e "${GREEN}  ✓ .env exists${NC}"
 fi
 
+# ── 7. Install git hooks ──────────────────────────────────────────────────────
+echo -e "${BLUE}▶ Installing git hooks...${NC}"
+GIT_HOOKS_DIR="$ROOT/.git/hooks"
+if [[ -d "$GIT_HOOKS_DIR" ]]; then
+  ln -sf "$ROOT/.claude/hooks/commit-msg.sh" "$GIT_HOOKS_DIR/commit-msg"
+  chmod +x "$ROOT/.claude/hooks/commit-msg.sh"
+  echo -e "${GREEN}  ✓ commit-msg hook installed (strips Claude/AI attribution)${NC}"
+else
+  echo -e "${YELLOW}  ⚠ .git/hooks not found — skipping hook install${NC}"
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}${GREEN}  COSMOS setup complete!${NC}"
