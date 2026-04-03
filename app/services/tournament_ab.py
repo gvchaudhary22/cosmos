@@ -326,22 +326,16 @@ class TournamentAB:
                         ))
                     except Exception:
                         pass  # column may already exist
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_ab_user
-                    ON {PREFERENCES_TABLE} (user_id)
-                """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_ab_preference
-                    ON {PREFERENCES_TABLE} (preference)
-                """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_ab_pair_id
-                    ON {PREFERENCES_TABLE} (pair_id)
-                """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_ab_agreement
-                    ON {PREFERENCES_TABLE} (annotator_count, agreement_score)
-                """))
+                for idx_sql in [
+                    f"CREATE INDEX idx_ab_user ON {PREFERENCES_TABLE} (user_id)",
+                    f"CREATE INDEX idx_ab_preference ON {PREFERENCES_TABLE} (preference)",
+                    f"CREATE INDEX idx_ab_pair_id ON {PREFERENCES_TABLE} (pair_id)",
+                    f"CREATE INDEX idx_ab_agreement ON {PREFERENCES_TABLE} (annotator_count, agreement_score)",
+                ]:
+                    try:
+                        await session.execute(text(idx_sql))
+                    except Exception:
+                        pass  # index already exists
 
                 # --- Failure cases table (negative signal mining) ---
                 await session.execute(text(f"""
@@ -358,14 +352,14 @@ class TournamentAB:
                         created_at TIMESTAMP DEFAULT now()
                     )
                 """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_failure_domain
-                    ON {FAILURE_CASES_TABLE} (query_domain)
-                """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_failure_created
-                    ON {FAILURE_CASES_TABLE} (created_at)
-                """))
+                for idx_sql in [
+                    f"CREATE INDEX idx_failure_domain ON {FAILURE_CASES_TABLE} (query_domain)",
+                    f"CREATE INDEX idx_failure_created ON {FAILURE_CASES_TABLE} (created_at)",
+                ]:
+                    try:
+                        await session.execute(text(idx_sql))
+                    except Exception:
+                        pass  # index already exists
 
                 await session.commit()
             except Exception as e:

@@ -34,9 +34,9 @@ CREATE TABLE IF NOT EXISTS cosmos_feedback_traces (
     auto_actions    JSON DEFAULT '[]',
     created_at      TIMESTAMP NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_feedback_confidence ON cosmos_feedback_traces(confidence);
-CREATE INDEX IF NOT EXISTS idx_feedback_type ON cosmos_feedback_traces(feedback_type);
-CREATE INDEX IF NOT EXISTS idx_feedback_domain ON cosmos_feedback_traces(domain);
+CREATE INDEX idx_feedback_confidence ON cosmos_feedback_traces(confidence);
+CREATE INDEX idx_feedback_type ON cosmos_feedback_traces(feedback_type);
+CREATE INDEX idx_feedback_domain ON cosmos_feedback_traces(domain);
 """
 
 _schema_ensured = False
@@ -58,7 +58,10 @@ class FeedbackLoop:
                 for stmt in _SCHEMA_SQL.strip().split(";"):
                     stmt = stmt.strip()
                     if stmt:
-                        await session.execute(text(stmt))
+                        try:
+                            await session.execute(text(stmt))
+                        except Exception:
+                            pass  # ignore duplicate index errors
                 await session.commit()
             _schema_ensured = True
         except Exception as e:

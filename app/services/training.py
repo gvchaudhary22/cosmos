@@ -40,9 +40,9 @@ CREATE TABLE IF NOT EXISTS cosmos_training_jobs (
     error         TEXT,
     created_at    TIMESTAMP NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_training_jobs_type   ON cosmos_training_jobs(job_type);
-CREATE INDEX IF NOT EXISTS idx_training_jobs_status ON cosmos_training_jobs(status);
-CREATE INDEX IF NOT EXISTS idx_training_jobs_repo   ON cosmos_training_jobs(repo_id);
+CREATE INDEX idx_training_jobs_type   ON cosmos_training_jobs(job_type);
+CREATE INDEX idx_training_jobs_status ON cosmos_training_jobs(status);
+CREATE INDEX idx_training_jobs_repo   ON cosmos_training_jobs(repo_id);
 """
 
 # Ensure pgvector extension + table for embeddings
@@ -59,8 +59,8 @@ CREATE TABLE IF NOT EXISTS cosmos_embeddings (
     metadata   JSON DEFAULT '{}',
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_embeddings_repo   ON cosmos_embeddings(repo_id);
-CREATE INDEX IF NOT EXISTS idx_embeddings_source ON cosmos_embeddings(source_id);
+CREATE INDEX idx_embeddings_repo   ON cosmos_embeddings(repo_id);
+CREATE INDEX idx_embeddings_source ON cosmos_embeddings(source_id);
 """
 
 # Table for trained intent model artefacts
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS cosmos_intent_models (
     metrics     JSON DEFAULT '{}',
     created_at  TIMESTAMP NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_intent_models_repo ON cosmos_intent_models(repo_id);
+CREATE INDEX idx_intent_models_repo ON cosmos_intent_models(repo_id);
 """
 
 # Table for optimised graph weights
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS cosmos_graph_weights (
     metrics     JSON DEFAULT '{}',
     created_at  TIMESTAMP NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_graph_weights_repo ON cosmos_graph_weights(repo_id);
+CREATE INDEX idx_graph_weights_repo ON cosmos_graph_weights(repo_id);
 """
 
 

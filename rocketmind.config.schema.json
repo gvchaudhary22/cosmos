@@ -1,0 +1,153 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://shiprocket.com/schemas/rocketmind-config",
+  "title": "RocketMind Config Schema",
+  "description": "Schema for cosmos.config.json — COSMOS/RocketMind runtime configuration",
+  "type": "object",
+  "required": ["project", "models", "agents", "cosmos"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "project": {
+      "type": "object",
+      "required": ["name", "org"],
+      "properties": {
+        "name":       { "type": "string", "description": "Project name" },
+        "org":        { "type": "string", "description": "Organization name" },
+        "codename":   { "type": "string" },
+        "version":    { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "state_dir":  { "type": "string", "description": "Path to STATE.md directory" },
+        "hooks_dir":  { "type": "string" },
+        "registry":   { "type": "string", "description": "Path to rocketmind.registry.json" }
+      }
+    },
+    "models": {
+      "type": "object",
+      "required": ["routing"],
+      "properties": {
+        "routing": {
+          "type": "object",
+          "required": ["classify", "standard", "reasoning", "security"],
+          "properties": {
+            "classify":  { "type": "string", "description": "Model alias for classification tasks" },
+            "standard":  { "type": "string", "description": "Model alias for standard tasks" },
+            "reasoning": { "type": "string", "description": "Model alias for reasoning/architecture tasks" },
+            "security":  { "type": "string", "description": "Model alias for security review tasks" }
+          }
+        },
+        "profiles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "max_tokens":   { "type": "integer", "minimum": 256 },
+              "temperature":  { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        },
+        "cost_guard": {
+          "type": "object",
+          "properties": {
+            "warn_at_tokens":        { "type": "integer", "minimum": 1000 },
+            "hard_limit_tokens":     { "type": "integer", "minimum": 1000 },
+            "auto_resume_on_compact":{ "type": "boolean" }
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "properties": {
+        "forge_threshold":              { "type": "number", "minimum": 0, "maximum": 1 },
+        "recommended_parallel_sessions":{ "type": "integer", "minimum": 1, "maximum": 32 },
+        "context_per_subagent":         { "type": "integer", "minimum": 10000 }
+      }
+    },
+    "cosmos": {
+      "type": "object",
+      "required": ["port"],
+      "properties": {
+        "port":       { "type": "integer", "minimum": 1024, "maximum": 65535 },
+        "grpc_port":  { "type": "integer" },
+        "api_prefix": { "type": "string", "pattern": "^/[a-z]" },
+        "wave_legs":  { "type": "integer", "minimum": 1, "maximum": 10 },
+        "rrf_weights": {
+          "type": "object",
+          "properties": {
+            "exact":   { "type": "number", "minimum": 0 },
+            "ppr":     { "type": "number", "minimum": 0 },
+            "graph":   { "type": "number", "minimum": 0 },
+            "vector":  { "type": "number", "minimum": 0 },
+            "lexical": { "type": "number", "minimum": 0 }
+          }
+        },
+        "confidence_gate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "hallucination_block_threshold": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "git": {
+      "type": "object",
+      "properties": {
+        "strategy":            { "type": "string", "enum": ["phase", "task", "feature"] },
+        "atomic_commits":      { "type": "boolean" },
+        "conventional_commits":{ "type": "boolean" },
+        "worktree_per_task":   { "type": "boolean" }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "properties": {
+        "auto_load":   { "type": "boolean" },
+        "lazy_load":   { "type": "boolean" },
+        "cache_loaded":{ "type": "boolean" }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "properties": {
+        "pre_compact":  { "type": "boolean" },
+        "stop":         { "type": "boolean" },
+        "pre_tool_use": { "type": "boolean" },
+        "post_tool_use":{ "type": "boolean" },
+        "on_error":     { "type": "boolean" }
+      }
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "prompt_injection_detection":  { "type": "boolean" },
+        "secret_scan_on_commit":       { "type": "boolean" },
+        "destructive_command_guard":   { "type": "boolean" }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "properties": {
+        "prefix": { "type": "string" },
+        "map": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "nexus": {
+      "type": "object",
+      "description": "Multi-repo orchestration configuration",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "repos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "path"],
+            "properties": {
+              "name":    { "type": "string" },
+              "path":    { "type": "string" },
+              "domains": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

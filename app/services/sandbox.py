@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS cosmos_test_cases (
     difficulty      TEXT DEFAULT 'medium',
     created_at      TIMESTAMP NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_test_cases_suite ON cosmos_test_cases(suite_id);
+CREATE INDEX idx_test_cases_suite ON cosmos_test_cases(suite_id);
 
 CREATE TABLE IF NOT EXISTS cosmos_sandbox_runs (
     id              CHAR(36) PRIMARY KEY,
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS cosmos_sandbox_runs (
     completed_at    TIMESTAMP,
     metrics         JSON DEFAULT '{}'
 );
-CREATE INDEX IF NOT EXISTS idx_sandbox_runs_suite ON cosmos_sandbox_runs(suite_id);
+CREATE INDEX idx_sandbox_runs_suite ON cosmos_sandbox_runs(suite_id);
 
 CREATE TABLE IF NOT EXISTS cosmos_run_results (
     id              CHAR(36) PRIMARY KEY,
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS cosmos_run_results (
     cost_usd        DOUBLE PRECISION DEFAULT 0.0,
     created_at      TIMESTAMP NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_run_results_run ON cosmos_run_results(run_id);
+CREATE INDEX idx_run_results_run ON cosmos_run_results(run_id);
 """
 
 
@@ -88,7 +88,10 @@ class SandboxService:
             for statement in _SCHEMA_SQL.strip().split(";"):
                 stmt = statement.strip()
                 if stmt:
-                    await session.execute(text(stmt))
+                    try:
+                        await session.execute(text(stmt))
+                    except Exception:
+                        pass  # ignore duplicate index errors
             await session.commit()
         logger.info("sandbox.schema_ensured")
 

@@ -67,14 +67,14 @@ class KBFileIndexService:
                         CONSTRAINT uq_kb_file_repo_path UNIQUE (repo_id, file_path)
                     )
                 """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_kb_file_status
-                    ON {self.TABLE} (status)
-                """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_kb_file_repo
-                    ON {self.TABLE} (repo_id)
-                """))
+                for idx_sql in [
+                    f"CREATE INDEX idx_kb_file_status ON {self.TABLE} (status)",
+                    f"CREATE INDEX idx_kb_file_repo ON {self.TABLE} (repo_id)",
+                ]:
+                    try:
+                        await session.execute(text(idx_sql))
+                    except Exception:
+                        pass  # index already exists (errno 1061)
                 await session.commit()
                 logger.info("kb_file_index.schema_ensured")
             except Exception as e:

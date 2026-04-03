@@ -39,14 +39,14 @@ class ReportAgentService:
                         created_at TIMESTAMP DEFAULT now()
                     )
                 """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_reports_type_period
-                    ON {REPORTS_TABLE} (report_type, period_start DESC)
-                """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_reports_repo
-                    ON {REPORTS_TABLE} (repo_id)
-                """))
+                for idx_sql in [
+                    f"CREATE INDEX idx_reports_type_period ON {REPORTS_TABLE} (report_type, period_start DESC)",
+                    f"CREATE INDEX idx_reports_repo ON {REPORTS_TABLE} (repo_id)",
+                ]:
+                    try:
+                        await session.execute(text(idx_sql))
+                    except Exception:
+                        pass  # index already exists
                 await session.commit()
                 log.info("report_schema_ensured")
             except Exception as exc:

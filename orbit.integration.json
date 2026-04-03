@@ -1,0 +1,118 @@
+{
+  "$schema": "./rocketmind.config.schema.json",
+  "integration": {
+    "type": "orbit-nexus",
+    "version": "1.0.0",
+    "description": "COSMOS registers itself in the Orbit Nexus for multi-repo orchestration"
+  },
+  "project": {
+    "name": "cosmos",
+    "org": "shiprocket",
+    "codename": "rocketmind",
+    "version": "1.0.0",
+    "type": "ai-brain",
+    "language": "python",
+    "port": 10001,
+    "repo": "gvchaudhary22/cosmos",
+    "team": "ai-platform"
+  },
+  "nexus": {
+    "role": "ai-inference",
+    "description": "AI inference engine for Shiprocket ICRM — handles all LLM calls, KB retrieval, and reasoning",
+    "upstream": [
+      {
+        "name": "mars",
+        "role": "api-gateway",
+        "relationship": "MARS routes queries to COSMOS via POST /cosmos/api/v1/cmd/execute",
+        "port": 8080
+      },
+      {
+        "name": "lime",
+        "role": "frontend",
+        "relationship": "LIME displays COSMOS responses and collects operator feedback",
+        "port": 3003
+      }
+    ],
+    "downstream": [
+      {
+        "name": "qdrant",
+        "role": "vector-store",
+        "url": "http://localhost:6333",
+        "collection": "cosmos_embeddings"
+      },
+      {
+        "name": "neo4j",
+        "role": "graph-db",
+        "url": "bolt://localhost:7687"
+      },
+      {
+        "name": "mysql",
+        "role": "relational-db",
+        "url": "mysql://localhost:3309/mars"
+      },
+      {
+        "name": "kafka",
+        "role": "event-bus",
+        "bootstrap": "localhost:9092",
+        "consumer_group": "cosmos-workers"
+      }
+    ]
+  },
+  "capabilities": [
+    "kb-retrieval",
+    "graph-rag",
+    "wave-execution",
+    "anti-hallucination",
+    "continuous-learning",
+    "multi-model-routing",
+    "action-execution",
+    "eval-benchmark"
+  ],
+  "api": {
+    "prefix": "/cosmos/api/v1",
+    "health": "/cosmos/health",
+    "metrics": "/cosmos/metrics",
+    "mcp": "/cosmos/mcp",
+    "key_endpoints": [
+      "POST /v1/hybrid-chat",
+      "POST /v1/brain/query",
+      "POST /v1/training-pipeline",
+      "POST /v1/cmd/execute",
+      "GET  /v1/costs"
+    ]
+  },
+  "orbit_commands": {
+    "prefix": "/cosmos:",
+    "registry": ".claude/commands/cosmos.md",
+    "adapters": {
+      "claude_code": "CLAUDE.md",
+      "codex": "INSTRUCTIONS.md",
+      "other": "templates/rocketmind.base.md"
+    }
+  },
+  "agents": {
+    "registry": "rocketmind.registry.json",
+    "count": 11,
+    "kernel": [
+      "architect", "engineer", "strategist", "reviewer",
+      "security-engineer", "devops", "data-engineer",
+      "qa-engineer", "kb-specialist", "researcher", "forge"
+    ],
+    "userland_dir": ".cosmos/extensions/agents"
+  },
+  "skills": {
+    "count": 19,
+    "dir": ".claude/skills"
+  },
+  "state": {
+    "file": ".cosmos/state/STATE.md",
+    "hooks_dir": ".claude/hooks"
+  },
+  "quality_gates": {
+    "recall_at_5": 0.75,
+    "lint": "ruff check app/ tests/",
+    "tests": "pytest tests/ -x -q",
+    "typecheck": "mypy app/ --ignore-missing-imports",
+    "secret_scan": true
+  }
+}

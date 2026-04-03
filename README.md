@@ -47,6 +47,34 @@ COSMOS  (Python — port 10001)          ← YOU ARE HERE
 
 ---
 
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [docs/architecture.md](docs/architecture.md) | Control plane, three pillars, wave execution model, model routing, Nexus, Sentinel CI |
+| [docs/concepts.md](docs/concepts.md) | Agents, skills, workflows, STATE.md, hooks, Agent Forge, KB |
+| [docs/token-optimization.md](docs/token-optimization.md) | Six-layer token strategy, cost estimates, model profiles |
+| [docs/security-model.md](docs/security-model.md) | Integrity verification, hook safety, prompt injection defense, SCA, OWASP mapping |
+| [docs/runtime-adapters.md](docs/runtime-adapters.md) | Claude Code (native), Codex (stable), other runtime adapter contracts |
+| [docs/playbooks.md](docs/playbooks.md) | Runbooks for startup failures, recall drops, hallucination spikes, Kafka lag |
+| [docs/evals.md](docs/evals.md) | Eval framework, recall@5 methodology, CI gate, EVAL-REPORT format |
+| [docs/eval-dataset.md](docs/eval-dataset.md) | 201 ICRM seed queries for regression testing |
+| [docs/mcp-guide.md](docs/mcp-guide.md) | MCP server integration for Claude Code and Cursor |
+| [docs/error-codes.md](docs/error-codes.md) | ERR-COSMOS-NNN registry with runbooks |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to add agents, skills, KB content, API endpoints |
+| [SECURITY.md](SECURITY.md) | Vulnerability reporting, threat model, security gates |
+| [rocketmind.registry.json](rocketmind.registry.json) | Machine-readable agent + skill + workflow registry |
+| [cosmos.config.json](cosmos.config.json) | Runtime config: model routing, RRF weights, wave settings |
+| [rocketmind.config.schema.json](rocketmind.config.schema.json) | JSON schema for config validation |
+| [orbit.integration.json](orbit.integration.json) | Orbit Nexus integration — registers COSMOS in multi-repo orchestration |
+| [templates/rocketmind.base.md](templates/rocketmind.base.md) | Source template for CLAUDE.md and INSTRUCTIONS.md |
+| [.claude/agents/](.claude/agents/) | 11 specialist agent definitions |
+| [.claude/skills/](.claude/skills/) | 19 reusable process skills |
+| [.claude/hooks/](.claude/hooks/) | Lifecycle and safety gate hooks |
+| [.claude/commands/cosmos.md](.claude/commands/cosmos.md) | /cosmos:* slash command surface |
+
+---
+
 ## Install
 
 **Prerequisites:** Python 3.12, Qdrant on `:6333`, Neo4j on `:7687`, MySQL on `:3309`.

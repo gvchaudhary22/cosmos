@@ -20,7 +20,7 @@ logger = structlog.get_logger()
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS cosmos_settings_cache (
     id         INTEGER PRIMARY KEY ,
-    settings   JSON   NOT NULL DEFAULT '{}',
+    settings   JSON,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 """

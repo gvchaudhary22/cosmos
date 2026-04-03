@@ -1021,16 +1021,14 @@ async def ensure_lexical_indexes() -> None:
     Safe to call multiple times (IF NOT EXISTS).
     """
     async with AsyncSessionLocal() as session:
-        await session.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_graph_nodes_label_fts
-            ON graph_nodes
-            
-        """))
-        # Index on JSON properties for keyword/alias search
-        await session.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_graph_nodes_properties_gin
-            ON graph_nodes
-        """))
+        for idx_sql in [
+            "CREATE INDEX idx_graph_nodes_label_fts ON graph_nodes (label)",
+            "CREATE INDEX idx_graph_nodes_properties_gin ON graph_nodes (properties(255))",
+        ]:
+            try:
+                await session.execute(text(idx_sql))
+            except Exception:
+                pass  # index already exists or column not available
         await session.commit()
     logger.info("hybrid_retrieval.lexical_indexes_ensured")
 
