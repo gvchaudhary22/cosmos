@@ -178,7 +178,16 @@ def chunk_api_doc(doc: Dict) -> List[Dict]:
             doc_copy["content"] = doc_copy["content"][:MAX_CHUNK_CHARS - 3] + "..."
         return [doc_copy]
 
-    return chunks
+    # Always include the main chunk (truncated) so the base entity_id is searchable.
+    # Sub-chunks provide focused retrieval; main chunk provides holistic summary lookup.
+    main_content = content[:MAX_CHUNK_CHARS - 3] + "..." if len(content) > MAX_CHUNK_CHARS else content
+    main_chunk = {
+        **base,
+        "entity_id": entity_id,
+        "content": main_content,
+        "metadata": {**metadata, "chunk_type": "main", "has_sub_chunks": True},
+    }
+    return [main_chunk] + chunks
 
 
 def chunk_documents(docs: List[Dict]) -> List[Dict]:

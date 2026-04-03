@@ -1,0 +1,2518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RocketMind KB: Orders Domain — Complete Guide</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0a0e1a;color:#e0e6f0;line-height:1.7;scroll-behavior:smooth}
+.slide{min-height:100vh;padding:60px 80px;border-bottom:1px solid #1a2040}
+.slide:nth-child(odd){background:linear-gradient(160deg,#0a0e1a 0%,#0f1628 100%)}
+.slide:nth-child(even){background:linear-gradient(160deg,#0d1225 0%,#0a0e1a 100%)}
+h1{font-size:3em;background:linear-gradient(90deg,#60a5fa,#a78bfa,#f472b6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px;letter-spacing:-0.5px}
+h2{font-size:2.1em;color:#60a5fa;margin-bottom:15px;padding-bottom:10px;border-bottom:2px solid #1e3a5f}
+h3{font-size:1.3em;color:#a78bfa;margin:18px 0 8px}
+h4{font-size:1.05em;color:#fb923c;margin:14px 0 6px}
+.subtitle{font-size:1.15em;color:#94a3b8;margin-bottom:25px}
+.section-label{font-size:0.75em;text-transform:uppercase;letter-spacing:2px;color:#475569;margin-bottom:5px}
+.card{background:#111830;border:1px solid #1e3a5f;border-radius:12px;padding:22px;margin:12px 0;transition:border-color 0.3s}
+.card:hover{border-color:#334155}
+.card.hl{border-color:#60a5fa;box-shadow:0 0 25px rgba(96,165,250,0.08)}
+.card.g{border-color:#34d399;box-shadow:0 0 20px rgba(52,211,153,0.06)}
+.card.p{border-color:#a78bfa;box-shadow:0 0 20px rgba(167,139,250,0.06)}
+.card.o{border-color:#fb923c;box-shadow:0 0 20px rgba(251,146,60,0.06)}
+.card.r{border-color:#f87171;box-shadow:0 0 20px rgba(248,113,113,0.06)}
+.grid{display:grid;gap:16px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}.g4{grid-template-columns:repeat(4,1fr)}
+.badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:0.78em;font-weight:600;margin:2px}
+.b-blue{background:#1e3a5f;color:#60a5fa}.b-green{background:#064e3b;color:#34d399}.b-purple{background:#3b0764;color:#a78bfa}.b-orange{background:#431407;color:#fb923c}.b-red{background:#450a0a;color:#f87171}.b-yellow{background:#422006;color:#fbbf24}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:0.88em}
+th{background:#1e293b;color:#60a5fa;padding:9px 12px;text-align:left;border-bottom:2px solid #334155;font-weight:600}
+td{padding:7px 12px;border-bottom:1px solid #1e293b}
+tr:hover td{background:#1e293b30}
+code{background:#1e293b;color:#34d399;padding:2px 6px;border-radius:4px;font-size:0.88em}
+pre{background:#0d1117;border:1px solid #1e3a5f;border-radius:8px;padding:15px;overflow-x:auto;font-size:0.82em;line-height:1.55;color:#c9d1d9;margin:10px 0}
+.fb{display:inline-block;background:#1e293b;border:2px solid #334155;border-radius:8px;padding:7px 14px;margin:4px;font-weight:600;font-size:0.88em}
+.fa{color:#60a5fa;font-size:1.4em;margin:0 4px;vertical-align:middle}
+.num{display:inline-flex;width:30px;height:30px;background:#1e3a5f;color:#60a5fa;border-radius:50%;align-items:center;justify-content:center;font-weight:700;margin-right:8px;font-size:0.9em;flex-shrink:0}
+.stat{text-align:center;padding:12px}
+.stat .v{font-size:2.6em;font-weight:700;background:linear-gradient(90deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stat .l{color:#94a3b8;font-size:0.85em;margin-top:4px}
+.step{display:flex;align-items:flex-start;margin:12px 0;gap:12px}
+.fp{background:#0d1117;border-left:3px solid #60a5fa;padding:8px 14px;margin:8px 0;font-family:'Cascadia Code','Fira Code',monospace;font-size:0.82em;color:#94a3b8;border-radius:0 6px 6px 0}
+.vs{display:flex;align-items:center;justify-content:center;color:#475569;font-size:0.9em;padding:8px 0}
+.toc{position:fixed;right:15px;top:50%;transform:translateY(-50%);background:#111830ee;border:1px solid #1e3a5f;border-radius:10px;padding:12px;z-index:100;font-size:0.72em;max-height:85vh;overflow-y:auto;backdrop-filter:blur(10px)}
+.toc a{display:block;color:#64748b;text-decoration:none;padding:3px 8px;border-radius:4px;transition:all 0.2s}
+.toc a:hover{background:#1e293b;color:#60a5fa}
+.toc .sep{border-top:1px solid #1e3a5f;margin:4px 0}
+.highlight-row td{background:#1e3a5f20}
+@media(max-width:1200px){.g2,.g3,.g4{grid-template-columns:1fr}.slide{padding:30px 20px}.toc{display:none}}
+</style>
+</head>
+<body>
+
+<nav class="toc">
+<strong style="color:#60a5fa;font-size:1.1em">Contents</strong>
+<div class="sep"></div>
+<a href="#s-1">Intro. AI Platform Vision</a>
+<a href="#s0">0. Platform Architecture</a>
+<a href="#s0b">0b. Query Flow + Engines</a>
+<a href="#s0c">0c. Phase 1 — Classify</a>
+<a href="#s0d">0d. Phase 2 — Wave Probe</a>
+<a href="#s0e">0e. Phase 3 — RIPER Assembly</a>
+<a href="#s0f">0f. Phase 4 — RALPH Verify</a>
+<a href="#s0g">0g. Phase 5 — Learning Loop</a>
+<a href="#s0h">0h. Agent Builder + Forge + Handoff</a>
+<a href="#s0i">0i. Mars Bridge + Safety Gates</a>
+<a href="#s1">1. Big Picture</a>
+<a href="#s2">2. Eight Pillars</a>
+<div class="sep"></div>
+<a href="#s3">3. P1 Schema (extraction)</a>
+<a href="#s4">4. P3 APIs &rarr; Tools</a>
+<a href="#s5">5. P5 Module Docs</a>
+<a href="#s6">6. P6 Action Contracts</a>
+<a href="#s7">7. P7 Workflows</a>
+<a href="#s8">8. Entity Hub + P4 + P8</a>
+<div class="sep"></div>
+<a href="#s9">9. Training Pipeline</a>
+<a href="#s10">10. Read &rarr; Render</a>
+<a href="#s11">11. Embed &rarr; Graph</a>
+<a href="#s12">12. Registry Discovery</a>
+<div class="sep"></div>
+<a href="#s13">13. Live Graph Data</a>
+<a href="#s14">14. Runtime Query Flow</a>
+<a href="#s15">15. Anti-Hallucination</a>
+<a href="#s16">16. Full E2E Diagram</a>
+<div class="sep"></div>
+<a href="#s17">17. 4 Concepts Defined</a>
+<a href="#s18">18. How They Relate</a>
+<a href="#s19">19. Live Example</a>
+<a href="#s20">20. Code Examples</a>
+</nav>
+
+<!-- ============================================================ -->
+<!-- ============================================================ -->
+<!-- SLIDE INTRO — AI Platform Vision for Shiprocket -->
+<!-- ============================================================ -->
+<div class="slide" id="s-1" style="display:flex;flex-direction:column;justify-content:center;min-height:100vh;background:linear-gradient(150deg,#040710 0%,#060b18 50%,#0a0e1a 100%)">
+
+  <!-- Eyebrow -->
+  <p class="section-label" style="letter-spacing:4px;color:#475569;margin-bottom:14px">Shiprocket &nbsp;·&nbsp; Internal AI Strategy</p>
+
+  <!-- Title -->
+  <h1 style="font-size:3.2em;line-height:1.2;margin-bottom:16px">
+    AI Platform Vision<br>
+    <span style="font-size:0.58em;background:linear-gradient(90deg,#60a5fa,#a78bfa,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent">
+      for Shiprocket
+    </span>
+  </h1>
+
+  <!-- What is this platform — simple -->
+  <div class="card hl" style="margin-bottom:20px;max-width:900px;padding:22px 28px">
+    <p class="section-label" style="margin-bottom:8px;font-size:0.7em;letter-spacing:2px">What is this platform?</p>
+    <p style="color:#e0e6f0;font-size:1.05em;line-height:1.9;margin:0">
+      A <strong style="color:#60a5fa">single system that connects all Shiprocket services</strong> and lets AI (plus rules) read data, take actions, and automate work — so employees spend less time searching and more time deciding.
+    </p>
+    <p style="color:#94a3b8;font-size:0.88em;line-height:1.8;margin-top:10px;margin-bottom:0">
+      Anyone can create a <strong style="color:#34d399">specialised AI agent</strong> using plain language and ready-made building blocks — no coding required.
+    </p>
+  </div>
+
+  <!-- The Goal — spoon-fed -->
+  <div style="max-width:900px;margin-bottom:36px">
+    <p class="section-label" style="margin-bottom:14px;letter-spacing:3px">The Goal — in plain words</p>
+    <div class="grid g3" style="gap:12px">
+
+      <div class="card" style="padding:18px 20px;border-color:#34d399">
+        <div style="font-size:1.6em;margin-bottom:8px">📚</div>
+        <h4 style="color:#34d399;margin:0 0 6px;font-size:0.95em">Capture what we know</h4>
+        <p style="color:#64748b;font-size:0.85em;line-height:1.7;margin:0">
+          Every team at Shiprocket has years of experience and unwritten rules. Right now, that knowledge lives in people's heads, scattered docs, and Slack messages. <strong style="color:#94a3b8">We put it all in one place.</strong>
+        </p>
+      </div>
+
+      <div class="card" style="padding:18px 20px;border-color:#60a5fa">
+        <div style="font-size:1.6em;margin-bottom:8px">⚡</div>
+        <h4 style="color:#60a5fa;margin:0 0 6px;font-size:0.95em">Make it instantly usable</h4>
+        <p style="color:#64748b;font-size:0.85em;line-height:1.7;margin:0">
+          Instead of asking a senior colleague or digging through dashboards, any employee can just <strong style="color:#94a3b8">ask a question in plain language</strong> and get the right answer in seconds.
+        </p>
+      </div>
+
+      <div class="card" style="padding:18px 20px;border-color:#a78bfa">
+        <div style="font-size:1.6em;margin-bottom:8px">🔄</div>
+        <h4 style="color:#a78bfa;margin:0 0 6px;font-size:0.95em">Keep getting smarter</h4>
+        <p style="color:#64748b;font-size:0.85em;line-height:1.7;margin:0">
+          Every time someone uses it, it learns. The more people use it, <strong style="color:#94a3b8">the better it gets</strong> — automatically — without anyone having to manually update it.
+        </p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Current Architecture (no product names) -->
+  <div style="margin-bottom:40px">
+    <p class="section-label" style="margin-bottom:16px;letter-spacing:3px">Current Architecture — Partially Implemented</p>
+    <div class="grid g3" style="gap:16px;max-width:900px">
+      <div class="card p" style="padding:22px 20px;text-align:center">
+        <div style="font-size:2em;margin-bottom:10px">🖥️</div>
+        <h3 style="color:#a78bfa;margin:0 0 6px;font-size:1em">User Interface Layer</h3>
+        <p style="color:#64748b;font-size:0.85em;line-height:1.6;margin:0">Front-end interface for employees. Natural language entry point for all queries, tasks, and decisions.</p>
+      </div>
+      <div class="card hl" style="padding:22px 20px;text-align:center;border-color:#60a5fa;box-shadow:0 0 30px rgba(96,165,250,0.1)">
+        <div style="font-size:2em;margin-bottom:10px">⚙️</div>
+        <h3 style="color:#60a5fa;margin:0 0 6px;font-size:1em">Orchestration Layer</h3>
+        <p style="color:#64748b;font-size:0.85em;line-height:1.6;margin:0">Manages workflows, agent routing, tool invocation, and integrations with internal systems.</p>
+      </div>
+      <div class="card g" style="padding:22px 20px;text-align:center">
+        <div style="font-size:2em;margin-bottom:10px">🧠</div>
+        <h3 style="color:#34d399;margin:0 0 6px;font-size:1em">Intelligence Layer</h3>
+        <p style="color:#64748b;font-size:0.85em;line-height:1.6;margin:0">The AI brain — responsible for reasoning, knowledge retrieval, and context-aware decision support.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5 Key Capabilities -->
+  <div style="margin-bottom:40px">
+    <p class="section-label" style="margin-bottom:16px;letter-spacing:3px">5 Key Capabilities</p>
+    <div class="grid g3" style="gap:12px;max-width:900px">
+
+      <div class="card" style="padding:18px 20px;border-color:#34d399">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="background:#064e3b;color:#34d399;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px;flex-shrink:0">01</span>
+          <h4 style="color:#34d399;margin:0;font-size:0.95em">Knowledge Creation &amp; Management</h4>
+        </div>
+        <p style="color:#64748b;font-size:0.83em;line-height:1.6;margin:0">Employees build and maintain structured knowledge repositories. Knowledge is continuously refined and enriched through usage.</p>
+      </div>
+
+      <div class="card" style="padding:18px 20px;border-color:#60a5fa">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="background:#1e3a5f;color:#60a5fa;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px;flex-shrink:0">02</span>
+          <h4 style="color:#60a5fa;margin:0;font-size:0.95em">Intelligent Retrieval &amp; Querying</h4>
+        </div>
+        <p style="color:#64748b;font-size:0.83em;line-height:1.6;margin:0">Technical, operational, and business users query for precise, context-aware insights using natural language — no SQL, no manual lookups.</p>
+      </div>
+
+      <div class="card" style="padding:18px 20px;border-color:#a78bfa">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="background:#3b0764;color:#a78bfa;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px;flex-shrink:0">03</span>
+          <h4 style="color:#a78bfa;margin:0;font-size:0.95em">Workflow Automation &amp; Execution</h4>
+        </div>
+        <p style="color:#64748b;font-size:0.83em;line-height:1.6;margin:0">Integration with internal systems (ICA admin panels and beyond) to fetch data and execute tasks — automating repetitive and decision-heavy processes.</p>
+      </div>
+
+      <div class="card" style="padding:18px 20px;border-color:#fbbf24">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="background:#422006;color:#fbbf24;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px;flex-shrink:0">04</span>
+          <h4 style="color:#fbbf24;margin:0;font-size:0.95em">Business Enablement</h4>
+        </div>
+        <p style="color:#64748b;font-size:0.83em;line-height:1.6;margin:0">Business users solve problems, build solutions, and make faster decisions without deep technical dependency. Reduces time-to-execution for new initiatives.</p>
+      </div>
+
+      <div class="card" style="padding:18px 20px;border-color:#fb923c">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="background:#431407;color:#fb923c;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px;flex-shrink:0">05</span>
+          <h4 style="color:#fb923c;margin:0;font-size:0.95em">Continuous Learning System</h4>
+        </div>
+        <p style="color:#64748b;font-size:0.83em;line-height:1.6;margin:0">Platform improves over time as more employees contribute and interact. Creates a self-evolving intelligence layer for the entire organization.</p>
+      </div>
+
+      <!-- Strategic Impact card -->
+      <div class="card" style="padding:18px 20px;background:linear-gradient(135deg,#1e3a5f20,#3b076420);border-color:#a78bfa40">
+        <p class="section-label" style="margin-bottom:10px;font-size:0.7em">Strategic Impact</p>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div style="display:flex;align-items:center;gap:8px"><span style="color:#34d399;font-size:0.9em">✓</span><span style="color:#94a3b8;font-size:0.82em">AI-first organization positioning</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="color:#34d399;font-size:0.9em">✓</span><span style="color:#94a3b8;font-size:0.82em">Preserves &amp; scales institutional knowledge</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="color:#34d399;font-size:0.9em">✓</span><span style="color:#94a3b8;font-size:0.82em">Enhances productivity across all teams</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="color:#34d399;font-size:0.9em">✓</span><span style="color:#94a3b8;font-size:0.82em">Faster innovation &amp; execution cycles</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="color:#34d399;font-size:0.9em">✓</span><span style="color:#94a3b8;font-size:0.82em">Sustainable competitive advantage in the AI era</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- SLIDE 0 — Platform Vision -->
+<!-- ============================================================ -->
+<div class="slide" id="s0" style="display:flex;flex-direction:column;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#050810 0%,#0a0e1a 40%,#0f1628 100%)">
+
+  <!-- Eyebrow -->
+  <p class="section-label" style="letter-spacing:4px;color:#475569;margin-bottom:18px">Shiprocket &nbsp;·&nbsp; Internal AI Platform</p>
+
+  <!-- Title -->
+  <h1 style="font-size:3.6em;line-height:1.15;margin-bottom:18px">
+    Distributed AI Platform<br>
+    <span style="font-size:0.65em;background:linear-gradient(90deg,#34d399,#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent">
+      Knowledge → Intelligence → Action
+    </span>
+  </h1>
+
+  <p style="color:#94a3b8;font-size:1.1em;max-width:780px;margin-bottom:48px;line-height:1.8">
+    Transforming Shiprocket's internal knowledge into an <strong style="color:#e0e6f0">executable intelligence layer</strong> powered by agents and multi-agent systems &mdash; enabling every employee to query, decide, and act at AI speed.
+  </p>
+
+  <!-- 3-Layer Architecture -->
+  <div class="grid g3" style="margin-bottom:48px;gap:20px">
+    <div class="card p" style="text-align:center;padding:28px 20px">
+      <div style="font-size:2em;margin-bottom:10px">🖥️</div>
+      <h3 style="color:#a78bfa;margin:0 0 8px">Frontend</h3>
+      <p class="section-label" style="margin-bottom:10px">UI Layer</p>
+      <p style="color:#64748b;font-size:0.88em;line-height:1.6">Unified interface for employees and business users. Natural language entry point for all operations.</p>
+    </div>
+    <div class="card hl" style="text-align:center;padding:28px 20px;border-color:#60a5fa;box-shadow:0 0 40px rgba(96,165,250,0.12)">
+      <div style="font-size:2em;margin-bottom:10px">⚙️</div>
+      <h3 style="color:#60a5fa;margin:0 0 8px">Shiprocket AI Platform</h3>
+      <p class="section-label" style="margin-bottom:10px">Orchestration Layer</p>
+      <p style="color:#64748b;font-size:0.88em;line-height:1.6">Handles agent workflows, routing, and tool invocation. The operational backbone of every AI task.</p>
+    </div>
+    <div class="card g" style="text-align:center;padding:28px 20px">
+      <div style="font-size:2em;margin-bottom:10px">🧠</div>
+      <h3 style="color:#34d399;margin:0 0 8px">RocketMind</h3>
+      <p class="section-label" style="margin-bottom:10px">Cognitive Layer</p>
+      <p style="color:#64748b;font-size:0.88em;line-height:1.6">Combines LLMs, GraphRAG, and vector search for reasoning, retrieval, and decision-making.</p>
+    </div>
+  </div>
+
+  <!-- 8 Knowledge Pillars -->
+  <div style="margin-bottom:48px">
+    <p class="section-label" style="margin-bottom:16px;letter-spacing:3px">Knowledge Architecture — 8 Pillars</p>
+    <p style="color:#64748b;font-size:0.9em;margin-bottom:24px;max-width:700px">Every agent answer is grounded in one or more pillars. No hallucination — only retrieved facts. Each pillar answers a different question an operator might ask.</p>
+
+    <div class="grid g4" style="gap:14px;margin-bottom:14px">
+
+      <!-- P1 -->
+      <div class="card g" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="background:#064e3b;color:#34d399;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px">P1</span>
+          <h3 style="color:#34d399;margin:0;font-size:1em">Schema</h3>
+        </div>
+        <p style="color:#94a3b8;font-size:0.82em;margin-bottom:8px"><strong style="color:#e0e6f0">What data exists?</strong><br>676 tables, 105 status constants, column types, validation rules, state transitions.</p>
+        <p style="color:#475569;font-size:0.78em;border-top:1px solid #1e3a5f;padding-top:8px;margin-bottom:6px"><strong style="color:#34d399">Why agents need it:</strong> Before touching any data, an agent must know which table holds it, what values are valid, and which status codes mean what.</p>
+        <div style="background:#0d1117;border-radius:6px;padding:8px 10px;font-size:0.76em;font-family:monospace;color:#94a3b8">
+          <span style="color:#475569">Query:</span> "What is order status 6?"<br>
+          <span style="color:#34d399">→</span> P1 returns: <code style="font-size:0.9em">SHIPPED</code>, transition from status 3 only
+        </div>
+      </div>
+
+      <!-- P2 -->
+      <div class="card r" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="background:#450a0a;color:#f87171;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px">P2</span>
+          <h3 style="color:#f87171;margin:0;font-size:1em">Workflows</h3>
+        </div>
+        <p style="color:#94a3b8;font-size:0.82em;margin-bottom:8px"><strong style="color:#e0e6f0">How does a process work end-to-end?</strong><br>State machines, decision trees, operator playbooks, exception paths, escalation rules.</p>
+        <p style="color:#475569;font-size:0.78em;border-top:1px solid #1e3a5f;padding-top:8px;margin-bottom:6px"><strong style="color:#f87171">Why agents need it:</strong> P1 tells you the fields. P2 tells you the correct <em>sequence of steps</em>. Without P2, an agent can look up data but can't guide a multi-step operation correctly.</p>
+        <div style="background:#0d1117;border-radius:6px;padding:8px 10px;font-size:0.76em;font-family:monospace;color:#94a3b8">
+          <span style="color:#475569">Query:</span> "How to process a prepaid return?"<br>
+          <span style="color:#f87171">→</span> P2 returns: step 1→2→3, conditions, refund trigger point
+        </div>
+      </div>
+
+      <!-- P3 -->
+      <div class="card hl" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="background:#1e3a5f;color:#60a5fa;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px">P3</span>
+          <h3 style="color:#60a5fa;margin:0;font-size:1em">APIs → Tools</h3>
+        </div>
+        <p style="color:#94a3b8;font-size:0.82em;margin-bottom:8px"><strong style="color:#e0e6f0">What API can I call?</strong><br>5,617 endpoints with method, path, controller, params, tool assignment and agent mapping.</p>
+        <p style="color:#475569;font-size:0.78em;border-top:1px solid #1e3a5f;padding-top:8px;margin-bottom:6px"><strong style="color:#60a5fa">Why agents need it:</strong> Every agent action that reads or writes data must go through an API. P3 is the bridge between intent and invocation.</p>
+        <div style="background:#0d1117;border-radius:6px;padding:8px 10px;font-size:0.76em;font-family:monospace;color:#94a3b8">
+          <span style="color:#475569">Query:</span> "Cancel this order"<br>
+          <span style="color:#60a5fa">→</span> P3 maps to: <code style="font-size:0.9em">POST /icrm/order/cancel</code>
+        </div>
+      </div>
+
+      <!-- P4 -->
+      <div class="card" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="background:#1e293b;color:#94a3b8;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px">P4</span>
+          <h3 style="color:#94a3b8;margin:0;font-size:1em">Pages + Roles</h3>
+        </div>
+        <p style="color:#94a3b8;font-size:0.82em;margin-bottom:8px"><strong style="color:#e0e6f0">Where is this field on the UI?</strong><br>24 pages, field→API→table.column traces, role-based visibility, UI component mapping.</p>
+        <p style="color:#475569;font-size:0.78em;border-top:1px solid #1e3a5f;padding-top:8px;margin-bottom:6px"><strong style="color:#94a3b8">Why agents need it:</strong> Operators describe problems using UI terms ("the weight field on the NDR page"). P4 translates UI language into backend reality.</p>
+        <div style="background:#0d1117;border-radius:6px;padding:8px 10px;font-size:0.76em;font-family:monospace;color:#94a3b8">
+          <span style="color:#475569">Query:</span> "Weight field on NDR page"<br>
+          <span style="color:#94a3b8">→</span> P4 traces to: <code style="font-size:0.9em">shipments.charged_weight</code>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid g4" style="gap:14px">
+
+      <!-- P5 -->
+      <div class="card p" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="background:#3b0764;color:#a78bfa;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px">P5</span>
+          <h3 style="color:#a78bfa;margin:0;font-size:1em">Module Docs</h3>
+        </div>
+        <p style="color:#94a3b8;font-size:0.82em;margin-bottom:8px"><strong style="color:#e0e6f0">What code handles this?</strong><br>713 files: controllers, services, jobs, routes, business rules per module.</p>
+        <p style="color:#475569;font-size:0.78em;border-top:1px solid #1e3a5f;padding-top:8px;margin-bottom:6px"><strong style="color:#a78bfa">Why agents need it:</strong> For debugging and dev tasks, the agent must know which service owns the logic, which job processes async work, and where business rules live.</p>
+        <div style="background:#0d1117;border-radius:6px;padding:8px 10px;font-size:0.76em;font-family:monospace;color:#94a3b8">
+          <span style="color:#475569">Query:</span> "Who handles NDR auto-close?"<br>
+          <span style="color:#a78bfa">→</span> P5 returns: <code style="font-size:0.9em">NdrService::autoClose()</code>
+        </div>
+      </div>
+
+      <!-- P6 -->
+      <div class="card o" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="background:#431407;color:#fb923c;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px">P6</span>
+          <h3 style="color:#fb923c;margin:0;font-size:1em">Action Contracts</h3>
+        </div>
+        <p style="color:#94a3b8;font-size:0.82em;margin-bottom:8px"><strong style="color:#e0e6f0">What should the agent do — and how safely?</strong><br>25 actions × 11 files: preconditions, execution graph, side effects, rollback, approval mode.</p>
+        <p style="color:#475569;font-size:0.78em;border-top:1px solid #1e3a5f;padding-top:8px;margin-bottom:6px"><strong style="color:#fb923c">Why agents need it:</strong> Defines the exact contract for every write operation — what must be true before acting, what changes after, and whether human approval is required.</p>
+        <div style="background:#0d1117;border-radius:6px;padding:8px 10px;font-size:0.76em;font-family:monospace;color:#94a3b8">
+          <span style="color:#475569">Query:</span> "Initiate RTO for AWB 12345"<br>
+          <span style="color:#fb923c">→</span> P6: check preconditions → confirm → execute → notify
+        </div>
+      </div>
+
+      <!-- P7 -->
+      <div class="card" style="padding:20px;border-color:#f87171">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="background:#450a0a;color:#f87171;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px">P7</span>
+          <h3 style="color:#f87171;margin:0;font-size:1em">Runbooks</h3>
+        </div>
+        <p style="color:#94a3b8;font-size:0.82em;margin-bottom:8px"><strong style="color:#e0e6f0">Why did this happen + how to fix it?</strong><br>Operator playbooks, incident runbooks, decision matrices, exception paths for 8 domains.</p>
+        <p style="color:#475569;font-size:0.78em;border-top:1px solid #1e3a5f;padding-top:8px;margin-bottom:6px"><strong style="color:#f87171">Why agents need it:</strong> Captures tribal knowledge that isn't in code — the implicit rules ops teams follow when things go wrong. Converts senior expertise into retrievable context.</p>
+        <div style="background:#0d1117;border-radius:6px;padding:8px 10px;font-size:0.76em;font-family:monospace;color:#94a3b8">
+          <span style="color:#475569">Query:</span> "Delivery failed 3 times, what now?"<br>
+          <span style="color:#f87171">→</span> P7: NDR runbook → check reason → reattempt or RTO
+        </div>
+      </div>
+
+      <!-- P8 -->
+      <div class="card" style="padding:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="background:#1e293b;color:#fbbf24;font-size:0.72em;font-weight:700;padding:2px 8px;border-radius:20px">P8</span>
+          <h3 style="color:#fbbf24;margin:0;font-size:1em">Negative Routing</h3>
+        </div>
+        <p style="color:#94a3b8;font-size:0.82em;margin-bottom:8px"><strong style="color:#e0e6f0">Don't confuse X with Y.</strong><br>100 negative examples: ambiguous Hinglish queries, similar-sounding operations, common misroutes.</p>
+        <p style="color:#475569;font-size:0.78em;border-top:1px solid #1e3a5f;padding-top:8px;margin-bottom:6px"><strong style="color:#fbbf24">Why agents need it:</strong> "Cancel order" ≠ "cancel shipment". P8 prevents the most dangerous class of errors — confidently doing the wrong thing.</p>
+        <div style="background:#0d1117;border-radius:6px;padding:8px 10px;font-size:0.76em;font-family:monospace;color:#94a3b8">
+          <span style="color:#475569">Query:</span> "cancel karo" (ambiguous)<br>
+          <span style="color:#fbbf24">→</span> P8: disambiguate → ask "order or shipment?"
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key Outcomes -->
+  <div class="card hl" style="margin-bottom:40px">
+    <h3 style="margin-top:0;color:#60a5fa">🎯 Key Outcomes &nbsp;<span style="font-size:0.7em;color:#475569;font-weight:400">(Target Metrics)</span></h3>
+    <div class="grid g4">
+      <div class="stat">
+        <div class="v">40–60%</div>
+        <div class="l">🚀 Reduction in task execution time</div>
+      </div>
+      <div class="stat">
+        <div class="v">30–50%</div>
+        <div class="l">📉 Decrease in cross-team dependency</div>
+      </div>
+      <div class="stat">
+        <div class="v">Instant</div>
+        <div class="l">⚡ Knowledge retrieval vs hours of lookup</div>
+      </div>
+      <div class="stat">
+        <div class="v">∞</div>
+        <div class="l">🔁 Continuous improvement via feedback</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Strategic Advantage -->
+  <div class="grid g3" style="gap:16px">
+    <div class="card g" style="padding:20px 22px">
+      <p style="font-size:1.1em;margin-bottom:6px">🧩</p>
+      <h4 style="color:#34d399;margin:0 0 6px">Compounding Knowledge Asset</h4>
+      <p style="color:#64748b;font-size:0.87em">Converts employee knowledge into a permanent, queryable, and improving organizational resource.</p>
+    </div>
+    <div class="card p" style="padding:20px 22px">
+      <p style="font-size:1.1em;margin-bottom:6px">🎛️</p>
+      <h4 style="color:#a78bfa;margin:0 0 6px">AI-Assisted Decision-Making</h4>
+      <p style="color:#64748b;font-size:0.87em">Enables every team member to make faster, context-rich decisions without waiting for subject-matter experts.</p>
+    </div>
+    <div class="card o" style="padding:20px 22px">
+      <p style="font-size:1.1em;margin-bottom:6px">🚁</p>
+      <h4 style="color:#fb923c;margin:0 0 6px">Autonomous Operations Foundation</h4>
+      <p style="color:#64748b;font-size:0.87em">Creates the infrastructure for progressively autonomous operations — starting assisted, evolving to autonomous.</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 0b — Query Flow + All Engines -->
+<!-- ============================================================ -->
+<div class="slide" id="s0b">
+  <p class="section-label">End-to-End Query Architecture</p>
+  <h2>How a Query Travels: MCP Chat → RocketMind Response</h2>
+  <p class="subtitle">Every query passes through Mars Bridge → 3-axis classifier → 4 progressive wave stages → multi-signal tier gates → grounded response</p>
+
+  <!-- Full flow pipeline — CORRECTED (RIPER/RALPH are designed but not yet wired in QueryOrchestrator) -->
+  <div style="text-align:center;margin:30px 0 16px;overflow-x:auto">
+    <div style="display:inline-flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;row-gap:12px">
+      <span class="fb" style="border-color:#a78bfa;background:#3b076420;font-size:0.82em">💬 MCP Chat<br><span style="color:#475569;font-weight:400;font-size:0.85em">Lime Frontend</span></span>
+      <span class="fa">→</span>
+      <span class="fb" style="border-color:#60a5fa;background:#1e3a5f20;font-size:0.82em">⚙️ MarsBridge<br><span style="color:#475569;font-weight:400;font-size:0.85em">Safety + Route</span></span>
+      <span class="fa">→</span>
+      <span class="fb" style="border-color:#fbbf24;background:#42200620;font-size:0.82em">🔍 Classify<br><span style="color:#475569;font-weight:400;font-size:0.85em">Domain+Mode+Complexity</span></span>
+      <span class="fa">→</span>
+      <span class="fb" style="border-color:#34d399;background:#064e3b20;font-size:0.82em">⚡ Wave 1<br><span style="color:#475569;font-weight:400;font-size:0.85em">5 Parallel Probes</span></span>
+      <span class="fa">→</span>
+      <span class="fb" style="border-color:#fb923c;background:#43140720;font-size:0.82em">🌊 Wave 2<br><span style="color:#475569;font-weight:400;font-size:0.85em">GraphRAG+Deep</span></span>
+      <span class="fa">→</span>
+      <span class="fb" style="border-color:#a78bfa;background:#3b076420;font-size:0.82em">🔗 Wave 3<br><span style="color:#475569;font-weight:400;font-size:0.85em">LangGraph Reasoning</span></span>
+      <span class="fa">→</span>
+      <span class="fb" style="border-color:#60a5fa;background:#1e3a5f20;font-size:0.82em">🕸️ Wave 4<br><span style="color:#475569;font-weight:400;font-size:0.85em">Neo4j BFS</span></span>
+      <span class="fa">→</span>
+      <span class="fb" style="border-color:#fbbf24;background:#42200620;font-size:0.82em">🚦 Tier Gate<br><span style="color:#475569;font-weight:400;font-size:0.85em">Composite Score</span></span>
+      <span class="fa">→</span>
+      <span class="fb" style="border-color:#34d399;background:#064e3b;font-size:0.82em">✅ Response<br><span style="color:#34d399;font-weight:400;font-size:0.85em">Grounded + Cited</span></span>
+    </div>
+  </div>
+  <div style="text-align:center;margin-bottom:32px">
+    <span style="background:#3b0764;color:#a78bfa;font-size:0.78em;padding:4px 12px;border-radius:20px;border:1px solid #a78bfa40">🔬 RIPER + RALPH — Designed &amp; built, integration milestone pending</span>
+  </div>
+
+  <!-- Stage 0: MCP Chat → Mars -->
+  <div class="card hl" style="margin-bottom:16px">
+    <h3 style="color:#60a5fa;margin-top:0">Stage 0 — MCP Chat → Mars (Entry Point)</h3>
+    <div class="grid g2" style="gap:16px">
+      <div>
+        <p style="color:#94a3b8;font-size:0.9em;line-height:1.8">
+          The operator types a query in <strong style="color:#e0e6f0">Lime Frontend</strong> (MCP Chat at <code>/chat/[id]</code>). The message is sent via <strong style="color:#e0e6f0">SSE streaming</strong> to <strong style="color:#60a5fa">Mars</strong> at <code>POST /api/v1/chat/stream</code>.<br><br>
+          Mars validates the JWT token, resolves the active project/repo context, injects skill prompts from the <strong style="color:#e0e6f0">Skillloader</strong> (19 built-in skills), then forwards the enriched request to <strong style="color:#34d399">RocketMind (Cosmos)</strong> at <code>POST /cosmos/api/v1/hybrid/chat</code>.
+        </p>
+      </div>
+      <div>
+        <div style="background:#0d1117;border-radius:8px;padding:14px;font-family:monospace;font-size:0.78em;color:#94a3b8;line-height:1.8">
+          <span style="color:#475569">// Lime → Mars</span><br>
+          POST /api/v1/chat/stream<br>
+          { message, conversation_id, mode }<br><br>
+          <span style="color:#475569">// Mars enriches + forwards to Cosmos</span><br>
+          POST /cosmos/api/v1/hybrid/chat<br>
+          { query, repo_id, company_id,<br>
+          &nbsp;&nbsp;skills: ["safety-context","module-context"…],<br>
+          &nbsp;&nbsp;user_id, session_id }
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stage 1: Classifier -->
+  <div class="card" style="margin-bottom:16px;border-color:#fbbf24">
+    <h3 style="color:#fbbf24;margin-top:0">Stage 1 — Request Classifier (3-Dimension Classification)</h3>
+    <p style="color:#94a3b8;font-size:0.88em;margin-bottom:14px">Before any retrieval, every query is classified along <strong style="color:#e0e6f0">3 axes</strong> using lightweight keyword matching (no LLM call — fast):</p>
+    <div class="grid g3" style="gap:12px">
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#fbbf24;font-size:0.82em;font-weight:700;margin-bottom:8px">① DOMAIN</p>
+        <p style="color:#94a3b8;font-size:0.82em;line-height:1.7">Which part of the system is this about?<br><span style="color:#475569">ORDERS · SHIPMENTS · NDR · BILLING · SELLER · RETURNS · SYSTEM · GENERAL</span></p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.75em;color:#475569">"cancel order 123" → <span style="color:#fbbf24">ORDERS</span></div>
+      </div>
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#fbbf24;font-size:0.82em;font-weight:700;margin-bottom:8px">② COMPLEXITY</p>
+        <p style="color:#94a3b8;font-size:0.82em;line-height:1.7">How deep should retrieval go?<br><span style="color:#34d399">QUICK</span> — skip Wave 2<br><span style="color:#60a5fa">STANDARD</span> — conditional deep<br><span style="color:#f87171">COMPLEX</span> — fire all pipelines</p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.75em;color:#475569">"why did NDR fail?" → <span style="color:#f87171">COMPLEX</span></div>
+      </div>
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#fbbf24;font-size:0.82em;font-weight:700;margin-bottom:8px">③ MODE</p>
+        <p style="color:#94a3b8;font-size:0.82em;line-height:1.7">What kind of operation?<br><span style="color:#34d399">LOOKUP</span> — read-only info<br><span style="color:#fb923c">ACTION</span> — state-changing<br><span style="color:#a78bfa">DIAGNOSTIC</span> — trace / debug</p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.75em;color:#475569">"initiate refund" → <span style="color:#fb923c">ACTION</span></div>
+      </div>
+    </div>
+    <p style="color:#475569;font-size:0.8em;margin-top:12px">💡 QUICK queries skip Wave 2 entirely — direct to LLM with Wave 1 context. Saves ~400ms per simple lookup.</p>
+  </div>
+
+  <!-- Stage 2: Wave 1 — Parallel Probe -->
+  <div class="card g" style="margin-bottom:16px">
+    <h3 style="color:#34d399;margin-top:0">Stage 2 — Wave 1: Parallel Probe (5 Pipelines Simultaneously)</h3>
+    <p style="color:#94a3b8;font-size:0.88em;margin-bottom:16px">All 5 pipelines fire <strong style="color:#e0e6f0">in parallel</strong> using <code>asyncio.gather()</code>. Each probe takes ~50–200ms. The results are merged into a unified context object.</p>
+    <div class="grid g3" style="gap:12px;margin-bottom:12px">
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#34d399;font-size:0.82em;font-weight:700;margin-bottom:6px">🔢 Intent Classifier</p>
+        <p style="color:#94a3b8;font-size:0.8em;line-height:1.6">Identifies <em>what</em> the user wants — lookup, cancel, track, refund, explain, debug. Maps to structured intent tags used to score retrieved results.</p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.74em;color:#475569">"cancel order" → intent: <span style="color:#34d399">cancel_order</span><br>entity: <span style="color:#34d399">order</span></div>
+      </div>
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#60a5fa;font-size:0.82em;font-weight:700;margin-bottom:6px">🧲 Vector Search</p>
+        <p style="color:#94a3b8;font-size:0.8em;line-height:1.6">Semantic similarity search against <strong style="color:#e0e6f0">31K+ embedded KB chunks</strong> using pgvector. Uses <strong style="color:#e0e6f0">Scoped Retrieval</strong> — each agent only searches its domain's ~2–5K chunks, not all 31K.</p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.74em;color:#475569">NDR agent: 31K → <span style="color:#60a5fa">~2K chunks</span><br>Top-K: 8 chunks returned</div>
+      </div>
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#a78bfa;font-size:0.82em;font-weight:700;margin-bottom:6px">🕸️ GraphRAG Probe</p>
+        <p style="color:#94a3b8;font-size:0.8em;line-height:1.6">Lightweight graph lookup — finds the entity node and its 1-hop neighbours in the <strong style="color:#e0e6f0">867-node knowledge graph</strong>. Surfaces relationships vector search misses.</p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.74em;color:#475569">"order" node → <span style="color:#a78bfa">linked to</span> shipment, NDR, billing nodes</div>
+      </div>
+    </div>
+    <div class="grid g2" style="gap:12px">
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#fb923c;font-size:0.82em;font-weight:700;margin-bottom:6px">🗂️ Entity Probe</p>
+        <p style="color:#94a3b8;font-size:0.8em;line-height:1.6">Directly fetches the <strong style="color:#e0e6f0">Entity Hub doc</strong> for the matched entity — a pre-merged 500–800 token summary combining P1+P3+P6+P7. Always fast, always in-context.</p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.74em;color:#475569">entity: order → <span style="color:#fb923c">hub/orders.yaml</span> loaded in full</div>
+      </div>
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#fbbf24;font-size:0.82em;font-weight:700;margin-bottom:6px">🚫 Negative Routing (P8)</p>
+        <p style="color:#94a3b8;font-size:0.8em;line-height:1.6">Checks if the query matches a known <strong style="color:#e0e6f0">negative example</strong>. If "cancel order" vs "cancel shipment" ambiguity is detected, the probe flags it before any action is attempted.</p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.74em;color:#475569">"cancel karo" → <span style="color:#fbbf24">AMBIGUOUS</span> → ask to clarify</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stage 3: Wave 2 — Deep Retrieval -->
+  <div class="card o" style="margin-bottom:16px">
+    <h3 style="color:#fb923c;margin-top:0">Stage 3 — Wave 2: Conditional Deep Retrieval (Only for STANDARD + COMPLEX)</h3>
+    <p style="color:#94a3b8;font-size:0.88em;margin-bottom:16px">If Wave 1 probes return low confidence, or the classifier said COMPLEX, Wave 2 fires deeper pipelines:</p>
+    <div class="grid g3" style="gap:12px">
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#fb923c;font-size:0.82em;font-weight:700;margin-bottom:6px">🕸️ GraphRAG Deep</p>
+        <p style="color:#94a3b8;font-size:0.8em;line-height:1.6">Multi-hop graph traversal — follows relationships 2–3 hops deep. Finds non-obvious connections like <em>order → shipment → NDR → courier → delay reason</em>.</p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.74em;color:#475569">traversal: order→shipment→<span style="color:#fb923c">NDR→delay_reason</span></div>
+      </div>
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#34d399;font-size:0.82em;font-weight:700;margin-bottom:6px">🧠 LangGraph (Wave 3)</p>
+        <p style="color:#94a3b8;font-size:0.8em;line-height:1.6"><strong style="color:#e0e6f0">Stateful reasoning</strong> — a mini state-machine that iterates retrieval. If first attempt low confidence, it reformulates the query and retries up to 3 times with adjusted strategy.</p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.74em;color:#475569">confidence &lt; 0.6 → <span style="color:#34d399">reformulate</span> → retry</div>
+      </div>
+      <div style="background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#60a5fa;font-size:0.82em;font-weight:700;margin-bottom:6px">🔷 Neo4j (Wave 4)</p>
+        <p style="color:#94a3b8;font-size:0.8em;line-height:1.6">Targeted <strong style="color:#e0e6f0">graph database traversal</strong> for relationship-heavy queries. Used when GraphRAG in-memory graph is insufficient — queries full Neo4j up to configurable depth.</p>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.74em;color:#475569">max_depth: 3 · timeout: <span style="color:#60a5fa">configurable</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stage 4: RIPER -->
+  <div class="card p" style="margin-bottom:16px">
+    <h3 style="color:#a78bfa;margin-top:0">Stage 4 — RIPER Engine: Structured LLM Assembly</h3>
+    <p style="color:#94a3b8;font-size:0.88em;margin-bottom:16px">All Wave 1 + Wave 2 context is merged and passed to the LLM. For <span class="badge b-red">COMPLEX</span> queries, RIPER structures the reasoning in 5 phases. For <span class="badge b-blue">QUICK</span>/<span class="badge b-blue">STANDARD</span>, RIPER Lite (4 phases) is used.</p>
+    <div style="display:flex;gap:0;align-items:stretch;flex-wrap:wrap;gap:8px">
+      <div style="flex:1;min-width:140px;background:#0d1117;border-radius:8px;padding:14px;border-top:3px solid #f87171">
+        <p style="color:#f87171;font-size:0.85em;font-weight:700;margin-bottom:6px">R — Research</p>
+        <p style="color:#94a3b8;font-size:0.78em;line-height:1.6">Summarise what was retrieved from all pillars. What facts are available? What is still unknown?</p>
+      </div>
+      <div style="flex:1;min-width:140px;background:#0d1117;border-radius:8px;padding:14px;border-top:3px solid #fb923c">
+        <p style="color:#fb923c;font-size:0.85em;font-weight:700;margin-bottom:6px">I — Innovate</p>
+        <p style="color:#94a3b8;font-size:0.78em;line-height:1.6">Consider multiple approaches. Which pillar combination best answers this? Are there alternative interpretations? <em>(COMPLEX only)</em></p>
+      </div>
+      <div style="flex:1;min-width:140px;background:#0d1117;border-radius:8px;padding:14px;border-top:3px solid #fbbf24">
+        <p style="color:#fbbf24;font-size:0.85em;font-weight:700;margin-bottom:6px">P — Plan</p>
+        <p style="color:#94a3b8;font-size:0.78em;line-height:1.6">Structure the response. Decide: cite which sources, state preconditions if ACTION, include which workflow steps.</p>
+      </div>
+      <div style="flex:1;min-width:140px;background:#0d1117;border-radius:8px;padding:14px;border-top:3px solid #34d399">
+        <p style="color:#34d399;font-size:0.85em;font-weight:700;margin-bottom:6px">E — Execute</p>
+        <p style="color:#94a3b8;font-size:0.78em;line-height:1.6">Generate the final response. Factuality rules enforced: only facts from KB context, cite with [1][2][3] markers, never invent IDs.</p>
+      </div>
+      <div style="flex:1;min-width:140px;background:#0d1117;border-radius:8px;padding:14px;border-top:3px solid #60a5fa">
+        <p style="color:#60a5fa;font-size:0.85em;font-weight:700;margin-bottom:6px">R — Review</p>
+        <p style="color:#94a3b8;font-size:0.78em;line-height:1.6">Self-check before sending: did I answer all sub-intents? Are citations correct? Is the action safe to proceed?</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stage 5: RALPH -->
+  <div class="card r" style="margin-bottom:16px">
+    <h3 style="color:#f87171;margin-top:0">Stage 5 — RALPH Engine: Post-Response Self-Correction Loop</h3>
+    <p style="color:#94a3b8;font-size:0.88em;margin-bottom:16px">RALPH runs <strong style="color:#e0e6f0">after</strong> RIPER generates a response. It acts as an independent quality verifier — can trigger a retry or escalate to human if needed.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="flex:1;min-width:160px;background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#f87171;font-size:0.82em;font-weight:700;margin-bottom:6px">🪞 Reflect</p>
+        <p style="color:#94a3b8;font-size:0.78em;line-height:1.6">Did the response actually answer what was asked? Checks for: missing intent, hallucination, wrong entity, incomplete answer.</p>
+      </div>
+      <div style="flex:1;min-width:160px;background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#fb923c;font-size:0.82em;font-weight:700;margin-bottom:6px">⚡ Act</p>
+        <p style="color:#94a3b8;font-size:0.78em;line-height:1.6">If verdict = RETRY, identify what went wrong (wrong entity, low confidence, hallucination) and adjust retrieval strategy.</p>
+      </div>
+      <div style="flex:1;min-width:160px;background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#34d399;font-size:0.82em;font-weight:700;margin-bottom:6px">📚 Learn</p>
+        <p style="color:#94a3b8;font-size:0.78em;line-height:1.6">Records every correction to Kafka → continuous training data. Failed responses become future KB improvements automatically.</p>
+      </div>
+      <div style="flex:1;min-width:160px;background:#0d1117;border-radius:8px;padding:14px">
+        <p style="color:#a78bfa;font-size:0.82em;font-weight:700;margin-bottom:6px">🗺️ Plan + Help</p>
+        <p style="color:#94a3b8;font-size:0.78em;line-height:1.6">If fixable → retry with adjusted approach (max 3 cycles). If still failing → verdict = ESCALATE → route to human operator.</p>
+      </div>
+    </div>
+    <div class="grid g3" style="gap:10px;margin-top:12px">
+      <div style="background:#064e3b;border-radius:6px;padding:10px;text-align:center">
+        <p style="color:#34d399;font-weight:700;font-size:0.9em">PASS</p>
+        <p style="color:#475569;font-size:0.78em">Response is good — stream to user</p>
+      </div>
+      <div style="background:#431407;border-radius:6px;padding:10px;text-align:center">
+        <p style="color:#fb923c;font-weight:700;font-size:0.9em">RETRY</p>
+        <p style="color:#475569;font-size:0.78em">Fixable — re-run with adjusted strategy (up to 3×)</p>
+      </div>
+      <div style="background:#450a0a;border-radius:6px;padding:10px;text-align:center">
+        <p style="color:#f87171;font-weight:700;font-size:0.9em">ESCALATE</p>
+        <p style="color:#475569;font-size:0.78em">Not fixable by AI — route to human operator</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full Tech Stack -->
+  <div class="card" style="border-color:#334155">
+    <h3 style="color:#94a3b8;margin-top:0">⚙️ Full Technology Stack</h3>
+    <div class="grid g4" style="gap:12px">
+      <div>
+        <p style="color:#60a5fa;font-size:0.8em;font-weight:700;margin-bottom:8px">Frontend (Lime)</p>
+        <table style="font-size:0.78em">
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Framework</td><td style="color:#e0e6f0">Next.js 14 App Router</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Chat stream</td><td style="color:#e0e6f0">SSE (EventSource)</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Auth</td><td style="color:#e0e6f0">JWT → localStorage</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Styling</td><td style="color:#e0e6f0">Tailwind CSS v4</td></tr>
+        </table>
+      </div>
+      <div>
+        <p style="color:#a78bfa;font-size:0.8em;font-weight:700;margin-bottom:8px">Shiprocket AI Platform (Mars)</p>
+        <table style="font-size:0.78em">
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Language</td><td style="color:#e0e6f0">Go 1.21+</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Framework</td><td style="color:#e0e6f0">Gin + GORM</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">DB</td><td style="color:#e0e6f0">MySQL 8 (port 3309)</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Skills</td><td style="color:#e0e6f0">19 built-in skillloader</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Agents</td><td style="color:#e0e6f0">cosmos_agents (DB)</td></tr>
+        </table>
+      </div>
+      <div>
+        <p style="color:#34d399;font-size:0.8em;font-weight:700;margin-bottom:8px">RocketMind (Cosmos)</p>
+        <table style="font-size:0.78em">
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Language</td><td style="color:#e0e6f0">Python 3.12</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">API</td><td style="color:#e0e6f0">FastAPI + uvicorn</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">LLM</td><td style="color:#e0e6f0">Anthropic Claude SDK</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Vector DB</td><td style="color:#e0e6f0">pgvector (31K chunks)</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Graph DB</td><td style="color:#e0e6f0">Neo4j + in-memory GraphRAG</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Streaming</td><td style="color:#e0e6f0">Kafka (feedback loop)</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Async</td><td style="color:#e0e6f0">asyncio.gather() waves</td></tr>
+        </table>
+      </div>
+      <div>
+        <p style="color:#fb923c;font-size:0.8em;font-weight:700;margin-bottom:8px">Reasoning Engines</p>
+        <table style="font-size:0.78em">
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Classify</td><td style="color:#e0e6f0">RequestClassifier</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Scope</td><td style="color:#e0e6f0">ScopedRetrieval</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Graph</td><td style="color:#e0e6f0">GraphRAG (in-mem + Neo4j)</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">State</td><td style="color:#e0e6f0">LangGraph (Wave 3)</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Reason</td><td style="color:#e0e6f0">RIPER (5-phase)</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Verify</td><td style="color:#e0e6f0">RALPH (self-correct)</td></tr>
+          <tr><td style="color:#475569;padding:3px 8px 3px 0">Act</td><td style="color:#e0e6f0">ReActEngine (tool calls)</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 0c — Phase 1: Request Classification -->
+<!-- ============================================================ -->
+<div class="slide" id="s0c">
+  <p class="section-label">Engineering Deep-Dive · Phase 1 of 5</p>
+  <h2>Phase 1 — Request Classification</h2>
+  <p class="subtitle">Every query is 3-dimensionally tagged before a single vector search fires</p>
+
+  <div class="grid g2" style="gap:20px;margin-bottom:24px">
+    <div>
+      <div class="card g" style="margin-bottom:16px">
+        <h3 style="color:#34d399;margin-top:0">Class: <code>RequestClassifier</code></h3>
+        <p style="color:#64748b;font-size:0.88em;margin-bottom:12px">Located in <code>cosmos/app/services/request_classifier.py</code></p>
+        <p style="color:#94a3b8;font-size:0.88em;margin-bottom:12px">Entry point: <code>classify(query: str) → RequestClassification</code></p>
+        <p style="color:#94a3b8;font-size:0.88em">Returns a 3-axis tag used to route the entire downstream pipeline — controls which waves run, whether RIPER goes full or lite, and agent selection strategy.</p>
+      </div>
+
+      <div class="card" style="padding:18px">
+        <h4 style="color:#fbbf24;margin-top:0">Confidence Formula</h4>
+        <pre style="margin:0;background:#0d1117;padding:10px 14px;border-radius:6px;font-size:0.83em">confidence = min(0.95, 0.5 + total_hits * 0.08)
+
+# Each regex pattern match = +0.08
+# Floor: 0.5 (always at least 50% certain)
+# Ceiling: 0.95 (never claims perfect certainty)</pre>
+      </div>
+    </div>
+
+    <div>
+      <h3 style="color:#a78bfa">Three Classification Axes</h3>
+      <div class="card p" style="margin-bottom:12px;padding:16px">
+        <h4 style="color:#a78bfa;margin-top:0">Axis 1 — Domain (8 values)</h4>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+          <span class="badge b-blue">ORDERS</span><span class="badge b-blue">SHIPMENTS</span><span class="badge b-blue">NDR</span>
+          <span class="badge b-blue">BILLING</span><span class="badge b-blue">SELLER</span><span class="badge b-blue">RETURNS</span>
+          <span class="badge b-blue">SYSTEM</span><span class="badge b-blue">GENERAL</span>
+        </div>
+        <p style="color:#64748b;font-size:0.82em">Pattern matching. Each domain has regex patterns. Max-scoring domain wins.</p>
+      </div>
+      <div class="card" style="margin-bottom:12px;padding:16px;border-color:#fbbf24">
+        <h4 style="color:#fbbf24;margin-top:0">Axis 2 — Complexity (3 values)</h4>
+        <div style="display:flex;gap:12px;margin-bottom:8px">
+          <div><span class="badge b-green">QUICK</span><p style="color:#64748b;font-size:0.78em;margin:4px 0 0">Skip deep waves. ~50ms total. Triggered by: "show/get/find/check", "where is", "status"</p></div>
+          <div><span class="badge b-yellow">STANDARD</span><p style="color:#64748b;font-size:0.78em;margin:4px 0 0">Default. Run Wave 1 + conditional Wave 2.</p></div>
+          <div><span class="badge b-red">COMPLEX</span><p style="color:#64748b;font-size:0.78em;margin:4px 0 0">All deep pipelines. Triggered by: "why", "trace", "how does", multi-domain, multi-part</p></div>
+        </div>
+      </div>
+      <div class="card" style="padding:16px;border-color:#fb923c">
+        <h4 style="color:#fb923c;margin-top:0">Axis 3 — Mode (3 values)</h4>
+        <div style="display:flex;gap:12px">
+          <div><span class="badge b-blue">LOOKUP</span><p style="color:#64748b;font-size:0.78em;margin:4px 0 0">Read-only. No write tools loaded.</p></div>
+          <div><span class="badge b-orange">ACTION</span><p style="color:#64748b;font-size:0.78em;margin:4px 0 0">Write intent. Action contracts loaded (P6). Triggers: cancel/refund/escalate/reassign</p></div>
+          <div><span class="badge b-purple">DIAGNOSTIC</span><p style="color:#64748b;font-size:0.78em;margin:4px 0 0">Root-cause. RIPER full mode forced. Triggers: why/trace/debug/root cause/kyu</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Decision logic -->
+  <div class="card hl" style="margin-bottom:16px">
+    <h4 style="color:#60a5fa;margin-top:0">Complexity Decision Logic (actual code logic)</h4>
+    <pre style="margin:0">if complex_hits >= 2 OR multi_domain OR multi_part:
+    complexity = COMPLEX               # fire all deep pipelines
+
+elif quick_hits > 0 AND complex_hits == 0 AND mode != DIAGNOSTIC:
+    complexity = QUICK                 # skip Wave 2, go straight to LLM
+
+else:
+    complexity = STANDARD              # Wave 1 + conditional Wave 2
+
+# Mode resolution
+if action_hits > diagnostic_hits:  mode = ACTION
+elif diagnostic_hits > 0:          mode = DIAGNOSTIC
+else:                              mode = LOOKUP</pre>
+  </div>
+
+  <!-- Live classification examples -->
+  <h3 style="color:#a78bfa">Live Classification Examples</h3>
+  <table>
+    <thead><tr><th>Query</th><th>Domain</th><th>Complexity</th><th>Mode</th><th>Downstream effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>"Where is order #12345?"</code></td><td><span class="badge b-blue">ORDERS</span></td><td><span class="badge b-green">QUICK</span></td><td><span class="badge b-blue">LOOKUP</span></td><td>Wave 1 only, RIPER lite, no action tools</td></tr>
+      <tr><td><code>"Cancel order and refund"</code></td><td><span class="badge b-blue">ORDERS</span></td><td><span class="badge b-yellow">STANDARD</span></td><td><span class="badge b-orange">ACTION</span></td><td>Wave 1+2, P6 action contracts loaded, approval mode checked</td></tr>
+      <tr><td><code>"Why is NDR not updating after delivery attempt?"</code></td><td><span class="badge b-blue">NDR</span></td><td><span class="badge b-red">COMPLEX</span></td><td><span class="badge b-purple">DIAGNOSTIC</span></td><td>All waves, RIPER full (R→I→P→E→R), multi-hop GraphRAG</td></tr>
+      <tr><td><code>"cancel karo" (Hinglish)</code></td><td><span class="badge b-blue">ORDERS</span></td><td><span class="badge b-yellow">STANDARD</span></td><td><span class="badge b-orange">ACTION</span></td><td>P8 disambiguation check → asks "order or shipment?"</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 0d — Phase 2: Wave Execution + Scoped Retrieval -->
+<!-- ============================================================ -->
+<div class="slide" id="s0d">
+  <p class="section-label">Engineering Deep-Dive · Phase 2 of 5</p>
+  <h2>Phase 2 — Parallel Wave Execution + Scoped Retrieval</h2>
+  <p class="subtitle">5 parallel probes fire in Wave 1. Deep pipelines activate conditionally in Wave 2. Each probe searches only its agent's domain slice.</p>
+
+  <div class="grid g2" style="gap:20px;margin-bottom:24px">
+    <div>
+      <div class="card g" style="margin-bottom:16px">
+        <h3 style="color:#34d399;margin-top:0">Class: <code>WaveExecutor</code></h3>
+        <p style="color:#64748b;font-size:0.88em;margin-bottom:10px"><code>cosmos/app/services/wave_executor.py</code></p>
+        <p style="color:#94a3b8;font-size:0.88em;margin-bottom:8px">Key invariant: <strong style="color:#e0e6f0">Wave N+1 starts only after Wave N completes.</strong> Within a wave, all tasks run via <code>asyncio.gather()</code>.</p>
+        <p style="color:#94a3b8;font-size:0.88em">Progress emitted per-task via <code>_emit_progress(wave_id, task_id, status, data)</code> — SSE stream shows wave progress in real-time on Lime UI.</p>
+      </div>
+      <div class="card" style="padding:16px">
+        <h4 style="color:#fbbf24;margin-top:0">Task State Machine</h4>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="badge b-purple">PENDING</span>
+          <span style="color:#475569">→</span>
+          <span class="badge b-yellow">RUNNING</span>
+          <span style="color:#475569">→</span>
+          <span class="badge b-green">SUCCESS</span>
+          <span style="color:#475569">or</span>
+          <span class="badge b-red">ERROR</span>
+          <span style="color:#475569">or</span>
+          <span class="badge b-blue">SKIPPED</span>
+        </div>
+        <p style="color:#64748b;font-size:0.82em;margin-top:10px">Consensus checking: all tasks in a wave must succeed for Wave N+1 to start. Conditional skip: <code>skip_wave_if(wave_id, context) → bool</code> — QUICK complexity skips Wave 2 entirely.</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="card p" style="margin-bottom:16px">
+        <h3 style="color:#a78bfa;margin-top:0">Class: <code>ScopedRetrieval</code></h3>
+        <p style="color:#64748b;font-size:0.88em;margin-bottom:10px"><code>cosmos/app/services/scoped_retrieval.py</code></p>
+        <p style="color:#94a3b8;font-size:0.88em;margin-bottom:8px">Entry point: <code>search_for_agent(query, agent, limit=5, threshold=0.0, repo_id, capability)</code></p>
+        <div class="grid g2" style="gap:10px;margin-top:12px">
+          <div style="text-align:center;background:#0d1117;border-radius:8px;padding:12px">
+            <div style="font-size:1.8em;font-weight:700;color:#f87171">31K</div>
+            <div style="color:#64748b;font-size:0.78em">Total chunks</div>
+          </div>
+          <div style="text-align:center;background:#064e3b;border-radius:8px;padding:12px">
+            <div style="font-size:1.8em;font-weight:700;color:#34d399">2–5K</div>
+            <div style="color:#64748b;font-size:0.78em">Per-agent domain slice</div>
+          </div>
+        </div>
+        <p style="color:#94a3b8;font-size:0.82em;margin-top:10px"><strong style="color:#34d399">2–6× faster</strong> retrieval. <strong style="color:#34d399">60% noise reduction</strong> via DB-level <code>entity_type</code> + <code>domain</code> + <code>capability</code> filters applied before vector similarity scoring.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- All 4 Waves -->
+  <div class="grid g2" style="gap:16px;margin-bottom:16px">
+    <div class="card hl">
+      <h3 style="color:#60a5fa;margin-top:0">Wave 1 — Parallel Probe <span style="font-size:0.75em;color:#475569">(always runs)</span></h3>
+      <p style="color:#64748b;font-size:0.85em;margin-bottom:10px">5 pipelines launched simultaneously via <code>asyncio.gather()</code></p>
+      <div style="display:flex;flex-direction:column;gap:7px">
+        <div class="fp"><strong style="color:#34d399">intent_classifier</strong> — extract sub-intents, entities, expected output types</div>
+        <div class="fp"><strong style="color:#60a5fa">entity_lookup</strong> — resolve order_id / AWB / seller_id from query text</div>
+        <div class="fp"><strong style="color:#a78bfa">vector_search</strong> — semantic search via ScopedRetrieval (31K → 2–5K)</div>
+        <div class="fp"><strong style="color:#fb923c">page_role</strong> — map UI terms to field→API→table (P4 intelligence)</div>
+        <div class="fp"><strong style="color:#fbbf24">cross_repo</strong> — check if query spans multiple repos / microservices</div>
+      </div>
+      <p style="color:#475569;font-size:0.8em;margin-top:8px">Returns: <code>ProbeResult(pipeline, latency_ms, found_data, recommend_deepen)</code></p>
+    </div>
+
+    <div class="card o">
+      <h3 style="color:#fb923c;margin-top:0">Wave 2 — Conditional Deep <span style="font-size:0.75em;color:#475569">(STANDARD/COMPLEX only)</span></h3>
+      <p style="color:#64748b;font-size:0.85em;margin-bottom:10px">Fires when Wave 1 sets <code>recommend_deepen=True</code>. Skipped if <code>QUICK</code>.</p>
+      <div style="display:flex;flex-direction:column;gap:7px">
+        <div class="fp"><strong style="color:#34d399">graph_rag_deep</strong> — in-memory graph (867 nodes, 5,651 edges), multi-hop traversal</div>
+        <div class="fp"><strong style="color:#60a5fa">cross_repo_deep</strong> — full cross-service dependency resolution</div>
+        <div class="fp"><strong style="color:#a78bfa">session_history</strong> — retrieve prior turns for contextual continuity</div>
+      </div>
+      <p style="color:#475569;font-size:0.8em;margin-top:8px">Returns: <code>DeepResult(pipeline, latency_ms, found_data)</code></p>
+    </div>
+  </div>
+
+  <div class="grid g2" style="gap:16px;margin-bottom:24px">
+    <div class="card p">
+      <h3 style="color:#a78bfa;margin-top:0">Wave 3 — LangGraph Stateful Reasoning <span style="font-size:0.75em;color:#475569">(conditional)</span></h3>
+      <p style="color:#64748b;font-size:0.85em;margin-bottom:10px">Auto-triggered if: <code>confidence &lt; 0.6</code> OR domain in action/process/workflow/troubleshoot. File: <code>app/graph/langgraph_pipeline.py</code></p>
+      <p style="color:#94a3b8;font-size:0.85em;margin-bottom:10px">Entry: <code>build_wave_pipeline(vectorstore, graphrag, react_engine, llm_client, neo4j_service, confidence_threshold=0.75)</code></p>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div class="fp" style="font-size:0.78em"><strong style="color:#a78bfa">1. query_enrichment</strong> — LLM normalizes raw query → canonical form + intent keywords</div>
+        <div class="fp" style="font-size:0.78em"><strong style="color:#a78bfa">2. wave1_probe</strong> — vector + graph BFS + entity (RRF merge)</div>
+        <div class="fp" style="font-size:0.78em"><strong style="color:#a78bfa">3. adaptive_retrieve</strong> — evaluates W1 sufficiency, triggers Neo4j if needed</div>
+        <div class="fp" style="font-size:0.78em"><strong style="color:#a78bfa">4. confidence_gate</strong> — routes DONE vs wave2_deepen (threshold: 0.75)</div>
+        <div class="fp" style="font-size:0.78em"><strong style="color:#a78bfa">5. wave2_deepen</strong> — parallel: tool_use + full_reasoning (LLM)</div>
+        <div class="fp" style="font-size:0.78em"><strong style="color:#a78bfa">6. merge_results</strong> — combines W1+W2, final confidence</div>
+        <div class="fp" style="font-size:0.78em"><strong style="color:#a78bfa">7. END</strong> — emits <code>WaveState</code> (refined_entities, module_hint, api_hint)</div>
+      </div>
+      <p style="color:#475569;font-size:0.8em;margin-top:8px">Shadow mode: can run as A/B test (no context injection) via <code>ws.wave3_shadow_mode</code></p>
+    </div>
+
+    <div class="card" style="border-color:#60a5fa">
+      <h3 style="color:#60a5fa;margin-top:0">Wave 4 — Neo4j Targeted BFS <span style="font-size:0.75em;color:#475569">(optional)</span></h3>
+      <p style="color:#64748b;font-size:0.85em;margin-bottom:10px">Uses W3's <code>refined_entities</code> as BFS seeds. File: <code>_stage4_neo4j()</code> in orchestrator. Max depth: 3–4 hops.</p>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div class="fp" style="font-size:0.78em"><strong style="color:#60a5fa">action_contracts</strong> — BFS from entity → action contract chains (depth 4)</div>
+        <div class="fp" style="font-size:0.78em"><strong style="color:#60a5fa">workflows</strong> — entity → workflow runbook nodes (depth 4)</div>
+        <div class="fp" style="font-size:0.78em"><strong style="color:#60a5fa">field tracing</strong> — entity → API → table → page chains (depth 4)</div>
+        <div class="fp" style="font-size:0.78em"><strong style="color:#60a5fa">broad expansion</strong> — fallback if confidence &lt; 0.6 (depth 3, all types)</div>
+      </div>
+      <p style="color:#94a3b8;font-size:0.83em;margin-top:10px">Returns top 20 unique paths. Result dict: <code>path_count</code>, <code>entity_targets_used</code>, <code>relationship_context</code></p>
+      <p style="color:#475569;font-size:0.8em">Falls back to keyword BFS if no entity IDs resolved from W3.</p>
+    </div>
+  </div>
+
+  <!-- Context propagation + attribution -->
+  <div class="card" style="padding:20px">
+    <h4 style="color:#fbbf24;margin-top:0">Context Propagation + Attribution Tracking</h4>
+    <div class="grid g2" style="gap:16px">
+      <div>
+        <p style="color:#94a3b8;font-size:0.88em;margin-bottom:8px">After each wave, results merge into a shared <code>wave_context</code> dict. Each pipeline logs attribution metadata used for signal-to-noise analysis and debugging.</p>
+        <pre style="margin:0;font-size:0.78em">PipelineAttribution(
+  pipeline = "VECTOR",
+  stage    = "wave_1",
+  latency  = 180,      # ms
+  found    = True,
+  contributed = True,  # used in final answer
+  items_count = 4
+)</pre>
+      </div>
+      <div>
+        <p style="color:#94a3b8;font-size:0.88em;margin-bottom:8px">Final <code>OrchestratorResult</code> includes all attributions — engineers can inspect which pipelines contributed and at what latency.</p>
+        <table style="font-size:0.82em">
+          <thead><tr><th>Field</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>signal_to_noise</code></td><td>Ratio of contributing vs total pipelines</td></tr>
+            <tr><td><code>tier</code></td><td>Which fallback tier answered (0/1/2/3)</td></tr>
+            <tr><td><code>wave_summary</code></td><td>Per-wave task status + latency breakdown</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 0e — Phase 3: RIPER LLM Assembly -->
+<!-- ============================================================ -->
+<div class="slide" id="s0e">
+  <p class="section-label">Engineering Deep-Dive · Phase 3 of 5 — Designed &amp; Built, Integration Pending</p>
+  <h2>Phase 3 — RIPER: Structured LLM Reasoning</h2>
+  <div style="display:inline-flex;align-items:center;gap:10px;background:#3b076430;border:1px solid #a78bfa50;border-radius:8px;padding:8px 16px;margin-bottom:16px">
+    <span style="color:#a78bfa;font-size:1.1em">⚠️</span>
+    <p style="color:#a78bfa;font-size:0.88em;margin:0"><code>RIPEREngine</code> class is fully built in <code>engine/riper.py</code> and wired as a lazy property in <code>QueryOrchestrator</code> — but <code>self.riper_engine.process_full/lite()</code> is <strong>not yet called</strong> in the active execution path. It is the next integration milestone. Current LLM assembly happens directly via multi-agent execution engine.</p>
+  </div>
+  <p class="subtitle">When integrated: 5-phase structured reasoning loop transforms retrieved context into a grounded, cited, verifiable response</p>
+
+  <div class="grid g2" style="gap:20px;margin-bottom:24px">
+    <div class="card p">
+      <h3 style="color:#a78bfa;margin-top:0">Class: <code>RIPEREngine</code></h3>
+      <p style="color:#64748b;font-size:0.88em;margin-bottom:10px"><code>cosmos/app/engine/riper.py</code></p>
+      <p style="color:#94a3b8;font-size:0.88em;margin-bottom:8px">Two execution paths chosen by complexity:</p>
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <div style="flex:1;background:#3b076420;border:1px solid #a78bfa40;border-radius:8px;padding:10px">
+          <p style="color:#a78bfa;font-weight:600;margin:0 0 4px;font-size:0.88em"><code>process_full()</code></p>
+          <p style="color:#64748b;font-size:0.78em;margin:0">R → I → P → E → R<br>Used for COMPLEX / DIAGNOSTIC</p>
+        </div>
+        <div style="flex:1;background:#1e3a5f20;border:1px solid #60a5fa40;border-radius:8px;padding:10px">
+          <p style="color:#60a5fa;font-weight:600;margin:0 0 4px;font-size:0.88em"><code>process_lite()</code></p>
+          <p style="color:#64748b;font-size:0.78em;margin:0">R → P → E → R (skip Innovate)<br>Used for STANDARD / QUICK</p>
+        </div>
+      </div>
+      <p style="color:#94a3b8;font-size:0.88em">Final response delivered via <code>stream_final_response()</code> — token-level streaming to SSE. Latency estimate: <code>len(tools) × 80ms + 200ms synthesis</code>.</p>
+    </div>
+
+    <div>
+      <h3 style="color:#a78bfa">Factuality Enforcement (hardcoded into context)</h3>
+      <div class="card r" style="padding:16px">
+        <p style="color:#f87171;font-size:0.85em;font-weight:600;margin-bottom:8px">FACTUALITY_PROMPT — 10 hard rules injected into every RIPER execution:</p>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div class="fp" style="border-left-color:#f87171;font-size:0.78em">1. Never fabricate values — only use retrieved context</div>
+          <div class="fp" style="border-left-color:#f87171;font-size:0.78em">2. Always cite source (P1–P8 pillar, tool name, DB table)</div>
+          <div class="fp" style="border-left-color:#f87171;font-size:0.78em">3. Validate enum values against P1 schema constants</div>
+          <div class="fp" style="border-left-color:#f87171;font-size:0.78em">4. Trace all field references to actual column names</div>
+          <div class="fp" style="border-left-color:#f87171;font-size:0.78em">5. For actions, confirm approval_mode before executing</div>
+          <div class="fp" style="border-left-color:#f87171;font-size:0.78em">6–10. Entity verification, multi-part coverage, Hinglish handling…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5 phases detail -->
+  <h3 style="color:#a78bfa;margin-bottom:16px">The 5 RIPER Phases — What happens in each</h3>
+  <div style="display:flex;flex-direction:column;gap:12px">
+
+    <div class="card hl" style="padding:16px">
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div style="width:32px;height:32px;background:#1e3a5f;color:#60a5fa;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1em;flex-shrink:0">R</div>
+        <div style="flex:1">
+          <h4 style="color:#60a5fa;margin:0 0 4px">Research — <code>ResearchArtifact</code></h4>
+          <p style="color:#94a3b8;font-size:0.88em;margin-bottom:6px">Extracts: <code>known_facts[]</code>, <code>unknowns[]</code>, <code>constraints[]</code>, <code>entities_found[]</code> from Wave context. Anchors all downstream phases to verified facts only.</p>
+          <p style="color:#475569;font-size:0.82em">Engineering insight: If <code>unknowns</code> is non-empty, RIPER flags for Tier 2/3 fallback before proceeding.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p" style="padding:16px">
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div style="width:32px;height:32px;background:#3b0764;color:#a78bfa;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1em;flex-shrink:0">I</div>
+        <div style="flex:1">
+          <h4 style="color:#a78bfa;margin:0 0 4px">Innovate — <code>InnovateArtifact</code> <span style="font-size:0.8em;color:#64748b">(full mode only)</span></h4>
+          <p style="color:#94a3b8;font-size:0.88em;margin-bottom:6px">Generates 3+ approaches with trade-offs. Fields: <code>approaches[]</code>, <code>recommended</code>, <code>reasoning</code>. This is what separates a thoughtful answer from a cached lookup.</p>
+          <p style="color:#475569;font-size:0.82em">Skipped in <code>process_lite()</code> for STANDARD/QUICK queries to save ~200ms LLM call.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card g" style="padding:16px">
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div style="width:32px;height:32px;background:#064e3b;color:#34d399;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1em;flex-shrink:0">P</div>
+        <div style="flex:1">
+          <h4 style="color:#34d399;margin:0 0 4px">Plan — <code>PlanArtifact</code></h4>
+          <p style="color:#94a3b8;font-size:0.88em;margin-bottom:6px">Creates: <code>steps[]</code>, <code>success_criteria[]</code>, <code>estimated_latency_ms</code>. For ACTION mode, each step maps to a specific tool call with approval gating.</p>
+          <p style="color:#475569;font-size:0.82em">Latency estimate: <code>len(tools) × 80 + 200</code> ms. Used for timeout budgeting and progress bar on Lime UI.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card o" style="padding:16px">
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div style="width:32px;height:32px;background:#431407;color:#fb923c;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1em;flex-shrink:0">E</div>
+        <div style="flex:1">
+          <h4 style="color:#fb923c;margin:0 0 4px">Execute — <code>ExecuteArtifact</code></h4>
+          <p style="color:#94a3b8;font-size:0.88em;margin-bottom:6px">Runs the plan via <code>ReActEngine</code> (tool calls). Populates: <code>step_results[]</code>, <code>response</code>, <code>confidence</code> (0–1), <code>tools_used[]</code>.</p>
+          <p style="color:#475569;font-size:0.82em">Tool calls go through Mars circuit-breaker. If circuit is open, falls back to context-only response with reduced confidence score.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card r" style="padding:16px">
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div style="width:32px;height:32px;background:#450a0a;color:#f87171;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1em;flex-shrink:0">R</div>
+        <div style="flex:1">
+          <h4 style="color:#f87171;margin:0 0 4px">Review — <code>ReviewArtifact</code></h4>
+          <p style="color:#94a3b8;font-size:0.88em;margin-bottom:6px">Verifies response against success criteria. Fields: <code>criteria_met[]</code>, <code>all_intents_addressed</code>, <code>quality_score</code> (0–1), <code>issues[]</code>.</p>
+          <p style="color:#475569;font-size:0.82em">If <code>quality_score &lt; 0.7</code> or <code>all_intents_addressed == False</code>, flags response before passing to RALPH. Not a retry — just a signal for the next phase.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 0f — Phase 4: RALPH Self-Correction -->
+<!-- ============================================================ -->
+<div class="slide" id="s0f">
+  <p class="section-label">Engineering Deep-Dive · Phase 4 of 5 — Designed &amp; Built, Integration Pending</p>
+  <h2>Phase 4 — RALPH: Post-Response Self-Correction</h2>
+  <div style="display:inline-flex;align-items:center;gap:10px;background:#450a0a30;border:1px solid #f8717150;border-radius:8px;padding:8px 16px;margin-bottom:16px">
+    <span style="color:#f87171;font-size:1.1em">⚠️</span>
+    <p style="color:#f87171;font-size:0.88em;margin:0"><code>RALPHEngine</code> is fully built in <code>engine/ralph.py</code> and lazy-loaded in <code>QueryOrchestrator</code> — but <code>self.ralph_engine.evaluate()</code> is <strong>not yet called</strong> in the active execution path. Currently escalation/retry logic is handled by <code>TierPolicy</code> tier gates. RALPH adds finer-grained self-correction on top of this — next integration milestone.</p>
+  </div>
+  <p class="subtitle">When integrated: every response passes through a 5-phase quality loop. RALPH can retry up to 3 times or escalate to human.</p>
+
+  <div class="grid g2" style="gap:20px;margin-bottom:24px">
+    <div class="card r">
+      <h3 style="color:#f87171;margin-top:0">Class: <code>RALPHEngine</code></h3>
+      <p style="color:#64748b;font-size:0.88em;margin-bottom:10px"><code>cosmos/app/engine/ralph.py</code></p>
+      <div style="display:flex;gap:16px;margin-bottom:12px">
+        <div style="text-align:center;background:#450a0a;border-radius:8px;padding:10px 16px">
+          <div style="font-size:2em;font-weight:700;color:#f87171">3</div>
+          <div style="color:#64748b;font-size:0.78em">MAX_CYCLES</div>
+        </div>
+        <div style="text-align:center;background:#064e3b;border-radius:8px;padding:10px 16px">
+          <div style="font-size:2em;font-weight:700;color:#34d399">0.5</div>
+          <div style="color:#64748b;font-size:0.78em">CONFIDENCE_THRESHOLD</div>
+        </div>
+        <div style="text-align:center;background:#1e3a5f;border-radius:8px;padding:10px 16px">
+          <div style="font-size:2em;font-weight:700;color:#60a5fa">30%</div>
+          <div style="color:#64748b;font-size:0.78em">Grounding minimum</div>
+        </div>
+      </div>
+      <p style="color:#94a3b8;font-size:0.88em">Entry point: <code>evaluate(response, query, context, intents)</code>. Returns a verdict + correction type + optionally an adjusted_query for retry.</p>
+    </div>
+
+    <div>
+      <h3 style="color:#a78bfa">Correction Types (Enum)</h3>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#064e3b30;border-radius:6px;border-left:3px solid #34d399">
+          <span style="color:#34d399;font-family:monospace;font-size:0.85em;min-width:130px">NONE</span>
+          <span style="color:#64748b;font-size:0.83em">Response passes all checks. Ship it.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#42200630;border-radius:6px;border-left:3px solid #fbbf24">
+          <span style="color:#fbbf24;font-family:monospace;font-size:0.85em;min-width:130px">MISSING_INTENT</span>
+          <span style="color:#64748b;font-size:0.83em">Did not address all sub-intents detected by classifier</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#43140730;border-radius:6px;border-left:3px solid #fb923c">
+          <span style="color:#fb923c;font-family:monospace;font-size:0.85em;min-width:130px">LOW_CONFIDENCE</span>
+          <span style="color:#64748b;font-size:0.83em">ExecuteArtifact.confidence &lt; 0.5</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#450a0a30;border-radius:6px;border-left:3px solid #f87171">
+          <span style="color:#f87171;font-family:monospace;font-size:0.85em;min-width:130px">HALLUCINATION</span>
+          <span style="color:#64748b;font-size:0.83em">Context grounding &lt; 30%. Response terms not in KB.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#1e293b;border-radius:6px;border-left:3px solid #94a3b8">
+          <span style="color:#94a3b8;font-family:monospace;font-size:0.85em;min-width:130px">WRONG_ENTITY</span>
+          <span style="color:#64748b;font-size:0.83em">Answered about a different entity ID than queried</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#1e293b;border-radius:6px;border-left:3px solid #64748b">
+          <span style="color:#64748b;font-family:monospace;font-size:0.85em;min-width:130px">INCOMPLETE</span>
+          <span style="color:#64748b;font-size:0.83em">Multi-part query: each question needs ≥50 chars answer</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#450a0a30;border-radius:6px;border-left:3px solid #f87171">
+          <span style="color:#f87171;font-family:monospace;font-size:0.85em;min-width:130px">ESCALATE</span>
+          <span style="color:#64748b;font-size:0.83em">AI cannot fix. Routes to human or senior agent.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RALPH 5 phases -->
+  <h3 style="color:#f87171;margin-bottom:16px">The 5 RALPH Phases</h3>
+  <div class="grid g3" style="gap:12px;margin-bottom:24px">
+    <div class="card" style="padding:14px;border-color:#f87171">
+      <h4 style="color:#f87171;margin:0 0 6px">Reflect</h4>
+      <p style="color:#94a3b8;font-size:0.83em">Check 4 signals: context grounding %, intent coverage, confidence score, entity ID match. Produces a CorrectionType verdict.</p>
+    </div>
+    <div class="card o" style="padding:14px">
+      <h4 style="color:#fb923c;margin:0 0 6px">Act</h4>
+      <p style="color:#94a3b8;font-size:0.83em">Formulate fix hypothesis: generate <code>adjusted_query</code> + supplemental context for retry. Maps correction type → repair strategy.</p>
+    </div>
+    <div class="card p" style="padding:14px">
+      <h4 style="color:#a78bfa;margin:0 0 6px">Learn</h4>
+      <p style="color:#94a3b8;font-size:0.83em">Call <code>_emit_learning()</code> → <code>LearningInsightEvent</code> → Kafka. Each correction is distillation input for the next model version.</p>
+    </div>
+    <div class="card hl" style="padding:14px">
+      <h4 style="color:#60a5fa;margin:0 0 6px">Plan</h4>
+      <p style="color:#94a3b8;font-size:0.83em">Execute retry if <code>cycles &lt; MAX_CYCLES</code>. Re-runs Wave search + RIPER with <code>adjusted_query</code> and refined context.</p>
+    </div>
+    <div class="card g" style="padding:14px">
+      <h4 style="color:#34d399;margin:0 0 6px">Help</h4>
+      <p style="color:#94a3b8;font-size:0.83em">After 3 failed cycles: verdict = <code>ESCALATE</code>. Routed to human supervisor or senior-tier agent.</p>
+    </div>
+    <div class="card" style="padding:14px;background:#064e3b20;border-color:#34d399">
+      <h4 style="color:#34d399;margin:0 0 6px">PASS Verdict</h4>
+      <p style="color:#94a3b8;font-size:0.83em">Response ships only after: confidence ≥ 0.5, grounding ≥ 30%, all intents covered, correct entity referenced.</p>
+    </div>
+  </div>
+
+  <!-- Grounding check explained -->
+  <div class="card hl">
+    <h4 style="color:#60a5fa;margin-top:0">How Grounding Is Calculated</h4>
+    <div class="grid g2" style="gap:16px">
+      <div>
+        <pre style="margin:0;font-size:0.82em">grounding_score = (
+    response_terms ∩ knowledge_base_terms
+) / total_response_terms
+
+if grounding_score < 0.30:
+    correction_type = HALLUCINATION
+    verdict = RETRY  # or ESCALATE after cycle 3</pre>
+      </div>
+      <div>
+        <p style="color:#94a3b8;font-size:0.88em;margin-bottom:8px">This is the core anti-hallucination gate. A response that makes 10 factual claims must have at least 3 of them directly traceable to retrieved KB chunks.</p>
+        <p style="color:#475569;font-size:0.83em">Combined with RIPER's FACTUALITY_PROMPT (which prevents fabrication at generation time), RALPH provides a second independent check at verification time.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 0g — Phase 5: Learning Loop + Tier Architecture -->
+<!-- ============================================================ -->
+<div class="slide" id="s0g">
+  <p class="section-label">Engineering Deep-Dive · Phase 5 of 5</p>
+  <h2>Phase 5 — Learning Loop + Tier Fallback Architecture</h2>
+  <p class="subtitle">Every response either ships or teaches. The 4-tier fallback ensures no query goes unanswered. Every correction feeds the next model version.</p>
+
+  <!-- 4-tier architecture -->
+  <div class="card hl" style="margin-bottom:24px">
+    <h3 style="color:#60a5fa;margin-top:0">4-Tier Fallback — How <code>QueryOrchestrator.execute()</code> escalates</h3>
+    <p style="color:#64748b;font-size:0.88em;margin-bottom:16px">Each tier has a multi-signal gate before advancing. Gate checks: confidence + evidence count + freshness + entity resolution.</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="width:80px;text-align:center;background:#064e3b;border-radius:8px;padding:8px;flex-shrink:0">
+          <div style="color:#34d399;font-weight:700;font-size:1.1em">Tier 0</div>
+          <div style="color:#64748b;font-size:0.72em">~5ms</div>
+        </div>
+        <div style="flex:1">
+          <p style="color:#34d399;font-weight:600;margin:0 0 3px">Semantic Cache</p>
+          <p style="color:#64748b;font-size:0.85em;margin:0">Vector similarity check on recent Q&A pairs. Exact semantic match → skip all waves, return cached response instantly.</p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="width:80px;text-align:center;background:#1e3a5f;border-radius:8px;padding:8px;flex-shrink:0">
+          <div style="color:#60a5fa;font-weight:700;font-size:1.1em">Tier 1</div>
+          <div style="color:#64748b;font-size:0.72em">~50–800ms</div>
+        </div>
+        <div style="flex:1">
+          <p style="color:#60a5fa;font-weight:600;margin:0 0 3px">Brain — Wave Execution + RIPER + RALPH</p>
+          <p style="color:#64748b;font-size:0.85em;margin:0">Full pipeline: classify → wave probe → deep retrieval → RIPER assembly → RALPH verification. Handles 85%+ of queries.</p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="width:80px;text-align:center;background:#3b0764;border-radius:8px;padding:8px;flex-shrink:0">
+          <div style="color:#a78bfa;font-weight:700;font-size:1.1em">Tier 2</div>
+          <div style="color:#64748b;font-size:0.72em">+200–600ms</div>
+        </div>
+        <div style="flex:1">
+          <p style="color:#a78bfa;font-weight:600;margin:0 0 3px">Code Intelligence + LLM Rewrite (1 retry)</p>
+          <p style="color:#64748b;font-size:0.85em;margin:0">If Tier 1 gate fails: <code>codebase_intel</code> searches source code directly. LLM rewrites query for a second attempt. Catches edge cases not in KB.</p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="width:80px;text-align:center;background:#431407;border-radius:8px;padding:8px;flex-shrink:0">
+          <div style="color:#fb923c;font-weight:700;font-size:1.1em">Tier 3</div>
+          <div style="color:#64748b;font-size:0.72em">+variable</div>
+        </div>
+        <div style="flex:1">
+          <p style="color:#fb923c;font-weight:600;margin:0 0 3px">Safe DB Tool (template-driven via Mars)</p>
+          <p style="color:#64748b;font-size:0.85em;margin:0">If Tier 2 gate also fails: parameterized SQL templates via <code>safe_db_tool</code> → MARS circuit breaker → real DB. Zero raw SQL generation.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Learning loop -->
+  <div class="grid g2" style="gap:20px;margin-bottom:24px">
+    <div class="card p">
+      <h3 style="color:#a78bfa;margin-top:0">The Learning Loop</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="fp">1. RALPH correction recorded → <code>LearningInsightEvent</code></div>
+        <div class="fp">2. <code>_emit_learning()</code> → Kafka topic <code>learning.corrections</code></div>
+        <div class="fp">3. Mars Learning module: <code>createLearningRecord()</code> persists to DB</div>
+        <div class="fp">4. Pattern detection: cluster similar corrections</div>
+        <div class="fp">5. Improvement proposals surfaced to Manager Panel (Lime UI)</div>
+        <div class="fp">6. Approved proposals → fine-tuning / KB update pipeline</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card g" style="margin-bottom:16px">
+        <h3 style="color:#34d399;margin-top:0">Key Classes + Integration Points</h3>
+        <table style="font-size:0.82em">
+          <thead><tr><th>Component</th><th>File</th><th>Connects to</th></tr></thead>
+          <tbody>
+            <tr><td><code>QueryOrchestrator</code></td><td><code>query_orchestrator.py</code></td><td>All engines + Kafka</td></tr>
+            <tr><td><code>RIPEREngine</code></td><td><code>engine/riper.py</code></td><td>ReActEngine, tools</td></tr>
+            <tr><td><code>RALPHEngine</code></td><td><code>engine/ralph.py</code></td><td>Kafka, LearningInsight</td></tr>
+            <tr><td><code>RequestClassifier</code></td><td><code>services/request_classifier.py</code></td><td>WaveExecutor (routing)</td></tr>
+            <tr><td><code>WaveExecutor</code></td><td><code>services/wave_executor.py</code></td><td>SSE progress, context</td></tr>
+            <tr><td><code>ScopedRetrieval</code></td><td><code>services/scoped_retrieval.py</code></td><td>VectorStore, DB filters</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card o">
+        <h3 style="color:#fb923c;margin-top:0">Agent Forge — Dynamic Agent Creation</h3>
+        <p style="color:#94a3b8;font-size:0.88em;margin-bottom:8px">If RIPER confidence &lt; 60%: <code>AgentForge</code> dynamically creates a specialized sub-agent for the detected domain gap. Not a static registry lookup — a runtime-synthesized agent.</p>
+        <p style="color:#475569;font-size:0.82em">This is how the system handles novel query types that don't map to existing agents. The forged agent's performance is tracked and surfaced in the learning loop.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary table -->
+  <div class="card hl">
+    <h3 style="color:#60a5fa;margin-top:0">All Active Phases — Engineering Summary (verified against code)</h3>
+    <table>
+      <thead><tr><th>Phase</th><th>Class / File</th><th>Key Output</th><th>Failure Mode</th></tr></thead>
+      <tbody>
+        <tr class="highlight-row"><td><strong>1. Classify</strong></td><td><code>RequestClassifier</code></td><td>Domain + Complexity + Mode tags, confidence score</td><td>Defaults to STANDARD/GENERAL</td></tr>
+        <tr><td><strong>2. Wave 1</strong></td><td><code>WaveExecutor + ScopedRetrieval</code></td><td>5 parallel ProbeResults merged into context dict</td><td>Task ERROR → context partial, downstream degraded</td></tr>
+        <tr class="highlight-row"><td><strong>3. Wave 2</strong></td><td><code>WaveExecutor</code> (graph_rag_deep etc.)</td><td>DeepResults added to context (skipped if QUICK)</td><td>Wave 1 consensus fail → Wave 2 skipped</td></tr>
+        <tr><td><strong>4. Wave 3</strong></td><td><code>build_wave_pipeline()</code> LangGraph</td><td>WaveState: refined_entities, module_hint, api_hint</td><td>Confidence ≥ 0.6 and not action domain → skipped</td></tr>
+        <tr class="highlight-row"><td><strong>5. Wave 4</strong></td><td><code>_stage4_neo4j()</code></td><td>Top 20 BFS paths, relationship_context string</td><td>No entity IDs → falls back to keyword BFS</td></tr>
+        <tr><td><strong>6. Tier Gate</strong></td><td><code>TierPolicy</code></td><td>RESPOND / ESCALATE_TIER2 / ESCALATE_TIER3 / ESCALATE_HUMAN</td><td>Score &lt; 0.30 → skip to Tier 3 immediately</td></tr>
+        <tr class="highlight-row"><td><strong>7. Tier 2/3 fallback</strong></td><td><code>codebase_intel</code> / <code>safe_db_tool</code></td><td>Code-search result / template-driven SQL result</td><td>Tier 3 fail → ESCALATE_HUMAN via MarsBridge</td></tr>
+        <tr><td><strong>8. Learn (async)</strong></td><td>Kafka + Mars LearningModule</td><td>Correction/session event in Mars DB</td><td>Kafka down → event dropped, logged locally</td></tr>
+        <tr class="highlight-row" style="background:#3b076420"><td><strong>RIPER ⚠️ Planned</strong></td><td><code>RIPEREngine</code> (engine/riper.py)</td><td>Built, not yet wired into execute() path</td><td>Next integration milestone</td></tr>
+        <tr style="background:#450a0a20"><td><strong>RALPH ⚠️ Planned</strong></td><td><code>RALPHEngine</code> (engine/ralph.py)</td><td>Built, not yet wired — TierPolicy handles escalation for now</td><td>Next integration milestone</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 0h — Agent Builder + Agent Forge + Agent Handoff -->
+<!-- ============================================================ -->
+<div class="slide" id="s0h">
+  <p class="section-label">Engineering Deep-Dive · Agent Architecture</p>
+  <h2>Agent Builder, Agent Forge &amp; Agent Handoff</h2>
+  <p class="subtitle">Static agents handle known domains. AgentForge synthesizes new agents at runtime for novel queries. Handoff escalates when AI confidence is exhausted.</p>
+
+  <div class="card hl" style="margin-bottom:20px">
+    <h3 style="color:#60a5fa;margin-top:0">Agent Registry — Static Agent Definitions (<code>cosmos_agents</code> table)</h3>
+    <div class="grid g2" style="gap:16px">
+      <div>
+        <p style="color:#94a3b8;font-size:0.88em;margin-bottom:10px">Each agent is a named specialization binding together <strong style="color:#34d399">Tools</strong> (APIs), <strong style="color:#a78bfa">Skills</strong> (reasoning), and <strong style="color:#fb923c">Action Contracts</strong> (write ops with approval gates). Stored in Mars DB across 4 tables. Managed from Lime at <code>/chat/admin/cosmos/registry/agents</code>.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <span class="badge b-blue">order_agent</span><span class="badge b-blue">ndr_agent</span><span class="badge b-blue">billing_agent</span><span class="badge b-blue">seller_agent</span><span class="badge b-blue">courier_agent</span>
+        </div>
+        <p style="color:#475569;font-size:0.82em">ScopedRetrieval uses agent's domain scope to reduce vector search: 31K → 2–5K chunks. Each agent only retrieves from its own domain slice.</p>
+      </div>
+      <div>
+        <table style="font-size:0.82em">
+          <thead><tr><th>Component</th><th>What it provides</th><th>Junction Table</th></tr></thead>
+          <tbody>
+            <tr><td><code>cosmos_tools</code></td><td>API endpoints (GET/POST) the agent can call</td><td>cosmos_agent_tools</td></tr>
+            <tr><td><code>cosmos_skills</code></td><td>always_load / auto_load / on_demand reasoning</td><td>cosmos_agent_skills</td></tr>
+            <tr><td><code>cosmos_actions</code></td><td>Write ops: risk_level + approval_mode</td><td>cosmos_agent_actions</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid g2" style="gap:20px;margin-bottom:20px">
+    <div class="card o">
+      <h3 style="color:#fb923c;margin-top:0">Agent Forge — Runtime Agent Synthesis</h3>
+      <p style="color:#64748b;font-size:0.85em;margin-bottom:4px">File: <code>cosmos/app/engine/agent_forge.py</code> · Class: <code>AgentForge</code></p>
+      <p style="color:#94a3b8;font-size:0.88em;margin-bottom:10px">Triggered when no static agent achieves sufficient confidence. Entry: <code>forge_and_execute(query, intent, entity, context, pipeline_confidences)</code></p>
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <div style="text-align:center;background:#431407;border-radius:8px;padding:8px 12px;flex:1"><div style="font-size:1.6em;font-weight:700;color:#fb923c">0.6</div><div style="color:#64748b;font-size:0.75em">FORGE_THRESHOLD</div></div>
+        <div style="text-align:center;background:#064e3b;border-radius:8px;padding:8px 12px;flex:1"><div style="font-size:1.6em;font-weight:700;color:#34d399">0.7</div><div style="color:#64748b;font-size:0.75em">Promotion threshold</div></div>
+        <div style="text-align:center;background:#1e3a5f;border-radius:8px;padding:8px 12px;flex:1"><div style="font-size:1.6em;font-weight:700;color:#60a5fa">5+</div><div style="color:#64748b;font-size:0.75em">Uses to promote</div></div>
+      </div>
+      <h4 style="color:#fb923c;margin:0 0 6px">8 Forge Templates</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
+        <span class="badge b-orange">ORDER_TRACE</span><span class="badge b-orange">NDR_DIAGNOSIS</span><span class="badge b-orange">BILLING_DISPUTE</span><span class="badge b-orange">COURIER_COMPARE</span><span class="badge b-orange">SYNC_DEBUG</span><span class="badge b-orange">ROLE_AUDIT</span><span class="badge b-orange">CROSS_REPO_NAV</span><span class="badge b-orange">CUSTOM</span>
+      </div>
+      <div class="fp" style="font-size:0.8em">1. <code>should_forge(max_confidence)</code> → True if &lt; 0.6</div>
+      <div class="fp" style="font-size:0.8em">2. <code>_forge_agent()</code> → matches template → <code>ForgedAgent</code> in session registry</div>
+      <div class="fp" style="font-size:0.8em">3. usage ≥ 5 AND avg_conf ≥ 0.7 → <code>promotion_candidate=True</code> → engineer adds to static registry</div>
+    </div>
+
+    <div class="card r">
+      <h3 style="color:#f87171;margin-top:0">Agent Handoff — AI-to-Human Escalation</h3>
+      <p style="color:#64748b;font-size:0.85em;margin-bottom:4px">File: <code>cosmos/app/middleware/mars_bridge.py</code> · Class: <code>MarsBridge</code></p>
+      <p style="color:#94a3b8;font-size:0.88em;margin-bottom:10px">Not agent-to-agent — it is AI-to-human escalation after all tiers and retry cycles are exhausted.</p>
+      <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px">
+        <div class="fp" style="font-size:0.8em">Tier 1 Gate: score &lt; 0.30 → skip to Tier 3 directly</div>
+        <div class="fp" style="font-size:0.8em">Tier 2 Gate: score &lt; 0.60 → ESCALATE_TIER3</div>
+        <div class="fp" style="font-size:0.8em">Tier 3 Gate: score &lt; 0.50 → <code>TierDecision.ESCALATE_HUMAN</code></div>
+        <div class="fp" style="font-size:0.8em"><code>post_process()</code>: <code>result["escalated"]==True</code> → <code>create_escalation_ticket(session_id, reason, context)</code></div>
+      </div>
+      <h4 style="color:#f87171;margin:0 0 6px">Tier Gate Composite Score</h4>
+      <pre style="margin:0;font-size:0.78em;background:#0d1117;padding:10px;border-radius:6px">score = confidence*0.35 + evidence_ratio*0.20
+      + freshness*0.15 + entity_bonus*0.15
+      + intent_coverage*0.15
+
+T1 ≥0.70→RESPOND | T2 ≥0.60→RESPOND
+T3 ≥0.50→RESPOND | else→ESCALATE_HUMAN</pre>
+    </div>
+  </div>
+
+  <div class="card g">
+    <h4 style="color:#34d399;margin-top:0">Agent Lifecycle: Static → Forged → Promoted → Static</h4>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="text-align:center;padding:8px 14px;background:#064e3b30;border-radius:8px;border:1px solid #34d39940"><div style="color:#34d399;font-weight:600;font-size:0.88em">Static Agent</div><div style="color:#64748b;font-size:0.75em">cosmos_agents table<br>Known domains</div></div>
+      <div style="color:#475569;font-size:1.3em">→</div>
+      <div style="text-align:center;padding:8px 14px;background:#43140730;border-radius:8px;border:1px solid #fb923c40"><div style="color:#fb923c;font-weight:600;font-size:0.88em">conf &lt; 0.6</div><div style="color:#64748b;font-size:0.75em">Forge triggered<br>Template matched</div></div>
+      <div style="color:#475569;font-size:1.3em">→</div>
+      <div style="text-align:center;padding:8px 14px;background:#3b076430;border-radius:8px;border:1px solid #a78bfa40"><div style="color:#a78bfa;font-weight:600;font-size:0.88em">Forged Agent</div><div style="color:#64748b;font-size:0.75em">Session-scoped<br>Reused within session</div></div>
+      <div style="color:#475569;font-size:1.3em">→</div>
+      <div style="text-align:center;padding:8px 14px;background:#064e3b30;border-radius:8px;border:1px solid #34d39940"><div style="color:#34d399;font-weight:600;font-size:0.88em">≥5 uses, ≥0.7</div><div style="color:#64748b;font-size:0.75em">promotion_candidate=True<br>Engineer reviews</div></div>
+      <div style="color:#475569;font-size:1.3em">→</div>
+      <div style="text-align:center;padding:8px 14px;background:#1e3a5f30;border-radius:8px;border:1px solid #60a5fa40"><div style="color:#60a5fa;font-weight:600;font-size:0.88em">New Static Agent</div><div style="color:#64748b;font-size:0.75em">Added to cosmos_agents<br>All sessions benefit</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 0i — Mars Bridge + Prompt Safety -->
+<!-- ============================================================ -->
+<div class="slide" id="s0i">
+  <p class="section-label">Engineering Deep-Dive · Security &amp; Gate Enforcement</p>
+  <h2>Mars Bridge + Prompt Injection Defense</h2>
+  <p class="subtitle">Every request passes a 6-step security gate before any retrieval fires. Risk-scored injection detection blocks malicious queries at the door.</p>
+
+  <div class="card hl" style="margin-bottom:20px">
+    <h3 style="color:#60a5fa;margin-top:0">MarsBridge — 6-Step Pre-Processing Gate</h3>
+    <p style="color:#64748b;font-size:0.85em;margin-bottom:14px">File: <code>cosmos/app/middleware/mars_bridge.py</code> · Class: <code>MarsBridge</code> · Every request passes all 6 steps before <code>QueryOrchestrator.execute()</code> is called.</p>
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="width:26px;height:26px;background:#064e3b;color:#34d399;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.82em;flex-shrink:0">1</div>
+        <div><span style="color:#34d399;font-weight:600">Health Check</span><span style="color:#64748b;font-size:0.85em;margin-left:8px"><code>self._mars.health_check()</code> — fail fast if Mars is unreachable</span></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="width:26px;height:26px;background:#450a0a;color:#f87171;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.82em;flex-shrink:0">2</div>
+        <div><span style="color:#f87171;font-weight:600">Prompt Safety</span><span style="color:#64748b;font-size:0.85em;margin-left:8px"><code>self._mars.check_prompt_safety(message)</code> → <code>MarsSafetyGuardrail.check()</code>. Risk ≥ 7 = BLOCK. Query never reaches orchestrator.</span></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="width:26px;height:26px;background:#422006;color:#fbbf24;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.82em;flex-shrink:0">3</div>
+        <div><span style="color:#fbbf24;font-weight:600">Intent Classification</span><span style="color:#64748b;font-size:0.85em;margin-left:8px"><code>self._mars.classify_intent(message, company_id)</code>. If <code>needs_cosmos=false</code> → Mars handles directly, Cosmos not called.</span></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="width:26px;height:26px;background:#3b0764;color:#a78bfa;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.82em;flex-shrink:0">4</div>
+        <div><span style="color:#a78bfa;font-weight:600">Session State Resumption</span><span style="color:#64748b;font-size:0.85em;margin-left:8px"><code>self._mars.resume_state(session_id)</code> — restores prior wave results, entity history, confidence trends for multi-turn continuity.</span></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="width:26px;height:26px;background:#431407;color:#fb923c;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.82em;flex-shrink:0">5</div>
+        <div><span style="color:#fb923c;font-weight:600">Result State Sync</span><span style="color:#64748b;font-size:0.85em;margin-left:8px"><code>self._mars.save_state(session_id, state)</code> — persists OrchestratorResult back to Mars for next-turn context and learning pipeline input.</span></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="width:26px;height:26px;background:#450a0a;color:#f87171;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.82em;flex-shrink:0">6</div>
+        <div><span style="color:#f87171;font-weight:600">Escalation Ticket</span><span style="color:#64748b;font-size:0.85em;margin-left:8px"><code>self._mars.create_escalation_ticket(session_id, reason, context)</code> — if <code>result["escalated"]==True</code>. Human supervisor gets full session context.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="color:#f87171;margin-bottom:14px">Prompt Injection Defense — <code>MarsSafetyGuardrail</code></h3>
+  <p style="color:#64748b;font-size:0.85em;margin-bottom:16px">File: <code>cosmos/app/guardrails/mars_safety.py</code> · Risk scored 0–10 per pattern match. BLOCK threshold: 7. WARN threshold: 4.</p>
+  <div class="grid g3" style="gap:10px">
+    <div style="background:#450a0a20;border:1px solid #f8717130;border-radius:8px;padding:12px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#f87171;font-weight:600;font-size:0.88em">Direct Injection</span><span class="badge b-red">Risk 7–9</span></div>
+      <p style="color:#64748b;font-size:0.8em;margin:0">"ignore instructions", "you are now", "jailbreak", "DAN mode"</p>
+    </div>
+    <div style="background:#450a0a20;border:1px solid #f8717130;border-radius:8px;padding:12px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#f87171;font-weight:600;font-size:0.88em">Template Injection</span><span class="badge b-red">Risk 7–9</span></div>
+      <p style="color:#64748b;font-size:0.8em;margin:0"><code>&lt;system&gt;</code>, <code>[INST]</code>, <code>&lt;&lt;SYS&gt;&gt;</code>, <code>&lt;|im_start|&gt;</code></p>
+    </div>
+    <div style="background:#450a0a20;border:1px solid #f8717130;border-radius:8px;padding:12px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#f87171;font-weight:600;font-size:0.88em">Command Injection</span><span class="badge b-red">Risk 8–9</span></div>
+      <p style="color:#64748b;font-size:0.8em;margin:0"><code>$(...)</code>, backticks, <code>curl | sh</code>, <code>rm -rf</code>, <code>base64 --decode</code></p>
+    </div>
+    <div style="background:#450a0a20;border:1px solid #f8717130;border-radius:8px;padding:12px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#f87171;font-weight:600;font-size:0.88em">Data Exfiltration</span><span class="badge b-red">Risk 7–8</span></div>
+      <p style="color:#64748b;font-size:0.8em;margin:0">"show prompt", "dump config", <code>/etc/passwd</code>, <code>.env</code>, API keys</p>
+    </div>
+    <div style="background:#450a0a20;border:1px solid #f8717130;border-radius:8px;padding:12px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#f87171;font-weight:600;font-size:0.88em">Tool Hijacking</span><span class="badge b-red">Risk 8–9</span></div>
+      <p style="color:#64748b;font-size:0.8em;margin:0">"call delete", "force execution", "bypass auth", "skip validation"</p>
+    </div>
+    <div style="background:#450a0a20;border:1px solid #f8717130;border-radius:8px;padding:12px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:#f87171;font-weight:600;font-size:0.88em">Obfuscation</span><span class="badge b-red">Risk 7–9</span></div>
+      <p style="color:#64748b;font-size:0.8em;margin:0">Long base64, hex/unicode escapes, <code>atob()</code>, <code>String.fromCharCode</code></p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 1 -->
+<!-- ============================================================ -->
+<p class="section-label">Introduction</p>
+<h1>RocketMind Knowledge Base</h1>
+<p class="subtitle">How the <strong>Orders</strong> domain becomes Tools, Agents, Skills &amp; Actions &mdash; a developer guide</p>
+
+<div class="grid g4" style="margin:35px 0">
+<div class="stat"><div class="v">867</div><div class="l">Graph Nodes</div></div>
+<div class="stat"><div class="v">5,651</div><div class="l">Graph Edges</div></div>
+<div class="stat"><div class="v">5</div><div class="l">Tools Discovered</div></div>
+<div class="stat"><div class="v">4</div><div class="l">Action Contracts</div></div>
+</div>
+
+<div class="card hl">
+<h3>What is the KB?</h3>
+<p>The Knowledge Base is <strong>not documentation</strong>. It is a structured data pipeline that converts raw code into executable AI capabilities:</p>
+<div style="text-align:center;margin:20px 0">
+<span class="fb" style="border-color:#f87171">PHP Code</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#fb923c">Scanner</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#fbbf24">YAML Files</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#34d399">Renderer</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#60a5fa">Embeddings</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#a78bfa">Graph</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#f472b6">Tools + Agents</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#34d399;background:#064e3b">Claude Response</span>
+</div>
+<p style="color:#94a3b8">When an ICRM operator asks a question, the answer comes from <strong>retrieved KB data</strong>, not from the LLM guessing. The LLM only synthesizes &mdash; the KB provides the facts.</p>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 2: PILLARS -->
+<!-- ============================================================ -->
+<div class="slide" id="s2">
+<p class="section-label">Architecture</p>
+<h2>The 8 Pillars of Knowledge</h2>
+<p class="subtitle">Each pillar answers a different type of ICRM question</p>
+
+<div class="grid g4">
+<div class="card g"><h3 style="color:#34d399">P1 &middot; Schema</h3><p><strong>676 tables</strong></p><p>"What data exists?"</p><p style="color:#94a3b8;font-size:0.82em">Columns, types, 105 status constants, transitions, validation rules</p></div>
+<div class="card hl"><h3 style="color:#60a5fa">P3 &middot; APIs</h3><p><strong>5,617 endpoints</strong></p><p>"What API can I call?"</p><p style="color:#94a3b8;font-size:0.82em">Method, path, controller, tool assignment, agent mapping, params</p></div>
+<div class="card"><h3>P4 &middot; Pages</h3><p><strong>24 pages, 20+ fields each</strong></p><p>"Where is this field?"</p><p style="color:#94a3b8;font-size:0.82em">field &rarr; API &rarr; table.column traces, role visibility</p></div>
+<div class="card p"><h3 style="color:#a78bfa">P5 &middot; Modules</h3><p><strong>713 files</strong></p><p>"What code handles this?"</p><p style="color:#94a3b8;font-size:0.82em">Controllers, services, jobs, routes, business rules</p></div>
+</div>
+<div class="grid g4" style="margin-top:12px">
+<div class="card o"><h3 style="color:#fb923c">P6 &middot; Actions</h3><p><strong>25 &times; 11 files = 275</strong></p><p>"What should I do?"</p><p style="color:#94a3b8;font-size:0.82em">Preconditions, execution graph, side effects, rollback, approval</p></div>
+<div class="card r"><h3 style="color:#f87171">P7 &middot; Workflows</h3><p><strong>8 &times; 13 files = 104</strong></p><p>"Why did this happen?"</p><p style="color:#94a3b8;font-size:0.82em">State machines, decision matrices, operator playbooks, exception paths</p></div>
+<div class="card"><h3>P8 &middot; Negatives</h3><p><strong>100 examples</strong></p><p>"Don't confuse X with Y"</p><p style="color:#94a3b8;font-size:0.82em">"cancel order" &ne; "cancel shipment", Hinglish variants</p></div>
+<div class="card g"><h3 style="color:#34d399">Hub &middot; Entity</h3><p><strong>10 summaries</strong></p><p>"Give me everything about orders"</p><p style="color:#94a3b8;font-size:0.82em">One 500-800 token doc merging P1+P3+P6+P7</p></div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 3: P1 SCHEMA EXTRACTION -->
+<!-- ============================================================ -->
+<div class="slide" id="s3">
+<p class="section-label">Pillar 1 &mdash; Deep Dive</p>
+<h2>P1: How Orders Schema is Extracted</h2>
+<p class="subtitle">From PHP model &rarr; YAML chunks &rarr; what the AI knows about the orders table</p>
+
+<div class="grid g2">
+<div class="card r">
+<h4>Source: PHP Model (app/Repositories/Order.php)</h4>
+<pre>class Order extends ArchiveBaseModel {
+    use OrdersWeight, SoftDeletes;
+    protected $table = 'orders';
+    protected $connection = 'mysql';
+
+    protected $fillable = [
+        'company_id', 'channel_id', 'channel_order_id',
+        'customer_name', 'customer_address', 'customer_pincode',
+        'payment_method', 'sub_total', 'weight', 'status',
+        'rto_prediction', ...  // 50 columns total
+    ];
+
+    const NEW_ORDER = 1;
+    const READY_TO_SHIP = 3;
+    const CANCELLED = 5;
+    const SHIPPED = 6;
+    const DELIVERED = 7;
+    // ... 105 status values total
+}</pre>
+</div>
+<div class="card g">
+<h4>Output: 12 chunk files in high/ folder</h4>
+<pre>pillar_1_schema/tables/orders/
+  high.yaml              (3,729 lines merged)
+  high/
+    identity_core.yaml   &larr; table name, model, PK, indexes
+    identity_columns.yaml &larr; 50 columns with types + meanings
+    states_constants.yaml &larr; 105 status values (1=NEW...7=DELIVERED)
+    states_transitions.yaml &larr; allowed state changes
+    rules.yaml           &larr; validation rules from Request classes
+    code.yaml            &larr; model traits, scopes, relationships
+    dataflow_data_flows.yaml  &larr; which APIs read/write this table
+    dataflow_side_effects.yaml &larr; jobs dispatched on changes
+    extra_read_paths.yaml     &larr; slave DB connections
+    extra_write_paths.yaml    &larr; write DB connections
+    extra_cron_dependencies.yaml &larr; scheduled jobs
+    extra_cross_repo.yaml     &larr; SR_Web references</pre>
+</div>
+</div>
+
+<h3>Extraction Steps</h3>
+<div class="step"><div class="num">1</div><div><strong>_scan_repo_fill_gaps.py</strong> reads <code>Order.php</code> &rarr; extracts <code>$table</code>, <code>$fillable</code>, <code>$connection</code>, <code>const</code> values</div></div>
+<div class="step"><div class="num">2</div><div><strong>Migration files</strong> scanned &rarr; column types, indexes, foreign keys extracted</div></div>
+<div class="step"><div class="num">3</div><div><strong>_deep_scan_v2.py</strong> scans for JSON columns, enum values, side effects, dispatched jobs</div></div>
+<div class="step"><div class="num">4</div><div><strong>_merge_to_tiers.py</strong> merges individual files into <code>high.yaml</code>, then chunks into <code>high/</code> folder</div></div>
+
+<h3>Example: states_constants.yaml (what the AI learns)</h3>
+<div class="grid g3">
+<div class="card"><code>1</code> NEW_ORDER<br><code>2</code> INVOICED<br><code>3</code> READY_TO_SHIP<br><code>4</code> PICKUP_SCHEDULED</div>
+<div class="card"><code>5</code> CANCELLED<br><code>6</code> SHIPPED<br><code>7</code> DELIVERED<br><code>8</code> ePAYMENT_FAILED</div>
+<div class="card"><code>9</code> RETURNED<br><code>10</code> UNMAPPED<br><code>11</code> UNFULFILLABLE<br><code>12</code> PICKUP_QUEUE</div>
+</div>
+
+<div class="card hl">
+<h4>Why this matters for ICRM</h4>
+<p>Without this: the LLM guesses "maybe order status is active/inactive". With this: it knows all 105 Shiprocket-specific statuses and can say <strong>"Status 6 means SHIPPED, you cannot cancel"</strong>.</p>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 4: P3 APIs -->
+<!-- ============================================================ -->
+<div class="slide" id="s4">
+<p class="section-label">Pillar 3 &mdash; Deep Dive</p>
+<h2>P3: How 660 APIs Become 5 Tools Under 1 Agent</h2>
+<p class="subtitle">Route files &rarr; API directories &rarr; tool assignment &rarr; agent mapping</p>
+
+<div class="grid g2">
+<div class="card r">
+<h4>Source: Route File (app/Http/Routes/v1/orders.php)</h4>
+<pre>Route::group(['prefix' => 'orders'], function() {
+    Route::post('create', 'CustomController@store');
+    Route::get('/', 'OrderController@index');
+    Route::get('{id}', 'OrderController@show');
+    Route::post('cancel', 'OrderCancelController@cancel');
+    Route::patch('{id}/fulfill', 'OrderController@fulfill');
+});</pre>
+</div>
+<div class="card g">
+<h4>Output: API directory with high.yaml</h4>
+<pre>apis/mcapi.v1.orders.create.post/high.yaml:
+
+overview:
+  api:
+    id: mcapi.v1.orders.create.post
+    method: POST
+    path: /api/v1/orders/create
+    controller: Orders\CustomController@store
+  classification:
+    domain: orders
+    intent_primary: orders_create
+
+tool_agent_tags:
+  tool_assignment:
+    tool_candidate: orders_create    &larr; TOOL NAME
+    read_write_type: WRITE
+    risk_level: medium
+  agent_assignment:
+    owner: order_ops_agent           &larr; AGENT NAME</pre>
+</div>
+</div>
+
+<h3>Tool Grouping (how 660 APIs become 5 tools)</h3>
+<table>
+<tr><th>Tool Name</th><th>APIs</th><th>Type</th><th>How Grouped</th><th>Example APIs</th></tr>
+<tr class="highlight-row"><td><span class="badge b-blue">orders_create</span></td><td><strong>349</strong></td><td>WRITE</td><td>POST endpoints that create/import/upload orders</td><td>orders/create, orders/create/adhoc, orders/import</td></tr>
+<tr><td><span class="badge b-green">orders_list</span></td><td><strong>236</strong></td><td>READ</td><td>GET endpoints that list/filter/count/export orders</td><td>orders, orders/count, orders/fetch, orders/export</td></tr>
+<tr><td><span class="badge b-purple">orders_get</span></td><td><strong>59</strong></td><td>READ</td><td>GET endpoints that retrieve one order by ID</td><td>orders/show/{id}, orders/{id}/details</td></tr>
+<tr><td><span class="badge b-orange">orders_update</span></td><td><strong>14</strong></td><td>WRITE</td><td>PATCH/PUT endpoints that modify orders</td><td>orders/fulfill, orders/mapping, orders/payment/edit</td></tr>
+<tr><td><span class="badge b-red">orders_delete</span></td><td><strong>2</strong></td><td>WRITE</td><td>DELETE endpoints</td><td>orders/destroyqc/{id}</td></tr>
+</table>
+
+<div class="card p">
+<h3>Agent: order_ops_agent <span class="badge b-purple">Tier: CORE</span></h3>
+<p><strong>Owns:</strong> All 660 orders APIs across 5 tools</p>
+<p><strong>Instructions:</strong> "Verify order exists before any action. If status &ge; 6 (SHIPPED), cannot cancel."</p>
+<p><strong>Hands off to:</strong> <span class="badge b-green">billing_wallet</span> <span class="badge b-blue">shipment_ops</span> <span class="badge b-orange">ndr_resolver</span></p>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 5: P5 MODULE DOCS -->
+<!-- ============================================================ -->
+<div class="slide" id="s5">
+<p class="section-label">Pillar 5 &mdash; Deep Dive</p>
+<h2>P5: Orders Module Documentation</h2>
+<p class="subtitle">Implementation guide extracted from codebase structure</p>
+
+<div class="grid g2">
+<div class="card">
+<h3>Module Files (11 docs, quality 79%)</h3>
+<table>
+<tr><th>File</th><th>Score</th><th>What it covers</th></tr>
+<tr><td>CLAUDE.yaml</td><td><span class="badge b-green">100</span></td><td>Full module summary &mdash; responsibilities, key classes, entry points</td></tr>
+<tr><td>business_rules.yaml</td><td><span class="badge b-green">95</span></td><td>Order business logic &mdash; COD limits, status transitions, validation</td></tr>
+<tr><td>order_model_navigation.yaml</td><td><span class="badge b-green">95</span></td><td>Model relationships &mdash; Order &rarr; Products &rarr; Shipments &rarr; Returns</td></tr>
+<tr><td>database.yaml</td><td><span class="badge b-green">90</span></td><td>DB schema, connections, indexes, partitioning</td></tr>
+<tr><td>api.yaml</td><td><span class="badge b-blue">80</span></td><td>18 core API routes with controllers</td></tr>
+<tr><td>debugging.yaml</td><td><span class="badge b-blue">80</span></td><td>Common debugging patterns, log locations</td></tr>
+<tr><td>testing.yaml</td><td><span class="badge b-blue">80</span></td><td>Test strategies, fixtures, mocking</td></tr>
+</table>
+</div>
+<div class="card">
+<h3>Key Details Extracted</h3>
+<p><strong>32 Controllers</strong> including CustomController (create), OrderController (CRUD), OrderCancelController, EscalationController, ManifestController</p>
+<div class="fp">app/Http/Controllers/v1/Orders/CustomController.php<br>app/Http/Controllers/v1/Orders/OrderController.php<br>app/Http/Controllers/v1/Orders/OrderCancelController.php<br>app/Repositories/Order.php<br>app/Repositories/OrderProduct.php<br>app/Jobs/Orders/SaveRTOprediction.php<br>app/Http/Requests/v1/Orders/AdHocRequest.php</div>
+<h4>Why it matters</h4>
+<p>When a developer asks <em>"which controller handles order creation?"</em>, COSMOS retrieves <code>api.yaml</code> and answers with the exact file path, not a guess.</p>
+</div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 6: P6 ACTIONS -->
+<!-- ============================================================ -->
+<div class="slide" id="s6">
+<p class="section-label">Pillar 6 &mdash; Deep Dive</p>
+<h2>P6: Action Contracts &mdash; What the AI Can DO</h2>
+<p class="subtitle">11 files per action = executable specification with preconditions, side effects, rollback</p>
+
+<div class="card o">
+<h4>Why P6 exists (gap that P1-P3 cannot fill)</h4>
+<table>
+<tr><th>P1 tells you</th><th>P3 tells you</th><th>P6 tells you</th></tr>
+<tr><td>"orders" table has 50 columns</td><td>POST /orders/create exists</td><td><strong>What happens</strong> when you call it: stores to 2 tables, triggers RTO prediction job</td></tr>
+<tr><td>"status" is TINYINT</td><td>API requires order_items array</td><td><strong>What can go wrong</strong>: duplicate order, invalid pincode, COD limit exceeded</td></tr>
+<tr><td>"rto_prediction" is FLOAT</td><td>Controller is CustomController@store</td><td><strong>Who can do it</strong>: operator role, confirm approval, medium risk</td></tr>
+</table>
+</div>
+
+<h3>Orders Domain: 4 Action Contracts</h3>
+<div class="grid g4">
+<div class="card o"><h4>create_order</h4><span class="badge b-orange">api_action</span> <span class="badge b-yellow">risk: medium</span><p style="font-size:0.85em;margin-top:8px">New order with address validation, COD/Prepaid</p></div>
+<div class="card o"><h4>bulk_ship_orders</h4><span class="badge b-orange">api_action</span> <span class="badge b-yellow">risk: medium</span><p style="font-size:0.85em;margin-top:8px">Batch process up to 50 orders</p></div>
+<div class="card o"><h4>clone_order</h4><span class="badge b-orange">api_action</span> <span class="badge b-green">risk: low</span><p style="font-size:0.85em;margin-top:8px">Duplicate order with optional overrides</p></div>
+<div class="card o"><h4>save_rto_prediction</h4><span class="badge b-purple">async_job</span> <span class="badge b-green">risk: low</span><p style="font-size:0.85em;margin-top:8px">ML prediction: will this shipment RTO?</p></div>
+</div>
+
+<h3>File Structure (11 files per action)</h3>
+<div class="fp">pillar_6_action_contracts/domains/orders/create_order/<br>
+&nbsp;&nbsp;index.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&larr; metadata + cross-pillar links (stable IDs)<br>
+&nbsp;&nbsp;contract.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&larr; purpose, inputs, outputs, sync/async, idempotent<br>
+&nbsp;&nbsp;intent_map.yaml &nbsp;&nbsp;&nbsp;&nbsp;&larr; English + Hinglish phrases + negative phrases<br>
+&nbsp;&nbsp;permissions.yaml &nbsp;&nbsp;&nbsp;&larr; roles, tenant scope, approval mode<br>
+&nbsp;&nbsp;data_access.yaml &nbsp;&nbsp;&nbsp;&larr; tables read/written, APIs called, queues, jobs<br>
+&nbsp;&nbsp;execution_graph.yaml &larr; step-by-step: validate &rarr; check address &rarr; store &rarr; trigger RTO<br>
+&nbsp;&nbsp;failure_modes.yaml &nbsp;&larr; what can go wrong + retry rules<br>
+&nbsp;&nbsp;observability.yaml &nbsp;&larr; log tags, metrics, alerts, dashboards<br>
+&nbsp;&nbsp;examples.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&larr; "naya order create karo" &rarr; params<br>
+&nbsp;&nbsp;eval_cases.yaml &nbsp;&nbsp;&nbsp;&nbsp;&larr; positive, ambiguous, unsafe, regression tests<br>
+&nbsp;&nbsp;rollback.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&larr; how to undo + when rollback is unsafe</div>
+
+<h3>Example: intent_map.yaml</h3>
+<div class="grid g2">
+<div class="card g"><h4>Positive (route TO this action)</h4><pre>english: ["Create a new order", "Place order"]
+hinglish: ["naya order create karo", "order banana hai"]
+icrm_shorthand: ["new order", "create ord"]</pre></div>
+<div class="card r"><h4>Negative (do NOT route here)</h4><pre>- "Clone this order" &rarr; action.orders.clone_order
+- "Ship this order" &rarr; action.orders.bulk_ship_orders
+- "Edit order" &rarr; action.orders.update_order</pre></div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 7: P7 WORKFLOWS -->
+<!-- ============================================================ -->
+<div class="slide" id="s7">
+<p class="section-label">Pillar 7 &mdash; Deep Dive</p>
+<h2>P7: Order Creation Pipeline Workflow</h2>
+<p class="subtitle">13 files = state machine + decision matrix + operator playbook + exception paths</p>
+
+<h3>State Machine (7 states, 13 transitions)</h3>
+<div style="text-align:center;margin:25px 0">
+<span class="fb" style="border-color:#60a5fa">order_placed</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#34d399">validated</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#a78bfa">address_verified</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#fb923c">rate_calculated</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#34d399;background:#064e3b">ready_to_ship</span>
+<br><br>
+<span class="fb" style="border-color:#f87171">validation_failed</span> &nbsp;
+<span class="fb" style="border-color:#f87171;background:#450a0a">order_cancelled</span>
+</div>
+
+<div class="grid g2">
+<div class="card">
+<h4>Decision Matrix (from decision_matrix.yaml)</h4>
+<pre>COD vs Prepaid:
+  COD &rarr; serviceability check required, max Rs 50K
+  Prepaid &rarr; no limit, skip COD check
+
+Domestic vs International:
+  International &rarr; needs HSN codes + customs declaration
+
+Channel sync vs Manual:
+  Shopify/WooCommerce &rarr; webhook-triggered, auto-mapping
+  Manual &rarr; seller fills all fields</pre>
+</div>
+<div class="card">
+<h4>Operator Playbook (from operator_playbook.yaml)</h4>
+<pre>diagnose:
+  1. Check order status in DB
+  2. Verify address serviceability
+  3. Check if channel sync completed
+
+act:
+  "Order stuck in validation_failed"
+    &rarr; check which field failed
+    &rarr; ask seller to correct
+
+escalate:
+  "No courier serviceable for pincode"
+    &rarr; Courier Operations team, SLA 4h</pre>
+</div>
+</div>
+
+<div class="card hl">
+<h4>Why workflows matter</h4>
+<p>When ICRM asks <strong>"why is this order stuck?"</strong>, the operator_playbook gives step-by-step diagnosis. The state_machine shows valid next transitions. Without this, Claude would give generic advice instead of Shiprocket-specific troubleshooting.</p>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 8: HUB + P4 + P8 -->
+<!-- ============================================================ -->
+<div class="slide" id="s8">
+<p class="section-label">Supporting Pillars</p>
+<h2>Entity Hub + Page Traces + Negative Routing</h2>
+
+<div class="grid g3">
+<div class="card g">
+<h3>Entity Hub (orders.yaml)</h3>
+<p>One 500-800 token doc merging ALL pillars for orders:</p>
+<pre>## Schema
+- orders: id, company_id, status, payment_method
+- order_products: id, order_id, sku, qty
+
+## APIs
+- POST /api/v1/orders/create (orders_create)
+- GET /api/v1/app/orders (orders_list)
+
+## Actions
+- action.orders.create_order [api_action]
+- action.orders.save_rto_prediction [async_job]
+
+## Workflows
+- workflow.orders.order_creation_pipeline</pre>
+<p style="color:#94a3b8;font-size:0.85em;margin-top:8px">LangGraph gets complete picture in ONE retrieval hit.</p>
+</div>
+
+<div class="card">
+<h3>P4 Field Traces</h3>
+<p>Page field &rarr; API &rarr; table.column mapping:</p>
+<pre>seller.orders.list (21 fields):
+  order_id
+    &rarr; mcapi.v1.app.orders.get
+    &rarr; data[].id
+    &rarr; orders.id (BIGINT)
+
+  payment_method
+    &rarr; mcapi.v1.app.orders.get
+    &rarr; data[].payment_method
+    &rarr; orders.payment_method (VARCHAR)
+    enum: [COD, Prepaid, Partial_COD]
+
+  fraud_score (ICRM only!)
+    &rarr; mcapi.internal.orders.search.get
+    &rarr; orders.fraud_score (TINYINT)
+    visible_to: [admin, ops]
+    hidden_from: [seller]</pre>
+</div>
+
+<div class="card r">
+<h3>P8 Negative Routing</h3>
+<p>Prevents wrong tool selection:</p>
+<pre>"cancel order" (before shipping)
+  &ne; "cancel shipment" (after AWB)
+  DIFFERENT side effects!
+
+"mera order cancel karo"
+  &rarr; action.orders.cancel_order
+  NOT: action.shipments.cancel
+
+"order edit karna hai"
+  &rarr; action.orders.update_order
+  NOT: action.orders.create_order
+
+"cancelled order ka refund nahi hua"
+  &rarr; action.billing.trigger_refund
+  NOT: action.orders.cancel_order</pre>
+</div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 9: TRAINING PIPELINE -->
+<!-- ============================================================ -->
+<div class="slide" id="s9">
+<p class="section-label">Training Pipeline</p>
+<h2>How the Pipeline Processes Orders Data</h2>
+<p class="subtitle">6-step pipeline: Read &rarr; Render &rarr; Embed &rarr; Graph &rarr; Registry &rarr; Eval</p>
+
+<div style="text-align:center;margin:30px 0">
+<span class="fb" style="border-color:#34d399"><span class="num">1</span>Read YAML</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#60a5fa"><span class="num">2</span>Render Text</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#a78bfa"><span class="num">3</span>Embed Vectors</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#fb923c"><span class="num">4</span>Build Graph</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#f87171"><span class="num">5</span>Discover Registry</span>
+<span class="fa">&rarr;</span>
+<span class="fb" style="border-color:#fbbf24"><span class="num">6</span>Run Eval</span>
+</div>
+
+<div class="card hl">
+<h4>Pipeline entry point (cosmos/app/services/training_pipeline.py)</h4>
+<pre>class TrainingPipeline:
+    async def run_full(self, repo_id="MultiChannel_API"):
+        M5:  Pillar 1 (tables) + Pillar 3 (APIs)      &larr; reads orders schema + 660 APIs
+        M5b: Pillar 1 extras (catalog, connections)
+        M5c: Pillar 4 (pages) + Pillar 5 (modules)     &larr; reads orders module + page traces
+        M6:  Pillar 6 (actions) + P7 (workflows) + P8   &larr; reads 4 action contracts + 1 workflow
+        M7:  Entity Hubs                                 &larr; generates orders hub
+        M4:  Generated artifacts
+        Graph build                                      &larr; creates 867 nodes + 5,651 edges
+        KB Registry sync                                &larr; discovers 5 tools + 1 agent
+        ICRM Eval benchmark                             &larr; tests retrieval quality (201 seeds)
+        Feedback loop                                    &larr; stages improvements from low-confidence traces</pre>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 10: READ + RENDER -->
+<!-- ============================================================ -->
+<div class="slide" id="s10">
+<p class="section-label">Training Step 1-2</p>
+<h2>Step 1: Read &rarr; Step 2: Render</h2>
+
+<div class="grid g2">
+<div class="card">
+<h3>Step 1: kb_ingestor.py reads each pillar</h3>
+<pre>read_pillar1_schema()
+  &rarr; iterates tables/orders/high/ (12 chunks)
+  &rarr; creates: "table:orders:identity_core"
+               "table:orders:states_constants"
+
+read_pillar3_apis()
+  &rarr; iterates apis/mcapi.v1.orders*/ (687 dirs)
+  &rarr; creates: "api:mcapi.v1.orders.create.post:overview"
+               "api:mcapi.v1.orders.create.post:tool_tags"
+
+read_pillar6_actions()
+  &rarr; iterates domains/orders/create_order/ (11 files)
+  &rarr; creates: "action.orders.create_order.contract"
+               "action.orders.create_order.intent_map"</pre>
+</div>
+<div class="card">
+<h3>Step 2: _render_chunk() converts YAML to text</h3>
+<div class="grid g2" style="gap:8px">
+<div class="card r" style="padding:12px"><h4 style="margin:0 0 5px">Before (raw)</h4><pre style="margin:0;font-size:0.8em">{'overview': {'api': {'id':
+'mcapi.v1.orders.create
+.post', 'method': 'POST'
+...}}}</pre></div>
+<div class="card g" style="padding:12px"><h4 style="margin:0 0 5px">After (rendered)</h4><pre style="margin:0;font-size:0.8em">POST /api/v1/orders/create
+Controller: CustomController@store
+Domain: orders
+Intent: orders_create</pre></div>
+</div>
+<p style="color:#94a3b8;font-size:0.85em;margin-top:10px">Typed renderers per chunk type: overview, tool_agent_tags, request_schema, identity, states, rules. Clean text embeds <strong>3x better</strong> than raw YAML dumps.</p>
+</div>
+</div>
+
+<h3>For orders, Step 1+2 produces:</h3>
+<table>
+<tr><th>Pillar</th><th>Docs</th><th>Example entity_id</th><th>Content type</th></tr>
+<tr><td>P1</td><td>12</td><td><code>table:orders:identity_core</code></td><td>Table metadata, columns, states</td></tr>
+<tr><td>P3</td><td>~2,000</td><td><code>api:mcapi.v1.orders.create.post:overview</code></td><td>API specs, tool/agent tags</td></tr>
+<tr><td>P5</td><td>11</td><td><code>module:orders:CLAUDE</code></td><td>Controllers, services, routes</td></tr>
+<tr><td>P6</td><td>44</td><td><code>action.orders.create_order.contract</code></td><td>Execution graph, preconditions</td></tr>
+<tr><td>P7</td><td>13</td><td><code>workflow.orders.order_creation_pipeline.state_machine</code></td><td>States, transitions, playbook</td></tr>
+<tr><td>Hub</td><td>1</td><td><code>entity_hub:orders</code></td><td>Cross-pillar summary</td></tr>
+<tr><td><strong>Total</strong></td><td><strong>~2,081</strong></td><td></td><td></td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 11: EMBED + GRAPH -->
+<!-- ============================================================ -->
+<div class="slide" id="s11">
+<p class="section-label">Training Step 3-4</p>
+<h2>Step 3: Embed &rarr; Step 4: Build Graph</h2>
+
+<div class="grid g2">
+<div class="card p">
+<h3>Step 3: Vector Embedding</h3>
+<pre>For each rendered doc:
+  1. Quality Gate:
+     reject &lt; 50 chars
+     reject &gt; 80% punctuation
+     reject stubs ("TODO", "placeholder")
+
+  2. content_hash = SHA256(content)
+     if unchanged from last run &rarr; SKIP
+
+  3. embedding = OpenAI text-embedding-3-small
+     (1536 dimensions)
+
+  4. UPSERT into cosmos_embeddings:
+     id, repo_id, entity_type, entity_id
+     content (rendered text)
+     embedding (1536-dim vector)
+     metadata: {
+       pillar, domain, chunk_type,
+       query_mode, training_ready
+     }
+     trust_score: 0.5-0.95
+     capability: "retrieval"|"action"|"workflow"</pre>
+</div>
+<div class="card o">
+<h3>Step 4: Knowledge Graph</h3>
+<pre>For orders, creates:
+
+NODES (867 total):
+  1 domain:orders
+  804 api:mcapi.v1.orders.* (api_endpoint)
+  38 table:orders/order_products/... (table)
+  8 intent:orders_create/list/... (intent)
+  5 tool:orders_create/list/... (tool)
+  4 module:orders (module)
+  3 page:seller.orders.* (page)
+  1 agent:order_ops_agent (agent)
+  + action + workflow nodes
+
+EDGES (5,651 total):
+  has_intent(2,380)
+    api &rarr; intent
+  assigned_to_agent(1,574)
+    api &rarr; agent
+  belongs_to_domain(852)
+    api/table/tool &rarr; domain
+  implements_tool(803)
+    api &rarr; tool
+  reads_table(20)
+    api &rarr; table
+  has_action(7)
+    page &rarr; api
+
+EDGE WEIGHTS:
+  belongs_to_domain = 2.0
+  writes_table = 1.8
+  uses_action = 1.7
+  calls_api = 1.6
+  implements_tool = 1.5</pre>
+</div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 12: REGISTRY DISCOVERY -->
+<!-- ============================================================ -->
+<div class="slide" id="s12">
+<p class="section-label">Training Step 5</p>
+<h2>Step 5: How Tools, Agents &amp; Skills are Discovered</h2>
+<p class="subtitle">KB-Driven Registry reads graph nodes &rarr; creates runtime objects automatically</p>
+
+<div class="card g">
+<h3>Discovery SQL (kb_driven_registry.py: _sync_from_graph)</h3>
+<pre>-- Step 1: Find all tools
+SELECT * FROM graph_nodes WHERE node_type = 'tool' AND domain = 'orders'
+  &rarr; DynamicTool("orders_create", api_count=349)
+  &rarr; DynamicTool("orders_list", api_count=236)
+  &rarr; DynamicTool("orders_get", api_count=59)
+  &rarr; DynamicTool("orders_update", api_count=14)
+  &rarr; DynamicTool("orders_delete", api_count=2)
+
+-- Step 2: Find the agent
+SELECT * FROM graph_nodes WHERE node_type = 'agent' AND domain = 'orders'
+  &rarr; DynamicAgent("order_ops_agent", tools={5}, api_count=660)
+
+-- Step 3: Find skills (= intents)
+SELECT * FROM graph_nodes WHERE node_type = 'intent' AND domain = 'orders'
+  &rarr; DynamicSkill("orders_create") ... DynamicSkill("orders_delete")
+
+-- Step 4: Link via shared edges
+SELECT tool_id, agent_id FROM graph_edges
+WHERE edge_type IN ('implements_tool', 'assigned_to_agent')
+  &rarr; orders_create &harr; order_ops_agent (349 shared APIs)
+  &rarr; orders_list &harr; order_ops_agent (236 shared APIs)</pre>
+</div>
+
+<div class="card hl">
+<h3>Key Insight: Zero Hardcoding Required</h3>
+<p>When you add a new API to the KB (e.g., <code>mcapi.v1.orders.split.post</code>), the next pipeline run:</p>
+<div class="step"><div class="num">1</div><div>Creates the API YAML in pillar_3</div></div>
+<div class="step"><div class="num">2</div><div>Scanner assigns tool=<code>orders_create</code>, agent=<code>order_ops_agent</code></div></div>
+<div class="step"><div class="num">3</div><div>Pipeline embeds it + creates graph node + edge to tool + edge to agent</div></div>
+<div class="step"><div class="num">4</div><div>KB-Driven Registry discovers it automatically &mdash; <strong>no code change needed</strong></div></div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 13: LIVE GRAPH DATA -->
+<!-- ============================================================ -->
+<div class="slide" id="s13">
+<p class="section-label">Live Data</p>
+<h2>Orders Graph: Live Database Snapshot</h2>
+<p class="subtitle">Queried from graph_nodes and graph_edges tables (PostgreSQL)</p>
+
+<div class="grid g2">
+<div class="card">
+<h3>Nodes by Type</h3>
+<table>
+<tr><th>Type</th><th>Count</th><th>Examples</th></tr>
+<tr><td><code>api_endpoint</code></td><td><strong>804</strong></td><td>mcapi.v1.orders.create.post</td></tr>
+<tr><td><code>table</code></td><td><strong>38</strong></td><td>orders, order_products, order_items</td></tr>
+<tr><td><code>intent</code></td><td><strong>8</strong></td><td>orders_create, orders_list</td></tr>
+<tr><td><code>tool</code></td><td><strong>5</strong></td><td>orders_create(349), orders_list(236)</td></tr>
+<tr><td><code>domain</code></td><td><strong>4</strong></td><td>orders, core_orders</td></tr>
+<tr><td><code>module</code></td><td><strong>4</strong></td><td>orders module files</td></tr>
+<tr><td><code>page</code></td><td><strong>3</strong></td><td>seller.orders.list, icrm.orders.search</td></tr>
+<tr><td><code>agent</code></td><td><strong>1</strong></td><td>order_ops_agent</td></tr>
+<tr><td></td><td><strong>867</strong></td><td></td></tr>
+</table>
+</div>
+<div class="card">
+<h3>Edges by Type</h3>
+<table>
+<tr><th>Edge</th><th>Count</th><th>What it connects</th></tr>
+<tr><td><code>has_intent</code></td><td><strong>2,380</strong></td><td>api &rarr; intent (each API ~3 intents)</td></tr>
+<tr><td><code>assigned_to_agent</code></td><td><strong>1,574</strong></td><td>api &rarr; agent (804 APIs &times; ~2 agents)</td></tr>
+<tr><td><code>belongs_to_domain</code></td><td><strong>852</strong></td><td>api/table/tool &rarr; domain:orders</td></tr>
+<tr><td><code>implements_tool</code></td><td><strong>803</strong></td><td>api &rarr; tool (one tool per API)</td></tr>
+<tr><td><code>reads_table</code></td><td><strong>20</strong></td><td>api &rarr; table (which APIs read orders)</td></tr>
+<tr><td><code>has_api</code></td><td><strong>15</strong></td><td>domain/module &rarr; api</td></tr>
+<tr><td><code>has_action</code></td><td><strong>7</strong></td><td>page &rarr; api (UI actions)</td></tr>
+<tr><td></td><td><strong>5,651</strong></td><td></td></tr>
+</table>
+</div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 14: RUNTIME -->
+<!-- ============================================================ -->
+<div class="slide" id="s14">
+<p class="section-label">Runtime</p>
+<h2>What Happens When You Ask: "naya order create karo"</h2>
+
+<div class="card hl">
+<pre style="font-size:0.88em;line-height:1.9">
+<strong style="color:#f87171">User:</strong> "naya order create karo"
+  |
+  v
+<strong style="color:#34d399">1. Query Mode Detection</strong> &rarr; "act" (detected "karo" = action verb)
+  |
+  v
+<strong style="color:#a78bfa">2. Wave 1: 5-Leg Parallel Probe</strong>
+  Leg 1 (exact)  : entity_type="orders" lookup
+  Leg 2 (BFS)    : domain:orders + neighbors (adaptive depth)
+  Leg 3 (vector) : top-5 chunks filtered by query_mode="act"
+  Leg 4 (lexical) : keyword "order create"
+  Leg 5 (PPR)    : seeds=[domain:orders, intent:orders_create]
+                    propagates importance across full graph
+  |
+  v
+<strong style="color:#fb923c">3. RRF Fusion</strong> (5 legs, weighted)
+  exact(2.0) + PPR(1.8) + graph(1.5) + vector(1.0) + lexical(0.8)
+  Top hit: <strong>action.orders.create_order</strong> (score 0.92)
+  |
+  v
+<strong style="color:#f472b6">4. LangGraph Adaptive Retrieve</strong>
+  Is action query? YES. Action contract found? YES.
+  No Neo4j deepening needed. Confidence = 0.85.
+  |
+  v
+<strong style="color:#60a5fa">5. Context Assembly</strong>
+  Boost: action contract &times;1.8, entity hub &times;1.7
+  Source attribution: "[pillar_6:action.orders.create_order trust=0.9]"
+  |
+  v
+<strong style="color:#fbbf24">6. Claude LLM</strong> + FACTUALITY_PROMPT
+  "Use ONLY facts from context. Never invent IDs. Cite sources."
+  |
+  v
+<strong style="color:#34d399">7. RALPH Verify + HallucinationGuard</strong>
+  Grounding: 87%. No fabricated IDs. Confidence: 0.85.
+  |
+  v
+<strong style="color:#34d399">Response:</strong>
+  "To create a new order (source: action.orders.create_order):
+   Required: order_id, order_date, billing details, order_items, payment_method
+   API: POST /api/v1/orders/create
+   Side effects: stores to orders + order_products, triggers SaveRTOprediction
+   Risk: medium | Approval: confirm | Not idempotent"
+</pre>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 15: ANTI-HALLUCINATION -->
+<!-- ============================================================ -->
+<div class="slide" id="s15">
+<p class="section-label">Quality</p>
+<h2>8 Layers Preventing Hallucination</h2>
+
+<div class="grid g4">
+<div class="card g"><h4 style="color:#34d399">1. Embedding Quality Gate</h4><p>Reject &lt;50 chars, stubs, junk before they enter vector search</p></div>
+<div class="card g"><h4 style="color:#34d399">2. Similarity Threshold</h4><p>Only return chunks with &ge;25% similarity (was 0% = anything)</p></div>
+<div class="card hl"><h4 style="color:#60a5fa">3. Factuality Prompt</h4><p>"Use ONLY context facts. Never invent IDs. Cite sources."</p></div>
+<div class="card hl"><h4 style="color:#60a5fa">4. Source Attribution</h4><p>Every chunk tagged: <code>[pillar_6:create_order trust=0.9]</code></p></div>
+<div class="card o"><h4 style="color:#fb923c">5. HallucinationGuard</h4><p>BLOCK if 3+ fabricated IDs. Grounding score check.</p></div>
+<div class="card o"><h4 style="color:#fb923c">6. RALPH Verify</h4><p>Response grounded in context? All intents covered?</p></div>
+<div class="card r"><h4 style="color:#f87171">7. "I Don't Know"</h4><p>Confidence &lt;0.3 &rarr; safe fallback instead of guessing</p></div>
+<div class="card r"><h4 style="color:#f87171">8. Feedback Loop</h4><p>Low-confidence traces auto-generate KB improvements</p></div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 16: FULL E2E -->
+<!-- ============================================================ -->
+<div class="slide" id="s16">
+<p class="section-label">End to End</p>
+<h2>Complete Flow: PHP Code &rarr; ICRM Answer</h2>
+
+<div class="card" style="font-size:0.9em">
+<pre style="line-height:2.1">
+<span style="color:#f87171;font-weight:700">PHP CODEBASE</span>
+  app/Repositories/Order.php &middot; app/Http/Routes/v1/orders.php &middot; app/Jobs/Orders/SaveRTOprediction.php
+      | <span style="color:#475569">Scanner scripts extract structure</span>
+      v
+<span style="color:#fb923c;font-weight:700">YAML FILES</span> <span style="color:#475569">(knowledge_base/shiprocket/MultiChannel_API/)</span>
+  P1: tables/orders/high/ (12 chunks) &middot; P3: apis/mcapi.v1.orders*/ (687 dirs)
+  P5: modules/orders/ (11 docs) &middot; P6: actions/orders/ (4&times;11=44 docs)
+  P7: workflows/orders/ (13 docs) &middot; Hub: entity_hubs/orders.yaml
+      | <span style="color:#475569">kb_ingestor.py reads + _render_chunk() converts</span>
+      v
+<span style="color:#fbbf24;font-weight:700">~2,081 RENDERED TEXT DOCS</span>
+  "POST /api/v1/orders/create | Controller: CustomController@store | Domain: orders"
+      | <span style="color:#475569">canonical_ingestor.py embeds (OpenAI 1536-dim)</span>
+      v
+<span style="color:#a78bfa;font-weight:700">VECTOR EMBEDDINGS</span> <span style="color:#475569">(cosmos_embeddings, pgvector)</span>
+      | <span style="color:#475569">ingest.py creates graph structure</span>
+      v
+<span style="color:#60a5fa;font-weight:700">KNOWLEDGE GRAPH</span> <span style="color:#475569">(867 nodes + 5,651 edges with semantic weights)</span>
+      | <span style="color:#475569">kb_driven_registry.py reads graph nodes</span>
+      v
+<span style="color:#34d399;font-weight:700">5 TOOLS + 1 AGENT + 5 SKILLS</span> <span style="color:#475569">(discovered automatically, zero hardcoding)</span>
+      | <span style="color:#475569">User query triggers 5-leg retrieval + LangGraph reasoning</span>
+      v
+<span style="color:#34d399;font-weight:700">GROUNDED RESPONSE</span> <span style="color:#475569">(cited, verified, confidence-gated)</span>
+</pre>
+</div>
+
+<div class="grid g3" style="margin-top:20px">
+<div class="stat"><div class="v">~2,081</div><div class="l">Embedding docs for orders</div></div>
+<div class="stat"><div class="v">867</div><div class="l">Graph nodes for orders</div></div>
+<div class="stat"><div class="v">9.8/10</div><div class="l">KB Quality Score</div></div>
+</div>
+
+<div class="card" style="text-align:center;margin-top:25px;padding:30px">
+<p style="color:#60a5fa;font-size:1.3em;font-weight:600">The KB is not documentation. It is the brain.</p>
+<p style="color:#94a3b8;margin-top:8px">Built for Shiprocket ICRM &mdash; RocketMind AI Copilot</p>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 17: THE 4 CONCEPTS -->
+<!-- ============================================================ -->
+<div class="slide" id="s17">
+<p class="section-label">COSMOS Architecture</p>
+<h2>The 4 Concepts: Agent, Tool, Skill, Action</h2>
+<p class="subtitle">How COSMOS organizes intelligence into executable units</p>
+
+<div class="grid g4">
+<div class="card hl" style="text-align:center">
+<h3 style="color:#60a5fa;font-size:1.5em">Agent</h3>
+<p style="font-size:1.1em;margin:10px 0"><strong>WHO</strong> does the work</p>
+<p style="color:#94a3b8">A persona with scoped tools, knowledge, instructions, and handoff rules</p>
+<p style="margin-top:10px"><span class="badge b-blue">18 agents</span></p>
+<p style="font-size:0.8em;color:#475569">6 core + 6 specialized + 6 operational</p>
+<div class="fp">engine/agent_registry.py</div>
+</div>
+
+<div class="card g" style="text-align:center">
+<h3 style="color:#34d399;font-size:1.5em">Tool</h3>
+<p style="font-size:1.1em;margin:10px 0"><strong>WHAT</strong> API to call</p>
+<p style="color:#94a3b8">A single API call that reads or writes data</p>
+<p style="margin-top:10px"><span class="badge b-green">15+ tools</span></p>
+<p style="font-size:0.8em;color:#475569">read_tools + write_tools</p>
+<div class="fp">tools/read_tools.py<br>tools/write_tools.py</div>
+</div>
+
+<div class="card p" style="text-align:center">
+<h3 style="color:#a78bfa;font-size:1.5em">Skill</h3>
+<p style="font-size:1.1em;margin:10px 0"><strong>HOW</strong> to do a task</p>
+<p style="color:#94a3b8">Reusable recipe = instructions + sequence of actions + trigger keywords</p>
+<p style="margin-top:10px"><span class="badge b-purple">10 predefined</span></p>
+<p style="font-size:0.8em;color:#475569">order_lookup, cancellation, ndr_resolution...</p>
+<div class="fp">engine/skill_registry.py</div>
+</div>
+
+<div class="card o" style="text-align:center">
+<h3 style="color:#fb923c;font-size:1.5em">Action</h3>
+<p style="font-size:1.1em;margin:10px 0"><strong>ONE STEP</strong> in a skill</p>
+<p style="color:#94a3b8">7 types: api_call, prompt, handoff, notification, workflow, respond, internal</p>
+<p style="margin-top:10px"><span class="badge b-orange">7 action types</span></p>
+<p style="font-size:0.8em;color:#475569">Each skill has 2-5 actions</p>
+<div class="fp">engine/skill_registry.py</div>
+</div>
+</div>
+
+<h3>The 7 Action Types</h3>
+<table>
+<tr><th>Type</th><th>What it does</th><th>Example</th></tr>
+<tr><td><span class="badge b-blue">API_CALL</span></td><td>Call a registered tool</td><td><code>order_lookup(order_id="12345")</code></td></tr>
+<tr><td><span class="badge b-purple">PROMPT</span></td><td>Call LLM with structured prompt template</td><td>Summarize order history for the user</td></tr>
+<tr><td><span class="badge b-orange">HANDOFF</span></td><td>Transfer to another agent with context</td><td>order_ops &rarr; billing_wallet (for refund)</td></tr>
+<tr><td><span class="badge b-green">NOTIFICATION</span></td><td>Send email/SMS/WhatsApp</td><td>Notify seller about pickup scheduled</td></tr>
+<tr><td><span class="badge b-yellow">WORKFLOW</span></td><td>Chain multiple actions in sequence</td><td>Cancel order &rarr; release AWB &rarr; trigger refund</td></tr>
+<tr><td><span class="badge b-blue">RESPOND</span></td><td>Format and send answer to user</td><td>"Your order #12345 status is SHIPPED"</td></tr>
+<tr><td><span class="badge b-red">INTERNAL</span></td><td>Update ticket, set priority, log note</td><td>Set ticket priority to HIGH</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 18: HOW THEY RELATE -->
+<!-- ============================================================ -->
+<div class="slide" id="s18">
+<p class="section-label">Architecture</p>
+<h2>How Agent, Tool, Skill &amp; Action Relate</h2>
+<p class="subtitle">A hierarchy: Agent uses Skills, Skills execute Actions, Actions call Tools</p>
+
+<div class="card hl">
+<pre style="font-size:1em;line-height:2.2">
+<span style="color:#60a5fa;font-weight:700">Agent</span> (who) &mdash; <span style="color:#94a3b8">e.g., order_ops_agent</span>
+  |
+  +-- has: <span style="color:#34d399">tools_allowed</span>      [order_lookup, cancel_order, update_address, ...]
+  +-- has: <span style="color:#a78bfa">knowledge_scope</span>    ["orders", "core_orders"] <span style="color:#475569">&larr; filters KB retrieval</span>
+  +-- has: <span style="color:#fb923c">instructions</span>       "Verify order exists before any action..."
+  +-- has: <span style="color:#f87171">can_handoff_to</span>     [billing_wallet, shipment_ops, ndr_resolver]
+  +-- can use: <span style="color:#a78bfa">Skills</span>         [order_lookup, cancellation, ...]
+       |
+       |
+<span style="color:#a78bfa;font-weight:700">Skill</span> (how) &mdash; <span style="color:#94a3b8">e.g., order_lookup</span>
+  |
+  +-- has: <span style="color:#fbbf24">triggers</span>          ["order status", "find order", "order kahan hai"]
+  +-- has: <span style="color:#fb923c">actions[]</span>         (ordered steps to execute)
+       |
+       |
+<span style="color:#fb923c;font-weight:700">Action</span> (one step) &mdash; <span style="color:#94a3b8">e.g., fetch_order</span>
+  |
+  +-- type: <span style="color:#60a5fa">api_call</span>   &rarr; calls a <span style="color:#34d399">Tool</span>
+  +-- type: <span style="color:#a78bfa">prompt</span>     &rarr; calls LLM
+  +-- type: <span style="color:#fb923c">handoff</span>    &rarr; transfers to another <span style="color:#60a5fa">Agent</span>
+  +-- type: <span style="color:#34d399">respond</span>    &rarr; formats answer for user
+  +-- type: <span style="color:#f87171">internal</span>   &rarr; logs/updates state
+       |
+       |
+<span style="color:#34d399;font-weight:700">Tool</span> (the actual API call) &mdash; <span style="color:#94a3b8">e.g., order_lookup</span>
+  |
+  +-- has: <span style="color:#fbbf24">parameters</span>        [{name: "order_id", type: "str", required: true}]
+  +-- has: <span style="color:#60a5fa">data_source</span>       MCAPI (Shiprocket API via SSO token)
+  +-- has: <span style="color:#f87171">risk_level</span>        LOW / MEDIUM / HIGH
+  +-- has: <span style="color:#a78bfa">approval_mode</span>     auto / confirm / manual
+</pre>
+</div>
+
+<div class="card" style="text-align:center;padding:20px">
+<p style="font-size:1.15em"><strong>Think of it as:</strong></p>
+<p style="font-size:1.3em;margin-top:10px">
+<span style="color:#60a5fa;font-weight:700">Agent</span> = WHO &nbsp;&nbsp;|&nbsp;&nbsp;
+<span style="color:#a78bfa;font-weight:700">Skill</span> = HOW &nbsp;&nbsp;|&nbsp;&nbsp;
+<span style="color:#fb923c;font-weight:700">Action</span> = ONE STEP &nbsp;&nbsp;|&nbsp;&nbsp;
+<span style="color:#34d399;font-weight:700">Tool</span> = THE API CALL
+</p>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 19: LIVE ORDER EXAMPLE -->
+<!-- ============================================================ -->
+<div class="slide" id="s19">
+<p class="section-label">Live Example</p>
+<h2>Example: "I placed my order on 15 March but still not picked up"</h2>
+<p class="subtitle">Watch Agent &rarr; Skill &rarr; Action &rarr; Tool in action</p>
+
+<div class="card hl">
+<pre style="font-size:0.92em;line-height:2">
+<span style="color:#f87171;font-weight:700">User:</span> "I placed my order on 15 March but still not picked up"
+</pre>
+</div>
+
+<div class="grid g2">
+<div class="card" style="border-left:4px solid #60a5fa">
+<h4 style="color:#60a5fa">Step 1: Agent Selection</h4>
+<p>Query mentions "order" + "pickup" &rarr; <strong>order_ops agent</strong> selected</p>
+<p style="color:#94a3b8;font-size:0.85em">Tier: CORE | Domain: orders | Knowledge: ["orders", "core_orders"]</p>
+</div>
+
+<div class="card" style="border-left:4px solid #a78bfa">
+<h4 style="color:#a78bfa">Step 2: Skill Matching</h4>
+<p>Trigger words "order", "pickup" match <strong>order_lookup</strong> skill</p>
+<p style="color:#94a3b8;font-size:0.85em">Triggers: ["order status", "find order", "check order", "order kahan hai"]</p>
+</div>
+</div>
+
+<div class="card g">
+<h4 style="color:#34d399">Step 3: Skill executes its Actions in order</h4>
+<pre style="line-height:1.8">
+<span style="color:#a78bfa;font-weight:600">Skill: order_lookup</span>
+
+  <span style="color:#fb923c;font-weight:600">Action 1:</span> <span class="badge b-blue">API_CALL</span> &rarr; Tool: <span style="color:#34d399">order_lookup</span>(order_id="...")
+    +-- Calls MCAPI: GET /v1/app/orders/show/{id}
+    +-- Returns: { status: "NEW", pickup_status: "NOT_PICKED", created_at: "2026-03-15" }
+    +-- Data source: MCAPI (Shiprocket API via SSO token)
+
+  <span style="color:#fb923c;font-weight:600">Action 2:</span> <span class="badge b-blue">RESPOND</span> &rarr; Formats answer for user
+    +-- "Your order #12345 was placed on March 15. Current status: <strong>NEW</strong>."
+    +-- "Pickup has <strong>NOT been scheduled</strong> yet."
+    +-- "This could be because: courier not assigned, or seller hasn't processed it."
+</pre>
+</div>
+
+<div class="card o">
+<h4 style="color:#fb923c">Step 4: Handoff (if agent needs more info)</h4>
+<pre style="line-height:1.8">
+<span style="color:#60a5fa">Agent: order_ops</span> &rarr; <span class="badge b-orange">HANDOFF</span> &rarr; <span style="color:#60a5fa">shipment_ops</span>
+
+  <span style="color:#fb923c;font-weight:600">Action:</span> <span class="badge b-blue">API_CALL</span> &rarr; Tool: <span style="color:#34d399">shipment_track</span>(awb="...")
+    +-- Returns: { status: "PICKUP_PENDING", courier: "Delhivery", attempts: 0 }
+
+  <span style="color:#fb923c;font-weight:600">Action:</span> <span class="badge b-blue">RESPOND</span>
+    +-- "Courier <strong>Delhivery</strong> is assigned. Pickup is pending (0 attempts so far)."
+    +-- "Suggested action: reschedule pickup or escalate to courier ops."
+</pre>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 20: CODE EXAMPLES -->
+<!-- ============================================================ -->
+<div class="slide" id="s20">
+<p class="section-label">Code Reference</p>
+<h2>Concrete Code: Tool, Skill, Agent Definitions</h2>
+<p class="subtitle">Actual code from COSMOS with file paths and line numbers</p>
+
+<div class="grid g3">
+<div class="card g">
+<h3 style="color:#34d399">Tool Definition</h3>
+<div class="fp">tools/read_tools.py:21-50</div>
+<pre>class OrderLookupTool(BaseTool):
+    definition = ToolDefinition(
+        name="order_lookup",
+        category=ToolCategory.READ,
+        description="Look up order by ID,
+          AWB, or channel order ID",
+        parameters=[
+            ToolParam(
+                "order_id", "str",
+                True,
+                "Order ID, AWB, or
+                 channel order ID"
+            ),
+        ],
+        data_source=DataSource.MCAPI,
+        risk_level=RiskLevel.LOW,
+    )
+
+    async def execute(self, params, ctx):
+        resp = await self.mcapi.get_order(
+            params["order_id"],
+            headers=ctx.get("headers"),
+        )
+        return ToolResult(
+            success=resp.success,
+            data=resp.data,
+        )</pre>
+</div>
+
+<div class="card p">
+<h3 style="color:#a78bfa">Skill Definition</h3>
+<div class="fp">engine/skill_registry.py:71-83</div>
+<pre>SkillDefinition(
+    name="order_lookup",
+
+    instructions=
+      "Always verify order exists.
+       Return: order ID, status,
+       customer name, channel,
+       created date.",
+
+    triggers=[
+        "order status",
+        "find order",
+        "check order",
+        "order kahan hai",
+    ],
+
+    required_tools=["order_lookup"],
+
+    actions=[
+        SkillAction(
+            name="fetch_order",
+            action_type=ActionType.API_CALL,
+            tool_name="order_lookup",
+        ),
+        SkillAction(
+            name="format_response",
+            action_type=ActionType.RESPOND,
+        ),
+    ],
+)</pre>
+</div>
+
+<div class="card hl">
+<h3 style="color:#60a5fa">Agent Definition</h3>
+<div class="fp">engine/agent_registry.py:72-93</div>
+<pre>AgentDefinition(
+    name="order_ops",
+    display_name="Order Operations",
+    tier=AgentTier.CORE,
+    domain="orders",
+
+    tools_allowed=[
+        "order_lookup",
+        "orders_by_company",
+        "order_search",
+        "cancel_order",
+        "update_address",
+    ],
+
+    knowledge_scope=[
+        "orders",
+        "core_orders",
+    ],
+
+    instructions=
+      "You are the Order Operations
+       agent. Always verify the order
+       exists before any action.
+       If status >= 6 (SHIPPED),
+       cannot cancel.",
+
+    can_handoff_to=[
+        "billing_wallet",
+        "shipment_ops",
+        "ndr_resolver",
+    ],
+
+    anti_patterns=[
+        "Never process refunds",
+        "Never modify pricing",
+    ],
+)</pre>
+</div>
+</div>
+
+<div class="card" style="text-align:center;margin-top:20px;padding:25px">
+<h3>How KB Enriches These at Runtime</h3>
+<div style="text-align:center;margin:15px 0">
+<span class="fb" style="border-color:#f87171">Hardcoded Agent<br><span style="font-size:0.75em;color:#94a3b8">instructions, handoff rules</span></span>
+<span class="fa">+</span>
+<span class="fb" style="border-color:#34d399">KB-Driven Tools<br><span style="font-size:0.75em;color:#94a3b8">5 tools &times; 660 APIs</span></span>
+<span class="fa">+</span>
+<span class="fb" style="border-color:#fb923c">Action Contracts<br><span style="font-size:0.75em;color:#94a3b8">preconditions, side effects</span></span>
+<span class="fa">=</span>
+<span class="fb" style="border-color:#60a5fa;background:#1e3a5f">Complete Agent<br><span style="font-size:0.75em;color:#60a5fa">safe, grounded, auditable</span></span>
+</div>
+<p style="color:#94a3b8">The hardcoded agent provides <strong>guardrails</strong> (what NOT to do).<br>The KB provides <strong>capabilities</strong> (what it CAN do, with evidence).</p>
+</div>
+</div>
+
+</body>
+</html>

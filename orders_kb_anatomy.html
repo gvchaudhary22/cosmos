@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RocketMind KB: Orders Domain — Complete Anatomy</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0e1a;color:#e0e6f0;line-height:1.6}
+.slide{min-height:100vh;padding:60px 80px;border-bottom:2px solid #1a2040;position:relative}
+.slide:nth-child(odd){background:linear-gradient(135deg,#0a0e1a 0%,#111830 100%)}
+.slide:nth-child(even){background:linear-gradient(135deg,#0d1225 0%,#0a0e1a 100%)}
+h1{font-size:2.8em;background:linear-gradient(90deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:10px}
+h2{font-size:2em;color:#60a5fa;margin-bottom:20px;border-bottom:2px solid #1e3a5f;padding-bottom:10px}
+h3{font-size:1.4em;color:#a78bfa;margin:20px 0 10px}
+.subtitle{font-size:1.2em;color:#94a3b8;margin-bottom:30px}
+.card{background:#111830;border:1px solid #1e3a5f;border-radius:12px;padding:24px;margin:15px 0}
+.card.highlight{border-color:#60a5fa;box-shadow:0 0 20px rgba(96,165,250,0.1)}
+.card.green{border-color:#34d399;box-shadow:0 0 15px rgba(52,211,153,0.1)}
+.card.purple{border-color:#a78bfa;box-shadow:0 0 15px rgba(167,139,250,0.1)}
+.card.orange{border-color:#fb923c;box-shadow:0 0 15px rgba(251,146,60,0.1)}
+.card.red{border-color:#f87171;box-shadow:0 0 15px rgba(248,113,113,0.1)}
+.grid{display:grid;gap:20px}
+.grid-2{grid-template-columns:1fr 1fr}
+.grid-3{grid-template-columns:1fr 1fr 1fr}
+.grid-4{grid-template-columns:1fr 1fr 1fr 1fr}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.8em;font-weight:600;margin:2px}
+.badge-blue{background:#1e3a5f;color:#60a5fa}
+.badge-green{background:#064e3b;color:#34d399}
+.badge-purple{background:#3b0764;color:#a78bfa}
+.badge-orange{background:#431407;color:#fb923c}
+.badge-red{background:#450a0a;color:#f87171}
+.badge-yellow{background:#422006;color:#fbbf24}
+table{width:100%;border-collapse:collapse;margin:15px 0;font-size:0.9em}
+th{background:#1e293b;color:#60a5fa;padding:10px 12px;text-align:left;border-bottom:2px solid #334155}
+td{padding:8px 12px;border-bottom:1px solid #1e293b}
+tr:hover{background:#1e293b30}
+code{background:#1e293b;color:#34d399;padding:2px 6px;border-radius:4px;font-size:0.9em}
+pre{background:#0d1117;border:1px solid #1e3a5f;border-radius:8px;padding:16px;overflow-x:auto;font-size:0.85em;line-height:1.5;color:#c9d1d9;margin:10px 0}
+.flow-box{display:inline-block;background:#1e293b;border:2px solid #334155;border-radius:8px;padding:8px 16px;margin:4px;font-weight:600;font-size:0.9em}
+.flow-arrow{color:#60a5fa;font-size:1.5em;margin:0 5px;vertical-align:middle}
+.number{display:inline-flex;width:32px;height:32px;background:#1e3a5f;color:#60a5fa;border-radius:50%;align-items:center;justify-content:center;font-weight:700;margin-right:10px;font-size:0.9em}
+.stat{text-align:center;padding:15px}
+.stat .value{font-size:2.5em;font-weight:700;background:linear-gradient(90deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stat .label{color:#94a3b8;font-size:0.9em;margin-top:5px}
+.pillar-icon{font-size:2em;margin-bottom:10px}
+.toc{position:fixed;right:20px;top:50%;transform:translateY(-50%);background:#111830;border:1px solid #1e3a5f;border-radius:8px;padding:10px;z-index:100;font-size:0.75em;max-height:80vh;overflow-y:auto}
+.toc a{display:block;color:#94a3b8;text-decoration:none;padding:4px 8px;border-radius:4px}
+.toc a:hover{background:#1e293b;color:#60a5fa}
+@media(max-width:1200px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}.slide{padding:30px 20px}.toc{display:none}}
+</style>
+</head>
+<body>
+
+<nav class="toc">
+<strong style="color:#60a5fa">Slides</strong>
+<a href="#s1">1. Overview</a>
+<a href="#s2">2. KB Pillars</a>
+<a href="#s3">3. P1: Schema</a>
+<a href="#s4">4. P3: APIs & Tools</a>
+<a href="#s5">5. P5: Module Docs</a>
+<a href="#s6">6. P6: Actions</a>
+<a href="#s7">7. P7: Workflows</a>
+<a href="#s8">8. Entity Hub</a>
+<a href="#s9">9. Training Pipeline</a>
+<a href="#s10">10. Step 1: Read</a>
+<a href="#s11">11. Step 2: Render</a>
+<a href="#s12">12. Step 3: Embed</a>
+<a href="#s13">13. Step 4: Graph</a>
+<a href="#s14">14. Step 5: Registry</a>
+<a href="#s15">15. Runtime Flow</a>
+<a href="#s16">16. Anti-Hallucination</a>
+<a href="#s17">17. Summary</a>
+</nav>
+
+<!-- SLIDE 1: OVERVIEW -->
+<div class="slide" id="s1">
+<h1>RocketMind Knowledge Base</h1>
+<p class="subtitle">How the Orders domain becomes Tools, Agents, Skills & Actions</p>
+
+<div class="grid grid-4" style="margin:40px 0">
+<div class="stat"><div class="value">660</div><div class="label">Order APIs</div></div>
+<div class="stat"><div class="value">5</div><div class="label">Tools Created</div></div>
+<div class="stat"><div class="value">4</div><div class="label">Action Contracts</div></div>
+<div class="stat"><div class="value">1</div><div class="label">Workflow Runbook</div></div>
+</div>
+
+<div class="card highlight">
+<h3>The Big Picture</h3>
+<p>The Knowledge Base (KB) is NOT just documentation. It is a <strong>structured data pipeline</strong> that converts raw YAML files into:</p>
+<div style="margin:15px 0;text-align:center">
+<span class="flow-box" style="border-color:#34d399">YAML Files</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#60a5fa">Embeddings</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#a78bfa">Graph Nodes</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#fb923c">Tools & Agents</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#f87171">LLM Response</span>
+</div>
+<p style="color:#94a3b8;margin-top:10px">Every ICRM operator question is answered by retrieving from this pipeline &mdash; not by the LLM guessing.</p>
+</div>
+</div>
+
+<!-- SLIDE 2: KB PILLARS -->
+<div class="slide" id="s2">
+<h2>The 8 Pillars of Knowledge</h2>
+<p class="subtitle">Each pillar answers a different type of question</p>
+
+<div class="grid grid-4">
+<div class="card green">
+<div class="pillar-icon">P1</div>
+<h3>Schema</h3>
+<p><strong>676 tables</strong></p>
+<p>Answers: "What data exists?"</p>
+<p style="color:#94a3b8;font-size:0.85em">Columns, types, states, transitions, validation rules, constants</p>
+</div>
+<div class="card highlight">
+<div class="pillar-icon">P3</div>
+<h3>APIs & Tools</h3>
+<p><strong>5,617 APIs</strong></p>
+<p>Answers: "What API/tool exists?"</p>
+<p style="color:#94a3b8;font-size:0.85em">Endpoints, methods, params, tool assignment, agent mapping</p>
+</div>
+<div class="card">
+<div class="pillar-icon">P4</div>
+<h3>Pages & Fields</h3>
+<p><strong>24 pages</strong></p>
+<p>Answers: "What page/field exists?"</p>
+<p style="color:#94a3b8;font-size:0.85em">field &rarr; API &rarr; table.column traces</p>
+</div>
+<div class="card purple">
+<div class="pillar-icon">P5</div>
+<h3>Module Docs</h3>
+<p><strong>713 files</strong></p>
+<p>Answers: "What module/class exists?"</p>
+<p style="color:#94a3b8;font-size:0.85em">Controllers, services, jobs, routes, dependencies</p>
+</div>
+</div>
+
+<div class="grid grid-4" style="margin-top:20px">
+<div class="card orange">
+<div class="pillar-icon">P6</div>
+<h3>Action Contracts</h3>
+<p><strong>25 actions &times; 11 files</strong></p>
+<p>Answers: "What should I do?"</p>
+<p style="color:#94a3b8;font-size:0.85em">Preconditions, side effects, rollback, approval</p>
+</div>
+<div class="card red">
+<div class="pillar-icon">P7</div>
+<h3>Workflow Runbooks</h3>
+<p><strong>8 workflows &times; 13 files</strong></p>
+<p>Answers: "Why did this happen?"</p>
+<p style="color:#94a3b8;font-size:0.85em">State machines, decision matrices, exception paths</p>
+</div>
+<div class="card">
+<div class="pillar-icon">P8</div>
+<h3>Negative Routing</h3>
+<p><strong>100 examples</strong></p>
+<p>Prevents: Wrong tool selection</p>
+<p style="color:#94a3b8;font-size:0.85em">"cancel order" &ne; "cancel shipment"</p>
+</div>
+<div class="card green">
+<div class="pillar-icon">HUB</div>
+<h3>Entity Hubs</h3>
+<p><strong>10 summaries</strong></p>
+<p>Links: All pillars for one entity</p>
+<p style="color:#94a3b8;font-size:0.85em">Orders hub = P1+P3+P6+P7 merged</p>
+</div>
+</div>
+</div>
+
+<!-- SLIDE 3: P1 SCHEMA -->
+<div class="slide" id="s3">
+<h2>Pillar 1: Orders Table Schema</h2>
+<p class="subtitle">What the database knows about orders</p>
+
+<div class="grid grid-2">
+<div class="card green">
+<h3>File Location</h3>
+<pre>knowledge_base/shiprocket/MultiChannel_API/
+  pillar_1_schema/tables/orders/
+    high.yaml          (3,729 lines merged)
+    high/
+      identity_core.yaml
+      identity_columns.yaml
+      states_constants.yaml
+      states_transitions.yaml
+      rules.yaml
+      code.yaml
+      dataflow_data_flows.yaml
+      dataflow_side_effects.yaml
+      extra_read_paths.yaml
+      extra_write_paths.yaml
+      extra_cron_dependencies.yaml
+      extra_cross_repo.yaml</pre>
+</div>
+
+<div class="card">
+<h3>Key Stats</h3>
+<table>
+<tr><td>Columns</td><td><strong>50+</strong></td></tr>
+<tr><td>Status Constants</td><td><strong>105 values</strong> (TINYINT)</td></tr>
+<tr><td>Model</td><td><code>app/Repositories/Order.php</code></td></tr>
+<tr><td>Row Estimate</td><td><strong>50M+</strong></td></tr>
+<tr><td>Soft Deletes</td><td>Enabled</td></tr>
+<tr><td>DB Write</td><td>mysql</td></tr>
+<tr><td>DB Read</td><td>slave, slave2, dr_slave, report_slave</td></tr>
+</table>
+</div>
+</div>
+
+<h3>Key Columns (from identity_columns.yaml)</h3>
+<table>
+<tr><th>Column</th><th>Type</th><th>Purpose</th><th>PII</th></tr>
+<tr><td><code>customer_address</code></td><td>VARCHAR(255)</td><td>Buyer delivery address. Used for serviceability & label.</td><td><span class="badge badge-red">Yes</span></td></tr>
+<tr><td><code>customer_pincode</code></td><td>INT</td><td>6-digit postal code. <strong>Critical for courier serviceability.</strong></td><td><span class="badge badge-red">Yes</span></td></tr>
+<tr><td><code>payment_method</code></td><td>VARCHAR(255)</td><td>COD, Prepaid, Partial_COD. Affects remittance & charges.</td><td></td></tr>
+<tr><td><code>status</code></td><td>TINYINT</td><td>Order lifecycle state (105 values: 1=NEW to 105)</td><td></td></tr>
+<tr><td><code>rto_prediction</code></td><td>FLOAT</td><td>ML RTO risk score (0.0-1.0). From SaveRTOprediction job.</td><td></td></tr>
+<tr><td><code>channel_order_id</code></td><td>VARCHAR</td><td>External order ID from Shopify/WooCommerce/Amazon</td><td></td></tr>
+</table>
+
+<h3>Order Status Constants (from states_constants.yaml)</h3>
+<div class="grid grid-3">
+<div class="card"><code>1</code> NEW_ORDER<br><code>2</code> INVOICED<br><code>3</code> READY_TO_SHIP<br><code>4</code> PICKUP_SCHEDULED</div>
+<div class="card"><code>5</code> CANCELLED<br><code>6</code> SHIPPED<br><code>7</code> DELIVERED<br><code>8</code> ePAYMENT_FAILED</div>
+<div class="card"><code>9</code> RETURNED<br><code>10</code> UNMAPPED<br><code>11</code> UNFULFILLABLE<br><code>12</code> PICKUP_QUEUE</div>
+</div>
+</div>
+
+<!-- SLIDE 4: P3 APIs & TOOLS -->
+<div class="slide" id="s4">
+<h2>Pillar 3: Orders APIs &rarr; Tools &rarr; Agent</h2>
+<p class="subtitle">How 660 API endpoints become 5 tools under 1 agent</p>
+
+<div class="grid grid-2">
+<div class="card highlight">
+<h3>Tool Breakdown</h3>
+<table>
+<tr><th>Tool</th><th>APIs</th><th>Type</th><th>Purpose</th></tr>
+<tr><td><span class="badge badge-blue">orders_create</span></td><td><strong>349</strong></td><td>WRITE</td><td>Create, import, bulk upload</td></tr>
+<tr><td><span class="badge badge-green">orders_list</span></td><td><strong>236</strong></td><td>READ</td><td>Search, filter, count, export</td></tr>
+<tr><td><span class="badge badge-purple">orders_get</span></td><td><strong>59</strong></td><td>READ</td><td>Get single order by ID</td></tr>
+<tr><td><span class="badge badge-orange">orders_update</span></td><td><strong>14</strong></td><td>WRITE</td><td>Edit, fulfill, map products</td></tr>
+<tr><td><span class="badge badge-red">orders_delete</span></td><td><strong>2</strong></td><td>WRITE</td><td>Delete QC orders only</td></tr>
+</table>
+</div>
+
+<div class="card purple">
+<h3>Agent: order_ops_agent</h3>
+<p><span class="badge badge-purple">Tier: CORE</span> <span class="badge badge-blue">Domain: orders</span></p>
+<p style="margin:10px 0"><strong>Instructions:</strong> "Verify order exists before any action. Check cancellation eligibility &mdash; if status &ge; 6 (SHIPPED), cannot cancel. For address updates, verify shipment not picked up."</p>
+<p><strong>Can hand off to:</strong></p>
+<p><span class="badge badge-green">billing_wallet</span> <span class="badge badge-blue">shipment_ops</span> <span class="badge badge-orange">ndr_resolver</span></p>
+<p><strong>Accepts handoff from:</strong></p>
+<p><span class="badge badge-purple">channel_sync</span> <span class="badge badge-red">return_exchange</span></p>
+</div>
+</div>
+
+<h3>Primary API: <code>POST /api/v1/orders/create</code></h3>
+<div class="card">
+<pre>api:
+  id: mcapi.v1.orders.create.post
+  method: POST
+  path: /api/v1/orders/create
+  controller: Orders\CustomController@store
+
+tool_assignment:
+  tool_candidate: orders_create
+  read_write_type: WRITE
+  risk_level: medium
+  approval_mode: confirm
+  idempotent: false
+  blast_radius: medium
+
+agent_assignment:
+  owner: order_ops_agent
+  secondary: [support_agent]</pre>
+</div>
+</div>
+
+<!-- SLIDE 5: P5 MODULE DOCS -->
+<div class="slide" id="s5">
+<h2>Pillar 5: Orders Module Documentation</h2>
+<p class="subtitle">Implementation guide for developers</p>
+
+<div class="grid grid-2">
+<div class="card">
+<h3>Module Files (11 total, quality 79%)</h3>
+<table>
+<tr><th>File</th><th>Score</th><th>Content</th></tr>
+<tr><td>CLAUDE.yaml</td><td><span class="badge badge-green">100</span></td><td>Full module summary</td></tr>
+<tr><td>business_rules.yaml</td><td><span class="badge badge-green">95</span></td><td>Order business logic</td></tr>
+<tr><td>order_model_navigation.yaml</td><td><span class="badge badge-green">95</span></td><td>Model relationships</td></tr>
+<tr><td>database.yaml</td><td><span class="badge badge-green">90</span></td><td>DB schema details</td></tr>
+<tr><td>api.yaml</td><td><span class="badge badge-blue">80</span></td><td>18 core API routes</td></tr>
+<tr><td>debugging.yaml</td><td><span class="badge badge-blue">80</span></td><td>Debug patterns</td></tr>
+<tr><td>testing.yaml</td><td><span class="badge badge-blue">80</span></td><td>Test strategies</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h3>Key Implementation Details</h3>
+<p><strong>32 Controllers</strong> including:</p>
+<p><code>CustomController</code> (create), <code>OrderController</code> (CRUD), <code>OrderCancelController</code>, <code>EscalationController</code>, <code>ManifestController</code></p>
+<p style="margin-top:15px"><strong>Key Files:</strong></p>
+<pre>app/Repositories/Order.php        (Model)
+app/Repositories/OrderProduct.php  (Line items)
+app/Http/Controllers/v1/Orders/    (Controllers)
+app/Http/Routes/v1/orders.php      (Routes)
+app/Http/Requests/v1/Orders/       (Validation)
+app/Jobs/Orders/SaveRTOprediction.php</pre>
+</div>
+</div>
+</div>
+
+<!-- SLIDE 6: P6 ACTION CONTRACTS -->
+<div class="slide" id="s6">
+<h2>Pillar 6: Orders Action Contracts</h2>
+<p class="subtitle">Executable specifications &mdash; what the AI can DO, not just KNOW</p>
+
+<div class="grid grid-4">
+<div class="card orange">
+<h3>create_order</h3>
+<p><span class="badge badge-orange">api_action</span> <span class="badge badge-yellow">risk: medium</span></p>
+<p>Create new order with address validation, product items, COD/Prepaid</p>
+</div>
+<div class="card orange">
+<h3>bulk_ship_orders</h3>
+<p><span class="badge badge-orange">api_action</span> <span class="badge badge-yellow">risk: medium</span></p>
+<p>Batch process up to 50 orders with auto courier selection</p>
+</div>
+<div class="card orange">
+<h3>clone_order</h3>
+<p><span class="badge badge-orange">api_action</span> <span class="badge badge-green">risk: low</span></p>
+<p>Duplicate existing order with optional overrides</p>
+</div>
+<div class="card orange">
+<h3>save_rto_prediction</h3>
+<p><span class="badge badge-purple">async_job</span> <span class="badge badge-green">risk: low</span></p>
+<p>ML prediction: will this shipment be returned?</p>
+</div>
+</div>
+
+<h3>Action Contract Structure (11 files per action)</h3>
+<div class="card highlight">
+<pre>pillar_6_action_contracts/domains/orders/create_order/
+  index.yaml          &larr; Metadata: action_id, domain, kind, linked tables/APIs
+  contract.yaml       &larr; Purpose, inputs, outputs, sync/async, idempotent
+  intent_map.yaml     &larr; English + Hinglish phrases, negative phrases
+  permissions.yaml    &larr; Roles, tenant scope, approval mode
+  data_access.yaml    &larr; Tables read/written, APIs called, queues, jobs
+  execution_graph.yaml &larr; Step-by-step: validate &rarr; check address &rarr; store &rarr; trigger RTO
+  failure_modes.yaml  &larr; What can go wrong: invalid pincode, duplicate, COD limit
+  observability.yaml  &larr; Log tags, metrics, alerts, dashboards
+  examples.yaml       &larr; "naya order create karo" &rarr; {order_id: ..., mode: execute}
+  eval_cases.yaml     &larr; Positive, ambiguous, unsafe, regression test cases
+  rollback.yaml       &larr; How to undo: cancel order before shipment</pre>
+</div>
+
+<h3>Example: intent_map.yaml</h3>
+<div class="grid grid-2">
+<div class="card green">
+<h3>Positive Phrases (route TO this action)</h3>
+<pre>english:
+  - "Create a new order"
+  - "Place an order for this buyer"
+  - "I want to create an order"
+hinglish:
+  - "naya order create karo"
+  - "ek order banana hai"
+  - "COD order create karo"
+icrm_shorthand:
+  - "new order"
+  - "create ord"</pre>
+</div>
+<div class="card red">
+<h3>Negative Phrases (do NOT route here)</h3>
+<pre>- query: "Clone this order"
+  correct: action.orders.clone_order
+
+- query: "Ship this order"
+  correct: action.orders.bulk_ship_orders
+
+- query: "Edit order details"
+  correct: action.orders.update_order
+
+- query: "Import orders from CSV"
+  correct: action.orders.bulk_import</pre>
+</div>
+</div>
+</div>
+
+<!-- SLIDE 7: P7 WORKFLOWS -->
+<div class="slide" id="s7">
+<h2>Pillar 7: Order Creation Pipeline</h2>
+<p class="subtitle">State machine + decision matrix + exception paths</p>
+
+<h3>State Machine (7 states, 13 transitions)</h3>
+<div style="text-align:center;margin:30px 0">
+<span class="flow-box" style="border-color:#60a5fa">order_placed</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#34d399">validated</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#a78bfa">address_verified</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#fb923c">rate_calculated</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#34d399;background:#064e3b">ready_to_ship</span>
+<br><br>
+<span class="flow-box" style="border-color:#f87171">validation_failed</span> &nbsp;&nbsp;
+<span class="flow-box" style="border-color:#f87171;background:#450a0a">order_cancelled</span>
+</div>
+
+<h3>13 Workflow Files</h3>
+<div class="grid grid-3">
+<div class="card"><strong>index.yaml</strong><br>Workflow ID, linked actions, linked tables</div>
+<div class="card"><strong>overview.yaml</strong><br>What starts/ends it, main actors, business rules</div>
+<div class="card"><strong>state_machine.yaml</strong><br>States, valid transitions, invalid transitions</div>
+<div class="card"><strong>entrypoints.yaml</strong><br>UI pages, APIs, cron jobs, webhooks</div>
+<div class="card"><strong>decision_matrix.yaml</strong><br>COD vs prepaid, international, channel rules</div>
+<div class="card"><strong>action_map.yaml</strong><br>Which actions at which state</div>
+<div class="card"><strong>data_flow.yaml</strong><br>API &rarr; table &rarr; job evidence chain</div>
+<div class="card"><strong>ui_map.yaml</strong><br>Seller pages, ICRM pages, field traces</div>
+<div class="card"><strong>operator_playbook.yaml</strong><br>Diagnose &rarr; verify &rarr; act &rarr; escalate</div>
+<div class="card"><strong>user_language.yaml</strong><br>Hinglish, seller wording, ICRM shorthand</div>
+<div class="card"><strong>exception_paths.yaml</strong><br>Partial failure, duplicates, stale status</div>
+<div class="card"><strong>eval_cases.yaml</strong><br>"Where is this stuck?" test cases</div>
+<div class="card"><strong>async_map.yaml</strong><br>Queues, jobs, retries, delayed effects</div>
+</div>
+</div>
+
+<!-- SLIDE 8: ENTITY HUB -->
+<div class="slide" id="s8">
+<h2>Entity Hub: Orders</h2>
+<p class="subtitle">One document that links ALL pillars for the orders domain</p>
+
+<div class="card highlight">
+<h3>Why Entity Hubs?</h3>
+<p>Problem: P1 (table), P3 (API), P6 (action), P7 (workflow) are separate chunks. A query about "orders" retrieves <strong>fragments from different pillars</strong>.</p>
+<p>Solution: Entity Hub = 500-800 token summary merging all pillars. LangGraph gets a <strong>complete picture in one retrieval hit</strong>.</p>
+</div>
+
+<div class="card green">
+<h3>orders.yaml content</h3>
+<pre># Entity Hub: orders
+Order lifecycle: creation, validation, shipping, delivery, cancellation
+
+## Schema
+- orders: id, company_id, status, payment_method, customer_pincode, rto_prediction
+- order_products: id, order_id, name, sku, quantity, price, weight
+- order_items: ...
+
+## APIs
+- POST /api/v1/orders/create (orders_create)
+- GET /api/v1/app/orders (orders_list)
+- POST /api/v1/admin/order_remittance/upload (orders_create)
+- GET /api/v1/admin/promise/orders (orders_list)
+
+## Actions
+- action.orders.create_order [api_action]
+- action.orders.bulk_ship_orders [api_action]
+- action.orders.clone_order [api_action]
+- action.orders.save_rto_prediction [async_job]
+
+## Workflows
+- workflow.orders.order_creation_pipeline
+
+## Field Traces
+- total_orders &rarr; mcapi.v1.dashboard.stats.get &rarr; orders.id
+- order_id &rarr; mcapi.v1.orders.show.get &rarr; orders.id
+- customer_name &rarr; mcapi.v1.orders.show.get &rarr; orders.customer_name</pre>
+</div>
+</div>
+
+<!-- SLIDE 9: TRAINING PIPELINE OVERVIEW -->
+<div class="slide" id="s9">
+<h2>Training Pipeline: How It All Works</h2>
+<p class="subtitle">6-step pipeline: Read &rarr; Render &rarr; Embed &rarr; Graph &rarr; Registry &rarr; Eval</p>
+
+<div style="text-align:center;margin:40px 0">
+<span class="flow-box" style="border-color:#34d399;font-size:1.1em"><span class="number">1</span>Read YAML</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#60a5fa;font-size:1.1em"><span class="number">2</span>Render Text</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#a78bfa;font-size:1.1em"><span class="number">3</span>Embed Vectors</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#fb923c;font-size:1.1em"><span class="number">4</span>Build Graph</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#f87171;font-size:1.1em"><span class="number">5</span>Discover Registry</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#fbbf24;font-size:1.1em"><span class="number">6</span>Run Eval</span>
+</div>
+
+<div class="card">
+<h3>Pipeline Entry Point</h3>
+<pre>File: cosmos/app/services/training_pipeline.py
+
+class TrainingPipeline:
+    async def run_full(self, repo_id="MultiChannel_API"):
+        # M2: Train/dev split
+        # M5: Pillar 1 (tables) + Pillar 3 (APIs)     &larr; reads orders schema + 660 APIs
+        # M5b: Pillar 1 extras (catalog, connections)
+        # M5c: Pillar 4 (pages) + Pillar 5 (modules)   &larr; reads orders module docs
+        # M6: Pillar 6 (actions) + Pillar 7 (workflows) &larr; reads 4 action contracts + 1 workflow
+        # M7: Entity Hubs                               &larr; generates orders hub
+        # M4: Generated artifacts
+        # Graph build                                    &larr; creates orders graph nodes + edges
+        # KB Registry sync                              &larr; discovers 5 tools + 1 agent
+        # ICRM Eval benchmark                           &larr; tests retrieval quality
+        # Feedback loop                                  &larr; stages improvements from low-confidence traces</pre>
+</div>
+</div>
+
+<!-- SLIDE 10: STEP 1 READ -->
+<div class="slide" id="s10">
+<h2>Step 1: Read YAML Files</h2>
+<p class="subtitle">KBIngestor reads from each pillar's directory structure</p>
+
+<div class="card green">
+<h3>How orders data is read (kb_ingestor.py)</h3>
+<pre># Pillar 1: Schema
+def read_pillar1_schema(repo_id="MultiChannel_API"):
+    schema_path = kb_path / repo_id / "pillar_1_schema" / "tables"
+    for table_dir in schema_path.iterdir():  # iterates "orders", "shipments", etc.
+        high_dir = table_dir / "high"        # orders/high/ (12 chunk files)
+        for chunk_file in high_dir.glob("*.yaml"):
+            data = yaml.safe_load(chunk_file)
+            # Creates one embedding doc per chunk:
+            # "table:orders:identity_core", "table:orders:states_constants", etc.
+
+# Pillar 3: APIs
+def read_pillar3_apis(repo_id="MultiChannel_API"):
+    apis_dir = kb_path / repo_id / "pillar_3_api_mcp_tools" / "apis"
+    for api_dir in apis_dir.iterdir():  # iterates 687 orders API dirs
+        # Each API dir has high.yaml with overview, tool_agent_tags, examples
+        # Creates docs like "api:mcapi.v1.orders.create.post:overview"
+
+# Pillar 6: Action Contracts
+def read_pillar6_actions(repo_id="MultiChannel_API"):
+    p6_path = kb_path / repo_id / "pillar_6_action_contracts" / "domains"
+    for domain_dir in p6_path.iterdir():     # "orders", "shipments", etc.
+        for action_dir in domain_dir.iterdir():  # "create_order", "save_rto_prediction"
+            for yaml_file in ["contract", "intent_map", "data_access", ...]:
+                # Creates 11 docs per action:
+                # "action.orders.create_order.contract"
+                # "action.orders.create_order.intent_map"</pre>
+</div>
+
+<div class="card">
+<h3>Output: For orders domain, this step produces</h3>
+<table>
+<tr><th>Pillar</th><th>Docs Created</th><th>Example entity_id</th></tr>
+<tr><td>P1 Schema</td><td>12 chunks</td><td><code>table:orders:identity_core</code></td></tr>
+<tr><td>P3 APIs</td><td>~2,000 chunks</td><td><code>api:mcapi.v1.orders.create.post:overview</code></td></tr>
+<tr><td>P5 Modules</td><td>11 docs</td><td><code>module:orders:CLAUDE</code></td></tr>
+<tr><td>P6 Actions</td><td>44 docs (4&times;11)</td><td><code>action.orders.create_order.contract</code></td></tr>
+<tr><td>P7 Workflows</td><td>13 docs</td><td><code>workflow.orders.order_creation_pipeline.state_machine</code></td></tr>
+<tr><td>Entity Hub</td><td>1 doc</td><td><code>entity_hub:orders</code></td></tr>
+</table>
+</div>
+</div>
+
+<!-- SLIDE 11: STEP 2 RENDER -->
+<div class="slide" id="s11">
+<h2>Step 2: Render YAML &rarr; Retrieval-Optimized Text</h2>
+<p class="subtitle">Raw YAML is bad for embedding. Typed renderers convert it to searchable text.</p>
+
+<div class="grid grid-2">
+<div class="card red">
+<h3>Before (raw str(data))</h3>
+<pre>{'overview': {'api': {'id': 'mcapi.v1.
+orders.create.post', 'method': 'POST',
+'path': '/api/v1/orders/create', 'route
+_group': 'api/v1', 'controller': 'Order
+s\\CustomController@store'}, 'classific
+ation': {'domain': 'orders', ...}}}</pre>
+<p style="color:#f87171;margin-top:10px">Noisy, low embedding quality, wastes tokens</p>
+</div>
+<div class="card green">
+<h3>After (typed renderer)</h3>
+<pre>POST /api/v1/orders/create |
+Controller: Orders\CustomController@store |
+Domain: orders |
+Intent: orders_create |
+Aliases: create order, new order, place order</pre>
+<p style="color:#34d399;margin-top:10px">Clean, semantic, high embedding quality</p>
+</div>
+</div>
+
+<div class="card highlight">
+<h3>Renderers per chunk type (kb_ingestor.py: _render_chunk)</h3>
+<table>
+<tr><th>Chunk Type</th><th>Rendered As</th></tr>
+<tr><td><code>overview</code></td><td>Method + path + controller + domain + intent + aliases</td></tr>
+<tr><td><code>tool_agent_tags</code></td><td>Tool name + read/write + risk + agent + "use when" / "avoid when"</td></tr>
+<tr><td><code>request_schema</code></td><td>Method + path + required params + optional params + response fields + side effects</td></tr>
+<tr><td><code>identity</code></td><td>Table purpose + key columns + relationships</td></tr>
+<tr><td><code>states</code></td><td>Status values + transitions as readable text</td></tr>
+<tr><td><code>rules</code></td><td>Validation rules + business rules</td></tr>
+</table>
+</div>
+</div>
+
+<!-- SLIDE 12: STEP 3 EMBED -->
+<div class="slide" id="s12">
+<h2>Step 3: Embed into Vector Database</h2>
+<p class="subtitle">Each rendered doc becomes a 1536-dimensional vector in pgvector</p>
+
+<div class="card highlight">
+<h3>Embedding Pipeline (canonical_ingestor.py)</h3>
+<pre>For each doc from Step 2:
+  1. Quality Gate: reject if &lt; 50 chars, &gt;80% punctuation, or stub content
+  2. content_hash = SHA256(content)
+  3. If hash unchanged from last run &rarr; SKIP (no re-embed)
+  4. embedding = OpenAI text-embedding-3-small (1536 dims)
+  5. UPSERT into cosmos_embeddings table:
+     - id, repo_id, entity_type, entity_id
+     - content (rendered text)
+     - embedding (vector)
+     - metadata (JSONB: pillar, domain, chunk_type, query_mode, training_ready)
+     - trust_score (0.5-0.95)
+     - capability ("retrieval" | "action" | "workflow" | "routing")
+     - freshness (timestamp)</pre>
+</div>
+
+<div class="card">
+<h3>For orders, this creates embeddings for:</h3>
+<p><span class="badge badge-green">12 schema chunks</span> <span class="badge badge-blue">~2,000 API chunks</span> <span class="badge badge-purple">11 module docs</span> <span class="badge badge-orange">44 action docs</span> <span class="badge badge-red">13 workflow docs</span> <span class="badge badge-yellow">1 entity hub</span></p>
+<p style="margin-top:10px">Each has <code>metadata.query_mode</code> tag: <span class="badge badge-blue">lookup</span> <span class="badge badge-orange">act</span> <span class="badge badge-red">diagnose</span> <span class="badge badge-purple">explain</span></p>
+</div>
+</div>
+
+<!-- SLIDE 13: STEP 4 GRAPH -->
+<div class="slide" id="s13">
+<h2>Step 4: Build Knowledge Graph</h2>
+<p class="subtitle">Nodes + edges enable multi-hop traversal (PPR, BFS, Dijkstra)</p>
+
+<div class="card green">
+<h3>Graph nodes created for orders</h3>
+<pre>domain:orders                          (1 node)
+  |
+  +-- table:orders                     (schema node, 50 columns)
+  +-- table:order_products             (child table)
+  |
+  +-- tool:orders_create               (349 APIs mapped)
+  +-- tool:orders_list                 (236 APIs)
+  +-- tool:orders_get                  (59 APIs)
+  +-- tool:orders_update               (14 APIs)
+  +-- tool:orders_delete               (2 APIs)
+  |
+  +-- agent:order_ops_agent            (owns all 660 APIs)
+  |
+  +-- action:action.orders.create_order
+  +-- action:action.orders.save_rto_prediction
+  +-- action:action.orders.bulk_ship_orders
+  +-- action:action.orders.clone_order
+  |
+  +-- workflow:workflow.orders.order_creation_pipeline
+  |
+  +-- 660 api:mcapi.v1.orders.* nodes</pre>
+</div>
+
+<div class="card">
+<h3>Edge types with semantic weights</h3>
+<table>
+<tr><th>Edge</th><th>Weight</th><th>Example</th></tr>
+<tr><td><code>belongs_to_domain</code></td><td><strong>2.0</strong></td><td>api:orders.create &rarr; domain:orders</td></tr>
+<tr><td><code>writes_table</code></td><td><strong>1.8</strong></td><td>api:orders.create &rarr; table:orders</td></tr>
+<tr><td><code>uses_action</code></td><td><strong>1.7</strong></td><td>workflow:order_pipeline &rarr; action:create_order</td></tr>
+<tr><td><code>calls_api</code></td><td><strong>1.6</strong></td><td>action:create_order &rarr; api:orders.create</td></tr>
+<tr><td><code>implements_tool</code></td><td><strong>1.5</strong></td><td>api:orders.create &rarr; tool:orders_create</td></tr>
+<tr><td><code>reads_table</code></td><td><strong>1.5</strong></td><td>api:orders.list &rarr; table:orders</td></tr>
+</table>
+<p style="color:#94a3b8;margin-top:10px">These weights are used by Personalized PageRank (PPR) and Dijkstra shortest path to find the most important relationships.</p>
+</div>
+</div>
+
+<!-- SLIDE 14: STEP 5 REGISTRY -->
+<div class="slide" id="s14">
+<h2>Step 5: Discover Tools, Agents & Skills</h2>
+<p class="subtitle">KB-Driven Registry reads graph nodes and creates runtime objects</p>
+
+<div class="card purple">
+<h3>Discovery Process (kb_driven_registry.py)</h3>
+<pre>async def _sync_from_graph():
+    # 1. Query all tool nodes
+    SELECT * FROM graph_nodes WHERE node_type = 'tool'
+    &rarr; Creates: DynamicTool("orders_create", domain="orders", api_count=349)
+    &rarr; Creates: DynamicTool("orders_list", domain="orders", api_count=236)
+    &rarr; Creates: DynamicTool("orders_get", ...)
+    &rarr; Creates: DynamicTool("orders_update", ...)
+    &rarr; Creates: DynamicTool("orders_delete", ...)
+
+    # 2. Query all agent nodes
+    SELECT * FROM graph_nodes WHERE node_type = 'agent'
+    &rarr; Creates: DynamicAgent("order_ops_agent", tools={5 tools}, api_count=660)
+
+    # 3. Query all intent nodes (= skills)
+    SELECT * FROM graph_nodes WHERE node_type = 'intent'
+    &rarr; Creates: DynamicSkill("orders_create", tools={"orders_create"})
+
+    # 4. Link tools to agents via shared API edges
+    SELECT tool_id, agent_id FROM graph_edges
+    WHERE edge_type IN ('implements_tool', 'assigned_to_agent')
+    &rarr; Links: orders_create &harr; order_ops_agent (349 shared APIs)</pre>
+</div>
+
+<div class="card orange">
+<h3>Result: At runtime, the system has</h3>
+<div class="grid grid-3">
+<div><h3>5 Tools</h3><p>orders_create<br>orders_list<br>orders_get<br>orders_update<br>orders_delete</p></div>
+<div><h3>1 Agent</h3><p>order_ops_agent<br><span class="badge badge-purple">Tier: CORE</span><br>660 APIs<br>5 tools</p></div>
+<div><h3>5 Skills</h3><p>orders_create<br>orders_list<br>orders_get<br>orders_update<br>orders_delete</p></div>
+</div>
+</div>
+</div>
+
+<!-- SLIDE 15: RUNTIME FLOW -->
+<div class="slide" id="s15">
+<h2>Runtime: Query to Response</h2>
+<p class="subtitle">What happens when an ICRM operator asks "naya order create karo"</p>
+
+<div class="card highlight">
+<pre style="font-size:0.9em;line-height:1.8">
+<strong style="color:#60a5fa">User:</strong> "naya order create karo"
+  |
+  v
+<strong style="color:#34d399">Step 1: Query Mode Detection</strong>
+  _detect_query_mode("naya order create karo")
+  &rarr; "act" (detected "karo" = action signal)
+  |
+  v
+<strong style="color:#a78bfa">Step 2: Wave 1 Parallel Probe (5 legs)</strong>
+  Leg 1: Entity lookup &rarr; entity_type="orders"
+  Leg 2: Graph BFS &rarr; domain:orders + neighbors
+  Leg 3: Vector search &rarr; top-5 chunks (filtered by query_mode="act")
+  Leg 4: Lexical search &rarr; keyword "order create"
+  Leg 5: PPR &rarr; seeds=[domain:orders, intent:orders_create] &rarr; important nodes at any depth
+  |
+  v
+<strong style="color:#fb923c">Step 3: RRF Fusion (5 legs)</strong>
+  exact_lookup(2.0) + PPR(1.8) + graph_nbr(1.5) + vector(1.0) + lexical(0.8)
+  &rarr; Top result: action.orders.create_order (score 0.92)
+  |
+  v
+<strong style="color:#f87171">Step 4: LangGraph Adaptive Retrieve</strong>
+  Is action query? YES. Action contract in results? YES.
+  &rarr; No Neo4j deepening needed. Confidence = 0.85.
+  |
+  v
+<strong style="color:#fbbf24">Step 5: Context Assembly</strong>
+  Boost: action contract x1.8, entity hub x1.7
+  &rarr; Claude gets: FACTUALITY_PROMPT + source-attributed context
+  &rarr; "[pillar_6:action.orders.create_order trust=0.9] Purpose: Create new order..."
+  |
+  v
+<strong style="color:#34d399">Step 6: Claude LLM Response</strong>
+  "To create a new order, you need:
+   Required: order_id, order_date, pickup_location, billing details, order_items, payment_method
+   API: POST /api/v1/orders/create (According to action.orders.create_order)
+   Risk: medium | Approval: confirm | Not idempotent"
+  |
+  v
+<strong style="color:#f87171">Step 7: RALPH Verify + HallucinationGuard</strong>
+  Grounding score: 87% (response terms found in context)
+  No fabricated IDs detected. Confidence: 0.85
+  &rarr; Response delivered.
+</pre>
+</div>
+</div>
+
+<!-- SLIDE 16: ANTI-HALLUCINATION -->
+<div class="slide" id="s16">
+<h2>Anti-Hallucination Pipeline</h2>
+<p class="subtitle">7 layers preventing the LLM from making things up</p>
+
+<div class="grid grid-2">
+<div class="card green">
+<h3>Layer 1: Embedding Quality Gate</h3>
+<p>Reject docs &lt; 50 chars, stubs, junk before they pollute vector search</p>
+</div>
+<div class="card green">
+<h3>Layer 2: Similarity Threshold 0.25</h3>
+<p>Only return chunks with &ge; 25% similarity (was 0.0 = anything)</p>
+</div>
+<div class="card highlight">
+<h3>Layer 3: Factuality Prompt</h3>
+<p>"Use ONLY facts from context. Never invent IDs. Cite sources."</p>
+</div>
+<div class="card highlight">
+<h3>Layer 4: Source Attribution</h3>
+<p>Every chunk tagged: <code>[pillar_6:action.orders.create_order trust=0.9]</code></p>
+</div>
+<div class="card orange">
+<h3>Layer 5: HallucinationGuard</h3>
+<p>BLOCK if 3+ fabricated IDs. Grounding score check.</p>
+</div>
+<div class="card orange">
+<h3>Layer 6: RALPH Verification</h3>
+<p>Checks: response grounded in context? All intents covered?</p>
+</div>
+<div class="card red">
+<h3>Layer 7: "I Don't Know"</h3>
+<p>Confidence &lt; 0.3 &rarr; "I don't have reliable information"</p>
+</div>
+<div class="card red">
+<h3>Layer 8: Feedback Loop</h3>
+<p>Low-confidence traces auto-generate improvement candidates</p>
+</div>
+</div>
+</div>
+
+<!-- SLIDE 17: SUMMARY -->
+<div class="slide" id="s17">
+<h2>Summary: Orders Domain Complete Picture</h2>
+
+<div class="card highlight" style="font-size:1.1em;text-align:center;padding:30px">
+<p><strong>From YAML files to intelligent ICRM responses in 6 steps</strong></p>
+</div>
+
+<table style="font-size:1em">
+<tr><th>Component</th><th>Orders Count</th><th>What It Provides</th></tr>
+<tr><td><span class="badge badge-green">P1 Schema</span></td><td>12 chunks, 50 columns, 105 statuses</td><td>"What data exists in orders table?"</td></tr>
+<tr><td><span class="badge badge-blue">P3 APIs</span></td><td>660 endpoints, 5 tools, 1 agent</td><td>"What API creates/reads/updates orders?"</td></tr>
+<tr><td><span class="badge badge-purple">P5 Modules</span></td><td>11 docs, 32 controllers</td><td>"What code handles orders?"</td></tr>
+<tr><td><span class="badge badge-orange">P6 Actions</span></td><td>4 actions &times; 11 files = 44 docs</td><td>"How to create/cancel/clone an order?"</td></tr>
+<tr><td><span class="badge badge-red">P7 Workflows</span></td><td>1 workflow &times; 13 files</td><td>"Why is this order stuck?"</td></tr>
+<tr><td><span class="badge badge-yellow">Entity Hub</span></td><td>1 summary</td><td>Links all pillars in one retrieval</td></tr>
+<tr><td><span class="badge badge-purple">P4 Pages</span></td><td>20+ field traces</td><td>"Where does order_id come from?"</td></tr>
+<tr><td><span class="badge badge-red">P8 Negatives</span></td><td>10+ order-related</td><td>"cancel order" &ne; "cancel shipment"</td></tr>
+</table>
+
+<div class="grid grid-3" style="margin-top:30px">
+<div class="stat"><div class="value">~2,100</div><div class="label">Total embedding docs for orders</div></div>
+<div class="stat"><div class="value">670+</div><div class="label">Graph nodes for orders</div></div>
+<div class="stat"><div class="value">9.8/10</div><div class="label">KB Quality Score</div></div>
+</div>
+
+<div class="card" style="margin-top:30px;text-align:center">
+<p style="color:#94a3b8">Built for Shiprocket ICRM &mdash; RocketMind AI Copilot</p>
+<p style="color:#60a5fa;font-size:1.2em;margin-top:10px"><strong>The KB is not documentation. It is the brain.</strong></p>
+</div>
+</div>
+
+</body>
+</html>

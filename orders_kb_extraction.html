@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RocketMind KB: How Each Pillar is Extracted & Used</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0e1a;color:#e0e6f0;line-height:1.7}
+.slide{min-height:100vh;padding:60px 80px;border-bottom:2px solid #1a2040}
+.slide:nth-child(odd){background:linear-gradient(135deg,#0a0e1a 0%,#111830 100%)}
+.slide:nth-child(even){background:linear-gradient(135deg,#0d1225 0%,#0a0e1a 100%)}
+h1{font-size:2.8em;background:linear-gradient(90deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:10px}
+h2{font-size:2em;color:#60a5fa;margin-bottom:20px;border-bottom:2px solid #1e3a5f;padding-bottom:10px}
+h3{font-size:1.3em;color:#a78bfa;margin:20px 0 10px}
+h4{font-size:1.1em;color:#fb923c;margin:15px 0 8px}
+.subtitle{font-size:1.2em;color:#94a3b8;margin-bottom:30px}
+.card{background:#111830;border:1px solid #1e3a5f;border-radius:12px;padding:24px;margin:15px 0}
+.card.green{border-color:#34d399}.card.blue{border-color:#60a5fa}.card.purple{border-color:#a78bfa}.card.orange{border-color:#fb923c}.card.red{border-color:#f87171}
+.grid{display:grid;gap:20px}.grid-2{grid-template-columns:1fr 1fr}.grid-3{grid-template-columns:1fr 1fr 1fr}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.8em;font-weight:600;margin:2px}
+.badge-blue{background:#1e3a5f;color:#60a5fa}.badge-green{background:#064e3b;color:#34d399}.badge-purple{background:#3b0764;color:#a78bfa}.badge-orange{background:#431407;color:#fb923c}.badge-red{background:#450a0a;color:#f87171}
+table{width:100%;border-collapse:collapse;margin:15px 0;font-size:0.9em}
+th{background:#1e293b;color:#60a5fa;padding:10px 12px;text-align:left;border-bottom:2px solid #334155}
+td{padding:8px 12px;border-bottom:1px solid #1e293b}
+code{background:#1e293b;color:#34d399;padding:2px 6px;border-radius:4px;font-size:0.9em}
+pre{background:#0d1117;border:1px solid #1e3a5f;border-radius:8px;padding:16px;overflow-x:auto;font-size:0.85em;line-height:1.5;color:#c9d1d9;margin:10px 0}
+.flow-box{display:inline-block;background:#1e293b;border:2px solid #334155;border-radius:8px;padding:8px 16px;margin:4px;font-weight:600;font-size:0.9em}
+.flow-arrow{color:#60a5fa;font-size:1.5em;margin:0 5px;vertical-align:middle}
+.step{display:flex;align-items:flex-start;margin:15px 0;gap:15px}
+.step-num{min-width:40px;height:40px;background:#1e3a5f;color:#60a5fa;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.1em}
+.filepath{background:#0d1117;border-left:3px solid #60a5fa;padding:8px 15px;margin:8px 0;font-family:monospace;font-size:0.85em;color:#94a3b8}
+@media(max-width:1200px){.grid-2,.grid-3{grid-template-columns:1fr}.slide{padding:30px 20px}}
+</style>
+</head>
+<body>
+
+<!-- SLIDE 1: HOW KB IS CREATED -->
+<div class="slide">
+<h1>How the Knowledge Base is Created</h1>
+<p class="subtitle">From PHP codebase to structured YAML &mdash; the extraction pipeline</p>
+
+<div class="card blue">
+<h3>Source: Shiprocket PHP Monolith (MultiChannel_API)</h3>
+<p>The KB is extracted from the <strong>live PHP codebase</strong> using automated scanners + manual curation.</p>
+<div style="margin:20px 0;text-align:center">
+<span class="flow-box" style="border-color:#f87171">PHP Codebase</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#fb923c">Scanner Scripts</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#fbbf24">Raw YAML</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#34d399">Merged high.yaml</span>
+<span class="flow-arrow">&rarr;</span>
+<span class="flow-box" style="border-color:#60a5fa">Chunked high/ folder</span>
+</div>
+</div>
+
+<h3>Scanner Scripts Used</h3>
+<table>
+<tr><th>Script</th><th>What It Does</th><th>Output</th></tr>
+<tr><td><code>_scan_repo_fill_gaps.py</code></td><td>Scans PHP controllers, models, routes for validation rules, constants, response fields</td><td>Fills request_schema, response_fields in API YAMLs</td></tr>
+<tr><td><code>_deep_scan_v2.py</code></td><td>Deep scan: JSON columns, enum values, side effects, jobs dispatched</td><td>Enriches schema + API docs</td></tr>
+<tr><td><code>_populate_request_schema.py</code></td><td>Extracts Laravel validation rules from Request classes</td><td>contract.required/optional in P3 API YAMLs</td></tr>
+<tr><td><code>_merge_to_tiers.py</code></td><td>Merges individual YAML files into high/medium/low.yaml</td><td>Single merged file per table/API</td></tr>
+<tr><td><code>pillar3_bulk_generator_v1</code></td><td>Generates P3 API directories from route files</td><td>5,617 API folder structures</td></tr>
+<tr><td><code>_audit_web_apis.py</code></td><td>Fixes UNKNOWN methods, sets training_ready</td><td>Updated SR_Web + MC_Web registries</td></tr>
+</table>
+
+<div class="filepath">knowledge_base/shiprocket/MultiChannel_API/<br>
+&nbsp;&nbsp;_scan_repo_fill_gaps.py<br>
+&nbsp;&nbsp;_deep_scan_v2.py<br>
+&nbsp;&nbsp;_populate_request_schema.py<br>
+&nbsp;&nbsp;_merge_to_tiers.py</div>
+</div>
+
+<!-- SLIDE 2: P1 EXTRACTION -->
+<div class="slide">
+<h2>Pillar 1: Schema Extraction</h2>
+<p class="subtitle">How orders table YAML is created from the PHP model</p>
+
+<div class="grid grid-2">
+<div class="card red">
+<h4>Source: PHP Model</h4>
+<pre>// app/Repositories/Order.php
+class Order extends ArchiveBaseModel
+{
+    use OrdersWeight, SoftDeletes;
+
+    protected $table = 'orders';
+    protected $connection = 'mysql';
+
+    protected $fillable = [
+        'company_id', 'channel_id',
+        'channel_order_id', 'order_date',
+        'customer_name', 'customer_address',
+        'customer_pincode', 'customer_phone',
+        'payment_method', 'sub_total',
+        'weight', 'dimensions', 'status',
+        'rto_prediction', ...
+    ];
+
+    // Status constants
+    const NEW_ORDER = 1;
+    const INVOICED = 2;
+    const READY_TO_SHIP = 3;
+    const SHIPPED = 6;
+    const DELIVERED = 7;
+    const CANCELLED = 5;
+}</pre>
+</div>
+<div class="card green">
+<h4>Output: identity_core.yaml</h4>
+<pre>table_name: orders
+domain: core_orders
+tier: 1
+model_path: app/Repositories/Order.php
+extends: ArchiveBaseModel
+primary_key: id
+column_count: 50
+row_estimate: 50000000
+db_write: mysql
+db_read: [slave, slave2, dr_slave]
+soft_deletes: true
+
+indexes:
+  - idx_company_id
+  - idx_status
+  - idx_channel_order_id
+  - idx_created_at</pre>
+</div>
+</div>
+
+<div class="card">
+<h4>Extraction Process</h4>
+<div class="step"><div class="step-num">1</div><div>Scanner reads <code>Order.php</code> &rarr; extracts <code>$table</code>, <code>$fillable</code>, <code>$connection</code>, constants</div></div>
+<div class="step"><div class="step-num">2</div><div>Reads database migration files &rarr; extracts column types, indexes, foreign keys</div></div>
+<div class="step"><div class="step-num">3</div><div>Reads <code>const</code> values &rarr; maps status integers to names (1=NEW, 6=SHIPPED, etc.)</div></div>
+<div class="step"><div class="step-num">4</div><div>Reads route files &rarr; finds which APIs read/write this table</div></div>
+<div class="step"><div class="step-num">5</div><div>Merges into <code>high.yaml</code> (3,729 lines) then chunks into <code>high/</code> folder (12 files)</div></div>
+</div>
+
+<div class="filepath">knowledge_base/shiprocket/MultiChannel_API/pillar_1_schema/tables/orders/<br>
+&nbsp;&nbsp;high.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(3,729 lines &mdash; merged)<br>
+&nbsp;&nbsp;high/<br>
+&nbsp;&nbsp;&nbsp;&nbsp;identity_core.yaml &nbsp;&nbsp;(table metadata)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;identity_columns.yaml (50 columns with types + meanings)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;states_constants.yaml (105 status values)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;states_transitions.yaml (allowed state changes)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rules.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(validation rules from Request classes)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;code.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(model traits, scopes, appends)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dataflow_*.yaml &nbsp;&nbsp;&nbsp;&nbsp;(read paths, write paths, side effects)</div>
+
+<div class="card blue">
+<h4>How it helps COSMOS</h4>
+<p>When a user asks <strong>"what are the valid order statuses?"</strong>, the retriever finds <code>states_constants.yaml</code> which lists all 105 status values. Without this, the LLM would guess common statuses and miss Shiprocket-specific ones like UNMAPPED(10) or UNFULFILLABLE(11).</p>
+</div>
+</div>
+
+<!-- SLIDE 3: P3 EXTRACTION -->
+<div class="slide">
+<h2>Pillar 3: API Extraction</h2>
+<p class="subtitle">How 660 orders APIs are extracted from route files &rarr; tool assignment</p>
+
+<div class="grid grid-2">
+<div class="card red">
+<h4>Source: PHP Route File</h4>
+<pre>// app/Http/Routes/v1/orders.php
+Route::group(['prefix' => 'orders'], function() {
+    Route::post('create',
+        'Orders\CustomController@store');
+    Route::get('/',
+        'Orders\OrderController@index');
+    Route::get('{id}',
+        'Orders\OrderController@show');
+    Route::post('cancel',
+        'Orders\OrderCancelController@cancel');
+    Route::patch('{id}/fulfill',
+        'Orders\OrderController@fulfill');
+});</pre>
+</div>
+<div class="card green">
+<h4>Output: mcapi.v1.orders.create.post/high.yaml</h4>
+<pre>overview:
+  api:
+    id: mcapi.v1.orders.create.post
+    method: POST
+    path: /api/v1/orders/create
+    controller: Orders\CustomController@store
+  classification:
+    domain: orders
+    intent_primary: orders_create
+
+tool_agent_tags:
+  tool_assignment:
+    tool_candidate: orders_create
+    read_write_type: WRITE
+    risk_level: medium
+  agent_assignment:
+    owner: order_ops_agent</pre>
+</div>
+</div>
+
+<div class="card">
+<h4>How tool assignment works</h4>
+<div class="step"><div class="step-num">1</div><div><strong>Route scanning:</strong> <code>pillar3_bulk_generator_v1</code> reads all route files, extracts method+path+controller</div></div>
+<div class="step"><div class="step-num">2</div><div><strong>Domain classification:</strong> Path <code>/api/v1/orders/*</code> &rarr; domain = <code>orders</code></div></div>
+<div class="step"><div class="step-num">3</div><div><strong>Tool assignment:</strong> Method+subdomain: POST+create &rarr; <code>orders_create</code>. GET+list &rarr; <code>orders_list</code></div></div>
+<div class="step"><div class="step-num">4</div><div><strong>Agent assignment:</strong> All orders tools &rarr; <code>order_ops_agent</code></div></div>
+<div class="step"><div class="step-num">5</div><div><strong>Request schema:</strong> Scanner reads <code>AdHocRequest.php</code> validation rules &rarr; fills required/optional params</div></div>
+<div class="step"><div class="step-num">6</div><div><strong>Examples:</strong> Creates param_extraction_pairs: "create order for customer" &rarr; {endpoint, params}</div></div>
+</div>
+
+<div class="filepath">knowledge_base/shiprocket/MultiChannel_API/pillar_3_api_mcp_tools/<br>
+&nbsp;&nbsp;api_registry.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(660 orders entries: api_id, method, path, domain, tool, agent)<br>
+&nbsp;&nbsp;tool_registry.yaml &nbsp;&nbsp;&nbsp;&nbsp;(5 tools: orders_create(349), orders_list(236), ...)<br>
+&nbsp;&nbsp;agent_registry.yaml &nbsp;&nbsp;&nbsp;(order_ops_agent with all 660 APIs)<br>
+&nbsp;&nbsp;apis/<br>
+&nbsp;&nbsp;&nbsp;&nbsp;mcapi.v1.orders.create.post/ &nbsp;&nbsp;(primary create API)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;high.yaml &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(overview + tool_tags + examples + schema)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;mcapi.v1.app.orders.get/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(list API)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;mcapi.v1.app.orders.cancel.post/ (cancel API)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;... (687 total directories)</div>
+
+<div class="card blue">
+<h4>How it helps COSMOS</h4>
+<p>When a user asks <strong>"which API creates orders?"</strong>, COSMOS retrieves <code>mcapi.v1.orders.create.post:overview</code> which has the exact endpoint, controller, and parameters. The tool_agent_tags tell COSMOS to use <code>orders_create</code> tool owned by <code>order_ops_agent</code>. Without this, the system would need to guess the API path.</p>
+</div>
+</div>
+
+<!-- SLIDE 4: P6 ACTION CREATION -->
+<div class="slide">
+<h2>Pillar 6: Action Contract Creation</h2>
+<p class="subtitle">How "create_order" becomes an executable specification with 11 files</p>
+
+<div class="card orange">
+<h4>Why actions exist (that P1-P3 don't cover)</h4>
+<table>
+<tr><th>P1 tells you</th><th>P3 tells you</th><th>P6 tells you</th></tr>
+<tr><td>orders table has 50 columns</td><td>POST /api/v1/orders/create exists</td><td><strong>What happens when you call it:</strong> side effects, preconditions, rollback</td></tr>
+<tr><td>status column is TINYINT</td><td>API requires order_items array</td><td><strong>What can go wrong:</strong> duplicate order, invalid pincode, COD limit</td></tr>
+<tr><td>rto_prediction is FLOAT</td><td>Controller is CustomController@store</td><td><strong>Who can do it:</strong> roles, approval, tenant scope</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h4>How each file is created</h4>
+
+<div class="step"><div class="step-num">1</div><div><strong>index.yaml</strong> &mdash; Links to other pillars using stable IDs<br>
+<pre>linked_tables: [pillar_1_schema/tables/orders, pillar_1_schema/tables/order_products]
+linked_apis: [pillar_3_api_mcp_tools/apis/mcapi.v1.orders.create.post]
+linked_jobs: [SaveRTOprediction]</pre></div></div>
+
+<div class="step"><div class="step-num">2</div><div><strong>contract.yaml</strong> &mdash; Extracted from controller + request class + model<br>
+<pre>purpose: "Create new order with address validation, product items, COD/Prepaid"
+required_inputs:
+  - order_id (string): unique channel_order_id
+  - billing_pincode (string): required, digits:6  &larr; from AdHocRequest.php validation
+sync_async: sync
+idempotent: false  &larr; POST creates new record each time</pre></div></div>
+
+<div class="step"><div class="step-num">3</div><div><strong>intent_map.yaml</strong> &mdash; Manually curated + Hinglish variants<br>
+<pre>positive_phrases:
+  hinglish: ["naya order create karo", "ek order banana hai"]
+negative_phrases:
+  - query: "Clone this order" &rarr; use action.orders.clone_order</pre></div></div>
+
+<div class="step"><div class="step-num">4</div><div><strong>execution_graph.yaml</strong> &mdash; Traced from controller code flow<br>
+<pre>steps:
+  1. validate inputs (AdHocRequest validation rules)
+  2. check address serviceability (pincode → courier)
+  3. calculate rates (freight engine)
+  4. store to orders + order_products tables
+  5. trigger SaveRTOprediction (async job)</pre></div></div>
+
+<div class="step"><div class="step-num">5</div><div><strong>eval_cases.yaml</strong> &mdash; Test cases for retrieval quality<br>
+<pre>positive: "Create a new order" &rarr; action.orders.create_order
+regression: "Ship this order" must NOT route to create_order
+unsafe: "Create 10000 orders" &rarr; reject (bulk without validation)</pre></div></div>
+</div>
+
+<div class="filepath">pillar_6_action_contracts/domains/orders/create_order/<br>
+&nbsp;&nbsp;index.yaml, contract.yaml, intent_map.yaml,<br>
+&nbsp;&nbsp;permissions.yaml, data_access.yaml, execution_graph.yaml,<br>
+&nbsp;&nbsp;failure_modes.yaml, observability.yaml, examples.yaml,<br>
+&nbsp;&nbsp;eval_cases.yaml, rollback.yaml</div>
+</div>
+
+<!-- SLIDE 5: P7 WORKFLOW CREATION -->
+<div class="slide">
+<h2>Pillar 7: Workflow Runbook Creation</h2>
+<p class="subtitle">How the order creation pipeline becomes a 13-file runbook</p>
+
+<div class="card red">
+<h4>Why workflows exist (that P6 actions don't cover)</h4>
+<table>
+<tr><th>P6 tells you</th><th>P7 tells you</th></tr>
+<tr><td>"create_order" is one action</td><td>Order creation is a <strong>7-state pipeline</strong> with decision branches</td></tr>
+<tr><td>What inputs are needed</td><td>What happens <strong>AFTER</strong>: validated &rarr; address_verified &rarr; rate_calculated &rarr; ready_to_ship</td></tr>
+<tr><td>What can fail</td><td><strong>Exception paths:</strong> what if address service is down? what if duplicate order?</td></tr>
+<tr><td>How to rollback</td><td><strong>Operator playbook:</strong> diagnose &rarr; verify &rarr; act &rarr; escalate</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h4>Key workflow files and what they contain</h4>
+
+<div class="step"><div class="step-num">1</div><div><strong>state_machine.yaml</strong><br>
+7 states: order_placed &rarr; validated &rarr; address_verified &rarr; rate_calculated &rarr; ready_to_ship<br>
+13 allowed transitions + 3 invalid transitions (cannot go backwards)</div></div>
+
+<div class="step"><div class="step-num">2</div><div><strong>decision_matrix.yaml</strong><br>
+<pre>decisions:
+  - COD vs Prepaid: COD needs serviceability check, Prepaid has no limit
+  - Domestic vs International: international needs HSN codes + customs
+  - Channel sync vs Manual: different validation rules per channel</pre></div></div>
+
+<div class="step"><div class="step-num">3</div><div><strong>operator_playbook.yaml</strong> &mdash; For ICRM support operators<br>
+<pre>diagnose:
+  1. Check order status in DB
+  2. Verify address serviceability
+  3. Check if channel sync completed
+act:
+  - "Order stuck in validation_failed" &rarr; check which field failed, ask seller to correct
+  - "Address not serviceable" &rarr; suggest alternate pincode or different courier</pre></div></div>
+
+<div class="step"><div class="step-num">4</div><div><strong>user_language.yaml</strong> &mdash; How sellers/ICRM actually talk about this<br>
+<pre>seller_wording: ["order create nahi ho raha", "order stuck hai"]
+hinglish: ["address galat hai", "pincode serviceable nahi hai"]
+confusing_synonyms:
+  - "create" vs "import" (different flows)
+  - "cancel order" vs "cancel shipment" (very different!)</pre></div></div>
+</div>
+
+<div class="card blue">
+<h4>How it helps COSMOS</h4>
+<p>When a user asks <strong>"why is my order stuck?"</strong>, COSMOS retrieves the operator_playbook which gives step-by-step diagnosis. It also retrieves the state_machine to show which state the order is in and what transitions are valid next. Without this, the LLM would give generic advice instead of Shiprocket-specific troubleshooting steps.</p>
+</div>
+</div>
+
+<!-- SLIDE 6: TOOLS AGENTS SKILLS -->
+<div class="slide">
+<h2>How KB Generates Tools, Agents & Skills</h2>
+<p class="subtitle">The KB-Driven Registry reads graph nodes and creates runtime objects</p>
+
+<div class="card green">
+<h3>Step 1: Graph nodes exist (from training pipeline)</h3>
+<pre>graph_nodes table:
+  | node_id              | node_type        | domain  | label           |
+  |----------------------|------------------|---------|-----------------|
+  | tool:orders_create   | tool             | orders  | orders_create   |
+  | tool:orders_list     | tool             | orders  | orders_list     |
+  | agent:order_ops_agent| agent            | orders  | order_ops_agent |
+  | intent:orders_create | intent           | orders  | orders_create   |
+  | action:create_order  | action_contract  | orders  | create_order    |
+
+graph_edges table:
+  | source_id                     | target_id            | edge_type        | weight |
+  |-------------------------------|----------------------|------------------|--------|
+  | api:mcapi.v1.orders.create    | tool:orders_create   | implements_tool  | 1.5    |
+  | api:mcapi.v1.orders.create    | agent:order_ops_agent| assigned_to_agent| 1.2    |
+  | action:create_order           | api:orders.create    | calls_api        | 1.6    |</pre>
+</div>
+
+<div class="card purple">
+<h3>Step 2: KB-Driven Registry reads graph &rarr; creates runtime objects</h3>
+<pre>// kb_driven_registry.py: _sync_from_graph()
+
+// Query 1: Find all tools
+SELECT * FROM graph_nodes WHERE node_type = 'tool' AND domain = 'orders'
+&rarr; Creates 5 DynamicTool objects
+
+// Query 2: Find the agent
+SELECT * FROM graph_nodes WHERE node_type = 'agent' AND domain = 'orders'
+&rarr; Creates DynamicAgent("order_ops_agent")
+
+// Query 3: Find intents (= skills)
+SELECT * FROM graph_nodes WHERE node_type = 'intent' AND domain = 'orders'
+&rarr; Creates DynamicSkill objects
+
+// Query 4: Link tools to agent via shared API edges
+SELECT tool_id, agent_id FROM graph_edges
+WHERE edge_type IN ('implements_tool', 'assigned_to_agent')
+&rarr; Links: orders_create tool &harr; order_ops_agent (349 shared APIs)</pre>
+</div>
+
+<div class="card orange">
+<h3>Step 3: At runtime, when user says "create order"</h3>
+<pre>1. Intent classification: "orders_create" (from intent_map Hinglish phrases)
+2. Agent selection: order_ops_agent (matches domain "orders")
+3. Tool selection: orders_create (matches intent "orders_create")
+4. Action contract: action.orders.create_order (has preconditions, side effects)
+5. API selection: POST /api/v1/orders/create (primary endpoint)
+6. Execute with: FACTUALITY_PROMPT + source-attributed context
+7. Verify with: RALPH grounding check + HallucinationGuard</pre>
+</div>
+
+<div class="card blue">
+<h3>The key insight</h3>
+<p style="font-size:1.1em">The KB doesn't just store information &mdash; it <strong>generates the tools and agents that COSMOS uses at runtime</strong>. When you add a new API to the KB, it automatically becomes a tool under the right agent. When you add an action contract, it automatically gets precondition checking. This is why the KB is the brain, not just documentation.</p>
+</div>
+</div>
+
+<!-- SLIDE 7: COMPLETE FLOW DIAGRAM -->
+<div class="slide">
+<h2>Complete Flow: PHP Code &rarr; ICRM Answer</h2>
+
+<div class="card" style="font-size:0.95em">
+<pre style="line-height:2">
+<span style="color:#f87171">PHP CODEBASE</span>
+  app/Repositories/Order.php (model)
+  app/Http/Routes/v1/orders.php (routes)
+  app/Http/Controllers/v1/Orders/*.php (controllers)
+  app/Http/Requests/v1/Orders/*.php (validation)
+  app/Jobs/Orders/SaveRTOprediction.php (async job)
+      |
+      | Scanner scripts extract
+      v
+<span style="color:#fb923c">RAW YAML FILES</span> (knowledge_base/shiprocket/MultiChannel_API/)
+  P1: pillar_1_schema/tables/orders/high/ (12 chunks, 50 cols, 105 statuses)
+  P3: pillar_3_api_mcp_tools/apis/mcapi.v1.orders*/ (687 dirs, 660 APIs)
+  P5: pillar_5_module_docs/modules/orders/ (11 docs, 32 controllers)
+  P6: pillar_6_action_contracts/domains/orders/ (4 actions x 11 files)
+  P7: pillar_7_workflow_runbooks/domains/orders/ (1 workflow x 13 files)
+  P8: pillar_8_negative_routing/ (order-related negatives)
+  Hub: entity_hubs/orders.yaml (cross-pillar summary)
+      |
+      | kb_ingestor.py reads + _render_chunk() converts
+      v
+<span style="color:#fbbf24">RENDERED TEXT DOCS</span> (~2,100 docs for orders)
+  "POST /api/v1/orders/create | Controller: CustomController@store | Domain: orders"
+  "Action: create_order | Inputs: order_id, billing_pincode | Risk: medium"
+  "State: order_placed -> validated -> address_verified -> ready_to_ship"
+      |
+      | canonical_ingestor.py embeds (OpenAI text-embedding-3-small)
+      v
+<span style="color:#a78bfa">VECTOR EMBEDDINGS</span> (cosmos_embeddings table, pgvector)
+  Each doc = 1536-dim vector + metadata (pillar, domain, query_mode, trust_score)
+      |
+      | ingest.py creates graph structure
+      v
+<span style="color:#60a5fa">KNOWLEDGE GRAPH</span> (graph_nodes + graph_edges tables)
+  670+ nodes: 1 domain + 5 tools + 1 agent + 660 APIs + 4 actions + 1 workflow
+  Edges: implements_tool(1.5), calls_api(1.6), uses_action(1.7), writes_table(1.8)
+      |
+      | kb_driven_registry.py discovers from graph
+      v
+<span style="color:#34d399">RUNTIME OBJECTS</span>
+  5 DynamicTools + 1 DynamicAgent + 5 DynamicSkills
+      |
+      | User query triggers retrieval
+      v
+<span style="color:#34d399">ICRM QUERY: "naya order create karo"</span>
+  1. Mode: "act" (detected from "karo")
+  2. Wave 1: 5-leg parallel (exact + PPR + graph + vector + lexical)
+  3. RRF fusion &rarr; top hit: action.orders.create_order
+  4. LangGraph adaptive_retrieve &rarr; Neo4j chain scoring if needed
+  5. Context assembly with boosts (action x1.8, hub x1.7)
+  6. Claude LLM + FACTUALITY_PROMPT + source attribution
+  7. RALPH verify + HallucinationGuard + confidence gate
+      |
+      v
+<span style="color:#34d399">RESPONSE</span> (grounded, cited, verified)
+  "To create a new order (source: action.orders.create_order):
+   Required: order_id, order_date, billing details, order_items, payment_method
+   API: POST /api/v1/orders/create
+   Side effects: stores to orders + order_products, triggers SaveRTOprediction
+   Risk: medium | Approval: confirm | Not idempotent"
+</pre>
+</div>
+</div>
+
+</body>
+</html>
