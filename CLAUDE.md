@@ -40,7 +40,7 @@ cosmos/
 ├── tests/                   # pytest test suite
 ├── docs/                    # Architecture and design docs
 ├── .claude/
-│   ├── hooks/               # Orbit-style lifecycle hooks
+│   ├── hooks/               # cosmos-style lifecycle hooks
 │   ├── rules/               # Coding conventions and standards
 │   └── session-state/       # STATE.md + session snapshots
 ├── .github/workflows/       # CI/CD (cosmos-ci.yml)
@@ -94,7 +94,7 @@ See `docs/error-codes.md` for the full ERR-COSMOS-* registry with runbooks.
 
 See `.claude/rules/git-standards.md` for branch naming and commit format.
 
-## Hooks (Orbit Lifecycle)
+## Hooks (Cosmos Lifecycle)
 
 | Hook | Trigger | Action |
 |------|---------|--------|

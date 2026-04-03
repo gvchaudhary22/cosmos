@@ -5,7 +5,7 @@ Tests for the GREL Engine — Gather → Reason → Execute → Learn.
 import asyncio
 import pytest
 
-from cosmos.app.brain.grel import (
+from app.brain.grel import (
     ApprovalStatus,
     GatheredData,
     GRELEngine,
@@ -15,7 +15,7 @@ from cosmos.app.brain.grel import (
     LearningType,
     SynthesisResult,
 )
-from cosmos.app.brain.tournament import StrategyName, StrategyResult
+from app.brain.tournament import StrategyName, StrategyResult
 
 
 # ---------------------------------------------------------------------------

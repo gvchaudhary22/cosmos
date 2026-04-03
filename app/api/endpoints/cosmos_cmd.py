@@ -231,7 +231,7 @@ async def get_agent(name: str):
 
 @router.get("/skills")
 async def list_skills():
-    """List all available COSMOS skills (from Orbit skills directory)."""
+    """List all available COSMOS skills (from COSMOS skills directory)."""
     from pathlib import Path
     skills = []
     local_skills = Path(__file__).parent.parent.parent / ".claude" / "skills"

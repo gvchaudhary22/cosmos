@@ -672,7 +672,7 @@ def save_results(metrics_list: List[BackendMetrics], path: Path = _RESULTS_PATH)
             "latency_p50_ms": m.latency_p50_ms,
             "latency_p95_ms": m.latency_p95_ms,
             "error_rate": m.error_rate,
-            # Per-category breakdown (Orbit eval runner transfer)
+            # Per-category breakdown (COSMOS eval runner)
             "pillar_breakdown": pillar_breakdown(m),
         })
     with open(path, "w") as f:

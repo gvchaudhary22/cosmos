@@ -21,7 +21,7 @@ import sqlite3
 from sqlalchemy import event, JSON, String, TypeDecorator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB as PG_JSONB
-from cosmos.app.db.models import Base
+from app.db.models import Base
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ def _mock_react_result(tools=None, confidence=0.85, response="Test response"):
 
 class TestTFIDF:
     def test_tokenize_basic(self):
-        from cosmos.app.learning.knowledge import _tokenize
+        from app.learning.knowledge import _tokenize
         tokens = _tokenize("How do I track my order?")
         assert "track" in tokens
         assert "order" in tokens
@@ -86,31 +86,31 @@ class TestTFIDF:
         assert "do" not in tokens
 
     def test_tokenize_empty(self):
-        from cosmos.app.learning.knowledge import _tokenize
+        from app.learning.knowledge import _tokenize
         assert _tokenize("") == []
 
     def test_tokenize_punctuation(self):
-        from cosmos.app.learning.knowledge import _tokenize
+        from app.learning.knowledge import _tokenize
         tokens = _tokenize("order #12345 -- what's the status?")
         assert "order" in tokens
         assert "12345" in tokens
         assert "status" in tokens
 
     def test_compute_idf(self):
-        from cosmos.app.learning.knowledge import _compute_idf
+        from app.learning.knowledge import _compute_idf
         docs = [["order", "status"], ["track", "shipment"], ["order", "refund"]]
         idf = _compute_idf(docs, ["order", "track"])
         assert idf["track"] > idf["order"]
 
     def test_tfidf_similarity_identical(self):
-        from cosmos.app.learning.knowledge import _tfidf_similarity, _compute_idf
+        from app.learning.knowledge import _tfidf_similarity, _compute_idf
         doc = ["order", "status", "track"]
         idf = _compute_idf([doc], doc)
         sim = _tfidf_similarity(doc, doc, idf)
         assert sim == pytest.approx(1.0, abs=0.01)
 
     def test_tfidf_similarity_disjoint(self):
-        from cosmos.app.learning.knowledge import _tfidf_similarity, _compute_idf
+        from app.learning.knowledge import _tfidf_similarity, _compute_idf
         q = ["order", "status"]
         d = ["payment", "refund"]
         idf = _compute_idf([d], q)
@@ -118,7 +118,7 @@ class TestTFIDF:
         assert sim == 0.0
 
     def test_tfidf_similarity_partial(self):
-        from cosmos.app.learning.knowledge import _tfidf_similarity, _compute_idf
+        from app.learning.knowledge import _tfidf_similarity, _compute_idf
         q = ["order", "status"]
         d = ["order", "delivery", "status", "details"]
         idf = _compute_idf([d], q)
@@ -133,7 +133,7 @@ class TestTFIDF:
 
 class TestDistillationCollector:
     def test_log_interaction(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -154,7 +154,7 @@ class TestDistillationCollector:
         _run(_test())
 
     def test_add_feedback(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -172,7 +172,7 @@ class TestDistillationCollector:
         _run(_test())
 
     def test_add_feedback_invalid_score(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -185,7 +185,7 @@ class TestDistillationCollector:
         _run(_test())
 
     def test_add_feedback_not_found(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -198,7 +198,7 @@ class TestDistillationCollector:
         _run(_test())
 
     def test_get_stats_empty(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -213,7 +213,7 @@ class TestDistillationCollector:
         _run(_test())
 
     def test_get_stats_with_data(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -234,7 +234,7 @@ class TestDistillationCollector:
         _run(_test())
 
     def test_export_training_data_empty(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -247,7 +247,7 @@ class TestDistillationCollector:
         _run(_test())
 
     def test_export_training_data_with_records(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -270,7 +270,7 @@ class TestDistillationCollector:
         _run(_test())
 
     def test_export_filters_low_quality(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -290,7 +290,7 @@ class TestDistillationCollector:
         _run(_test())
 
     def test_cost_estimation(self):
-        from cosmos.app.learning.collector import _estimate_cost
+        from app.learning.collector import _estimate_cost
         cost_haiku = _estimate_cost("claude-haiku-4-5", 1000, 500)
         assert cost_haiku > 0
         assert cost_haiku < 1.0
@@ -305,7 +305,7 @@ class TestDistillationCollector:
 
 class TestFeedbackEngine:
     def test_submit_feedback(self):
-        from cosmos.app.learning.feedback import FeedbackEngine
+        from app.learning.feedback import FeedbackEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -325,7 +325,7 @@ class TestFeedbackEngine:
         _run(_test())
 
     def test_submit_feedback_invalid_score(self):
-        from cosmos.app.learning.feedback import FeedbackEngine
+        from app.learning.feedback import FeedbackEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -340,7 +340,7 @@ class TestFeedbackEngine:
         _run(_test())
 
     def test_submit_feedback_invalid_category(self):
-        from cosmos.app.learning.feedback import FeedbackEngine
+        from app.learning.feedback import FeedbackEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -356,7 +356,7 @@ class TestFeedbackEngine:
         _run(_test())
 
     def test_get_session_feedback(self):
-        from cosmos.app.learning.feedback import FeedbackEngine
+        from app.learning.feedback import FeedbackEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -372,7 +372,7 @@ class TestFeedbackEngine:
         _run(_test())
 
     def test_get_feedback_summary(self):
-        from cosmos.app.learning.feedback import FeedbackEngine
+        from app.learning.feedback import FeedbackEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -391,7 +391,7 @@ class TestFeedbackEngine:
         _run(_test())
 
     def test_get_low_scoring_queries(self):
-        from cosmos.app.learning.feedback import FeedbackEngine
+        from app.learning.feedback import FeedbackEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -413,7 +413,7 @@ class TestFeedbackEngine:
         _run(_test())
 
     def test_get_low_scoring_empty(self):
-        from cosmos.app.learning.feedback import FeedbackEngine
+        from app.learning.feedback import FeedbackEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -433,7 +433,7 @@ class TestFeedbackEngine:
 
 class TestAnalyticsEngine:
     def test_record_query(self):
-        from cosmos.app.learning.analytics import AnalyticsEngine
+        from app.learning.analytics import AnalyticsEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -451,7 +451,7 @@ class TestAnalyticsEngine:
         _run(_test())
 
     def test_get_dashboard_empty(self):
-        from cosmos.app.learning.analytics import AnalyticsEngine
+        from app.learning.analytics import AnalyticsEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -466,7 +466,7 @@ class TestAnalyticsEngine:
         _run(_test())
 
     def test_get_dashboard_with_data(self):
-        from cosmos.app.learning.analytics import AnalyticsEngine
+        from app.learning.analytics import AnalyticsEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -494,7 +494,7 @@ class TestAnalyticsEngine:
         _run(_test())
 
     def test_get_intent_analytics(self):
-        from cosmos.app.learning.analytics import AnalyticsEngine
+        from app.learning.analytics import AnalyticsEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -516,7 +516,7 @@ class TestAnalyticsEngine:
         _run(_test())
 
     def test_get_cost_report(self):
-        from cosmos.app.learning.analytics import AnalyticsEngine
+        from app.learning.analytics import AnalyticsEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -539,7 +539,7 @@ class TestAnalyticsEngine:
         _run(_test())
 
     def test_get_hourly_traffic(self):
-        from cosmos.app.learning.analytics import AnalyticsEngine
+        from app.learning.analytics import AnalyticsEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -560,7 +560,7 @@ class TestAnalyticsEngine:
         _run(_test())
 
     def test_dashboard_has_all_keys(self):
-        from cosmos.app.learning.analytics import AnalyticsEngine
+        from app.learning.analytics import AnalyticsEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -588,7 +588,7 @@ class TestAnalyticsEngine:
 
 class TestKnowledgeManager:
     def test_add_knowledge(self):
-        from cosmos.app.learning.knowledge import KnowledgeManager
+        from app.learning.knowledge import KnowledgeManager
 
         async def _test():
             session, engine = await _make_db()
@@ -605,7 +605,7 @@ class TestKnowledgeManager:
         _run(_test())
 
     def test_add_knowledge_invalid_category(self):
-        from cosmos.app.learning.knowledge import KnowledgeManager
+        from app.learning.knowledge import KnowledgeManager
 
         async def _test():
             session, engine = await _make_db()
@@ -618,7 +618,7 @@ class TestKnowledgeManager:
         _run(_test())
 
     def test_search_knowledge(self):
-        from cosmos.app.learning.knowledge import KnowledgeManager
+        from app.learning.knowledge import KnowledgeManager
 
         async def _test():
             session, engine = await _make_db()
@@ -634,7 +634,7 @@ class TestKnowledgeManager:
         _run(_test())
 
     def test_search_knowledge_with_category(self):
-        from cosmos.app.learning.knowledge import KnowledgeManager
+        from app.learning.knowledge import KnowledgeManager
 
         async def _test():
             session, engine = await _make_db()
@@ -650,7 +650,7 @@ class TestKnowledgeManager:
         _run(_test())
 
     def test_search_knowledge_empty(self):
-        from cosmos.app.learning.knowledge import KnowledgeManager
+        from app.learning.knowledge import KnowledgeManager
 
         async def _test():
             session, engine = await _make_db()
@@ -663,7 +663,7 @@ class TestKnowledgeManager:
         _run(_test())
 
     def test_get_relevant_context(self):
-        from cosmos.app.learning.knowledge import KnowledgeManager
+        from app.learning.knowledge import KnowledgeManager
 
         async def _test():
             session, engine = await _make_db()
@@ -678,7 +678,7 @@ class TestKnowledgeManager:
         _run(_test())
 
     def test_update_from_feedback_existing(self):
-        from cosmos.app.learning.knowledge import KnowledgeManager
+        from app.learning.knowledge import KnowledgeManager
 
         async def _test():
             session, engine = await _make_db()
@@ -694,7 +694,7 @@ class TestKnowledgeManager:
         _run(_test())
 
     def test_update_from_feedback_new_entry(self):
-        from cosmos.app.learning.knowledge import KnowledgeManager
+        from app.learning.knowledge import KnowledgeManager
 
         async def _test():
             session, engine = await _make_db()
@@ -706,7 +706,7 @@ class TestKnowledgeManager:
         _run(_test())
 
     def test_get_knowledge_stats(self):
-        from cosmos.app.learning.knowledge import KnowledgeManager
+        from app.learning.knowledge import KnowledgeManager
 
         async def _test():
             session, engine = await _make_db()
@@ -725,7 +725,7 @@ class TestKnowledgeManager:
         _run(_test())
 
     def test_knowledge_stats_structure(self):
-        from cosmos.app.learning.knowledge import KnowledgeManager
+        from app.learning.knowledge import KnowledgeManager
 
         async def _test():
             session, engine = await _make_db()
@@ -749,7 +749,7 @@ class TestKnowledgeManager:
 
 class TestFeedbackAPIContract:
     def test_feedback_response_structure(self):
-        from cosmos.app.learning.feedback import FeedbackEngine
+        from app.learning.feedback import FeedbackEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -768,7 +768,7 @@ class TestFeedbackAPIContract:
         _run(_test())
 
     def test_feedback_summary_structure(self):
-        from cosmos.app.learning.feedback import FeedbackEngine
+        from app.learning.feedback import FeedbackEngine
 
         async def _test():
             session, engine = await _make_db()
@@ -787,7 +787,7 @@ class TestFeedbackAPIContract:
 
 class TestDistillationAPIContract:
     def test_distillation_stats_structure(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -804,7 +804,7 @@ class TestDistillationAPIContract:
         _run(_test())
 
     def test_export_jsonl_format(self):
-        from cosmos.app.learning.collector import DistillationCollector
+        from app.learning.collector import DistillationCollector
 
         async def _test():
             session, engine = await _make_db()
@@ -832,7 +832,7 @@ class TestDistillationAPIContract:
 
 class TestCostReportContract:
     def test_cost_report_structure(self):
-        from cosmos.app.learning.analytics import AnalyticsEngine
+        from app.learning.analytics import AnalyticsEngine
 
         async def _test():
             session, engine = await _make_db()

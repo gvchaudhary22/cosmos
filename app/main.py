@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI):
     init_metrics()
     await init_db()
 
-    # Initialize COSMOS Workflow Engine (Orbit-powered command orchestration)
+    # Initialize COSMOS Workflow Engine (COSMOS command orchestration)
     try:
         from app.services.cosmos_workflow import CosmosWorkflowService
         cosmos_wf = CosmosWorkflowService()

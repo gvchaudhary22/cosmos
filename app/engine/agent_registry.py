@@ -26,7 +26,7 @@ class AgentTier(str, Enum):
     CORE = "core"           # Tier 1: highest volume
     SPECIALIZED = "specialized"  # Tier 2: domain expertise
     OPERATIONAL = "operational"  # Tier 3: low volume, high complexity
-    KNOWLEDGE = "knowledge"     # Tier 4: pillar-first retrieval specialists (Orbit transfer)
+    KNOWLEDGE = "knowledge"     # Tier 4: pillar-first retrieval specialists (COSMOS transfer)
 
 
 @dataclass
@@ -316,7 +316,7 @@ TIER3_AGENTS = [
 
 
 # ===================================================================
-# TIER 4: Knowledge Retrieval Specialists (5) — Orbit transfer
+# TIER 4: Knowledge Retrieval Specialists (5) — COSMOS pattern
 # Pillar-first agents: route by what TYPE of knowledge is needed,
 # not just which business domain. These run before domain agents
 # when the query is about KB structure rather than live operations.
@@ -535,7 +535,7 @@ class AgentRegistry:
         """
         Select the best knowledge retrieval specialist for a query.
 
-        Pillar-first routing (Orbit transfer):
+        Pillar-first routing (COSMOS transfer):
           P1 / schema queries  → schema_retriever
           P3 / api queries     → api_retriever
           P4 / page queries    → page_navigator

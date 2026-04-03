@@ -14,7 +14,7 @@ from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from cosmos.app.api.endpoints.bridge import router as bridge_router
+from app.api.endpoints.bridge import router as bridge_router
 
 
 # ---------------------------------------------------------------------------
@@ -285,8 +285,8 @@ class TestBridgeStats:
         app = _build_app()
         client = TestClient(app)
 
-        with patch("cosmos.app.clients.mars.MarsClient") as MockClient, \
-             patch("cosmos.app.middleware.mars_bridge.MarsBridge") as MockBridge:
+        with patch("app.clients.mars.MarsClient") as MockClient, \
+             patch("app.middleware.mars_bridge.MarsBridge") as MockBridge:
             MockBridge.return_value.get_stats.return_value = {
                 "mars_handled": 10,
                 "cosmos_handled": 5,
@@ -301,7 +301,7 @@ class TestBridgeStats:
         app = _build_app()
         client = TestClient(app)
 
-        with patch("cosmos.app.clients.mars.MarsClient", side_effect=Exception("import error")):
+        with patch("app.clients.mars.MarsClient", side_effect=Exception("import error")):
             resp = client.get("/bridge/stats")
             assert resp.status_code == 200
             body = resp.json()
@@ -313,8 +313,8 @@ class TestBridgeStats:
         app = _build_app()
         client = TestClient(app)
 
-        with patch("cosmos.app.clients.mars.MarsClient") as MockClient, \
-             patch("cosmos.app.middleware.mars_bridge.MarsBridge") as MockBridge:
+        with patch("app.clients.mars.MarsClient") as MockClient, \
+             patch("app.middleware.mars_bridge.MarsBridge") as MockBridge:
             MockBridge.return_value.get_stats.return_value = {
                 "mars_handled": 100,
                 "cosmos_handled": 50,
@@ -337,7 +337,7 @@ class TestBridgeHealth:
         app = _build_app()
         client = TestClient(app)
 
-        with patch("cosmos.app.clients.mars.MarsClient") as MockClient:
+        with patch("app.clients.mars.MarsClient") as MockClient:
             instance = MockClient.return_value
             instance.health_check = AsyncMock(return_value=True)
             instance.close = AsyncMock()
@@ -351,7 +351,7 @@ class TestBridgeHealth:
         app = _build_app()
         client = TestClient(app)
 
-        with patch("cosmos.app.clients.mars.MarsClient") as MockClient:
+        with patch("app.clients.mars.MarsClient") as MockClient:
             instance = MockClient.return_value
             instance.health_check = AsyncMock(return_value=False)
             instance.close = AsyncMock()
@@ -365,7 +365,7 @@ class TestBridgeHealth:
         app = _build_app()
         client = TestClient(app)
 
-        with patch("cosmos.app.clients.mars.MarsClient", side_effect=Exception("connection refused")):
+        with patch("app.clients.mars.MarsClient", side_effect=Exception("connection refused")):
             resp = client.get("/bridge/health")
             assert resp.status_code == 200
             body = resp.json()
@@ -376,7 +376,7 @@ class TestBridgeHealth:
         app = _build_app()
         client = TestClient(app)
 
-        with patch("cosmos.app.clients.mars.MarsClient") as MockClient:
+        with patch("app.clients.mars.MarsClient") as MockClient:
             instance = MockClient.return_value
             instance.health_check = AsyncMock(return_value=True)
             instance.close = AsyncMock()

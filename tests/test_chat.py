@@ -13,9 +13,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
-from cosmos.app.api.endpoints.chat import router as chat_router
-from cosmos.app.engine.classifier import IntentClassifier
-from cosmos.app.engine.react import ReActEngine, ReActPhase, ReActResult, ReActStep, ToolResult
+from app.api.endpoints.chat import router as chat_router
+from app.engine.classifier import IntentClassifier
+from app.engine.react import ReActEngine, ReActPhase, ReActResult, ReActStep, ToolResult
 
 
 # =====================================================================
@@ -354,7 +354,7 @@ class TestTournamentMode:
 
     def test_tournament_mode_uses_tournament_engine(self):
         """When tournament_mode=True, the TournamentEngine is invoked."""
-        from cosmos.app.brain.tournament import (
+        from app.brain.tournament import (
             StrategyName,
             StrategyResult,
             TournamentEngine,
@@ -416,7 +416,7 @@ class TestTournamentMode:
 
     def test_tournament_mode_no_winner(self):
         """When tournament produces no winner, return informative message."""
-        from cosmos.app.brain.tournament import (
+        from app.brain.tournament import (
             TournamentEngine,
             TournamentMode,
             TournamentResult,

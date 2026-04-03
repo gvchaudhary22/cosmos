@@ -1,12 +1,15 @@
 # Cosmos — Project State
 
-> Auto-updated at session end. Last updated: 2026-03-31
+> Auto-updated at session end. Last updated: 2026-04-04
 
 ## Active Phase
 
-**Orbit Lifecycle Integration + Project Scaffolding**
+**M1 — Full KB Ingestion into Qdrant**  
+Status: `planning_complete` — Phase 1 (Audit & Gap Analysis) is next.
 
-Phase complete. Cosmos now has full Orbit-style hooks, CI/CD pipeline, CLAUDE.md, error codes, git standards, and model routing guide.
+Qdrant current state: **20,685 vectors** across 8 repos (~45% of KB coverage).  
+Major gap: MultiChannel_API Pillar 3 (37,642 files → only ~11,000 embedded).  
+Goal: embed all remaining KB files, achieve recall@5 ≥ 0.85 on 201-seed eval.
 
 ## Vision
 
@@ -29,7 +32,7 @@ Cosmos is the AI inference and routing brain for the MARS platform. It handles t
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 2026-03-31 | Adopt Orbit lifecycle hooks (pre-commit blocking with pytest) | Enforce test gates before commit; prevent broken code reaching CI |
+| 2026-03-31 | Adopt COSMOS lifecycle hooks (pre-commit blocking with pytest) | Enforce test gates before commit; prevent broken code reaching CI |
 | 2026-03-31 | Add ERR-COSMOS-* error code registry | Searchable, alertable identifiers for production ops and on-call routing |
 | 2026-03-31 | Add model routing guide (Haiku/Sonnet/Opus aliases) | Cost governance — 20x savings on classify tasks |
 | 2026-03-31 | Add STATE.md for session persistence | Preserve context across compaction windows; onboard new contributors faster |
@@ -49,15 +52,24 @@ Cosmos is the AI inference and routing brain for the MARS platform. It handles t
 
 ## Current Blockers
 
-_None active_
+- **INVESTIGATE:** When training pipeline runs, are agents/skills/actions stored to MARS DB? If not, this is a gap — operators can't trigger MCP actions unless the action registry is populated. (raised 2026-04-04)
+
+## Open Todos — M1 Phase 1
+
+- [ ] Run KB audit: count files per repo/pillar on disk vs Qdrant → save to `data/kb_audit.json`
+- [ ] Run pipeline dry run (`POST /pipeline/dryrun/run`) — confirm it works
+- [ ] Run Phase 3: MultiChannel_API Pillar 3 full ingestion (`POST /pipeline/schema`)
+- [ ] Run Phase 4: remaining repos (modules + seeds for all 8)
+- [ ] Run Phase 5: eval benchmark, confirm recall@5 ≥ 0.85
+- [ ] Investigate: agents/skills/actions → MARS DB sync after pipeline run
 
 ## Last 5 Completed Tasks
 
-1. ✅ Orbit lifecycle integration — hooks + CI (2026-03-31)
-2. ✅ CLAUDE.md + metadata.yml added (2026-03-31)
-3. ✅ Error code registry (docs/error-codes.md) (2026-03-31)
-4. ✅ Git standards + model routing rules (2026-03-31)
-5. ✅ STATE.md project tracking initialized (2026-03-31)
+1. ✅ /cosmos:new — PROJECT.md, REQUIREMENTS.md, ROADMAP.md created (2026-04-04)
+2. ✅ Qdrant audit — 20,685 vectors, gap identified (MultiChannel_API Pillar 3) (2026-04-04)
+3. ✅ COSMOS lifecycle integration — hooks + CI (2026-03-31)
+4. ✅ CLAUDE.md + metadata.yml added (2026-03-31)
+5. ✅ Error code registry (docs/error-codes.md) (2026-03-31)
 
 ## Model Routing (Quick Ref)
 

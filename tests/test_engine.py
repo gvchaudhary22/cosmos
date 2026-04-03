@@ -11,14 +11,14 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from cosmos.app.engine.classifier import (
+from app.engine.classifier import (
     ClassifyResult,
     Entity,
     Intent,
     IntentClassifier,
 )
-from cosmos.app.engine.confidence import score_confidence
-from cosmos.app.engine.react import ReActEngine, ReActPhase, ReActResult
+from app.engine.confidence import score_confidence
+from app.engine.react import ReActEngine, ReActPhase, ReActResult
 
 
 # =====================================================================

@@ -74,7 +74,7 @@ DISTILLATION_STUB = {
 
 def _app_with_mocks(analytics_engine=None, collector=None):
     """Build a FastAPI app with admin router and mocked dependencies."""
-    from cosmos.app.db.session import get_db
+    from app.db.session import get_db
     from cosmos.app.learning.analytics import AnalyticsEngine
     from cosmos.app.learning.collector import DistillationCollector
 
@@ -100,7 +100,7 @@ class TestGetAnalytics:
         mock_engine = AsyncMock()
         mock_engine.get_dashboard = AsyncMock(return_value=DASHBOARD_STUB)
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -122,7 +122,7 @@ class TestGetAnalytics:
         mock_engine = AsyncMock()
         mock_engine.get_dashboard = AsyncMock(return_value={**DASHBOARD_STUB, "period_days": 30})
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -140,7 +140,7 @@ class TestGetAnalytics:
         mock_engine = AsyncMock()
         mock_engine.get_dashboard = AsyncMock(return_value=DASHBOARD_STUB)
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -166,7 +166,7 @@ class TestGetIntentAnalytics:
         mock_engine = AsyncMock()
         mock_engine.get_intent_analytics = AsyncMock(return_value=stub or INTENT_STUB)
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -213,7 +213,7 @@ class TestGetCostReport:
         mock_engine = AsyncMock()
         mock_engine.get_cost_report = AsyncMock(return_value=COST_STUB)
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -234,7 +234,7 @@ class TestGetCostReport:
         mock_engine = AsyncMock()
         mock_engine.get_cost_report = AsyncMock(return_value={**COST_STUB, "period_days": 7})
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -259,7 +259,7 @@ class TestGetHourlyTraffic:
             return_value=[{"hour": h, "count": h * 10} for h in range(24)]
         )
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -279,7 +279,7 @@ class TestGetHourlyTraffic:
         mock_engine = AsyncMock()
         mock_engine.get_hourly_traffic = AsyncMock(return_value=[])
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -326,7 +326,7 @@ class TestGetAuditLog:
         return db
 
     def test_returns_audit_entries(self):
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         rows = [self._make_audit_row("query"), self._make_audit_row("export")]
         db = self._make_db_with_audit(rows, total=2)
@@ -342,7 +342,7 @@ class TestGetAuditLog:
         assert len(body["entries"]) == 2
 
     def test_entries_have_required_fields(self):
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         rows = [self._make_audit_row("login", "user-xyz")]
         db = self._make_db_with_audit(rows)
@@ -359,7 +359,7 @@ class TestGetAuditLog:
         assert "details" in entry
 
     def test_returns_empty_entries_when_none(self):
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = self._make_db_with_audit([], total=0)
         app = FastAPI()
@@ -371,7 +371,7 @@ class TestGetAuditLog:
         assert resp.json()["total"] == 0
 
     def test_accepts_action_filter_param(self):
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = self._make_db_with_audit([], total=0)
         app = FastAPI()
@@ -382,7 +382,7 @@ class TestGetAuditLog:
         assert resp.status_code == 200
 
     def test_accepts_user_id_filter_param(self):
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = self._make_db_with_audit([], total=0)
         app = FastAPI()
@@ -403,7 +403,7 @@ class TestGetDistillationStats:
         mock_collector = AsyncMock()
         mock_collector.get_stats = AsyncMock(return_value=DISTILLATION_STUB)
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -423,7 +423,7 @@ class TestGetDistillationStats:
         mock_collector = AsyncMock()
         mock_collector.get_stats = AsyncMock(return_value=DISTILLATION_STUB)
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -452,7 +452,7 @@ class TestExportTrainingData:
         mock_collector = AsyncMock()
         mock_collector.export_training_data = AsyncMock(return_value=export_data)
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -474,7 +474,7 @@ class TestExportTrainingData:
         mock_collector = AsyncMock()
         mock_collector.export_training_data = AsyncMock(return_value="")
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()
@@ -500,7 +500,7 @@ class TestExportTrainingData:
 
         mock_collector.export_training_data = export
 
-        from cosmos.app.db.session import get_db
+        from app.db.session import get_db
 
         db = AsyncMock()
         app = FastAPI()

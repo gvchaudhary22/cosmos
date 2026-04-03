@@ -1,5 +1,5 @@
 """
-Tests for Phase 5: Orbit Pattern Integration & Production Hardening.
+Tests for Phase 5: COSMOS Pattern Integration & Production Hardening.
 
 Covers:
   - MarsSafetyGuardrail (4 pattern categories)
@@ -28,7 +28,7 @@ from app.engine.error_recovery import ErrorRecovery
 # ===================================================================== #
 
 
-class TestOrbitSafetyDirect:
+class TestCosmosSafetyDirect:
     """Direct injection patterns."""
 
     @pytest.mark.asyncio
@@ -76,7 +76,7 @@ class TestOrbitSafetyDirect:
         assert result.action == GuardrailAction.ALLOW
 
 
-class TestOrbitSafetyIndirect:
+class TestCosmosSafetyIndirect:
     """Indirect injection patterns (fake structural markers)."""
 
     @pytest.mark.asyncio
@@ -111,7 +111,7 @@ class TestOrbitSafetyIndirect:
         assert result.action == GuardrailAction.BLOCK
 
 
-class TestOrbitSafetyCommand:
+class TestCosmosSafetyCommand:
     """Command injection patterns from safety-evaluator.js."""
 
     @pytest.mark.asyncio
@@ -152,7 +152,7 @@ class TestOrbitSafetyCommand:
         assert result.action == GuardrailAction.BLOCK
 
 
-class TestOrbitSafetyExfiltration:
+class TestCosmosSafetyExfiltration:
     """Data exfiltration patterns."""
 
     @pytest.mark.asyncio
@@ -175,7 +175,7 @@ class TestOrbitSafetyExfiltration:
         assert result.action == GuardrailAction.BLOCK
 
 
-class TestOrbitSafetyScanAll:
+class TestCosmosSafetyScanAll:
     """Test scan_all method for multi-match detection."""
 
     def test_scan_all_multiple_matches(self):

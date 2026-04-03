@@ -346,7 +346,7 @@ class LearningMemory:
     ) -> Dict[str, Any]:
         """Return entities resolved this session + recent query fingerprints.
 
-        Mirrors the STATE.md cross-session entity tracking from Orbit:
+        Mirrors the STATE.md cross-session entity tracking from COSMOS:
           - 'resolved_entities': {entity_id: {type, data}} for this session
           - 'session_id': the session being queried
 

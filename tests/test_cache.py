@@ -20,8 +20,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cosmos.app.brain.cache import CacheEntry, SemanticCache
-from cosmos.app.brain.indexer import KnowledgeIndexer
+from app.brain.cache import CacheEntry, SemanticCache
+from app.brain.indexer import KnowledgeIndexer
 
 
 # ---------------------------------------------------------------------------

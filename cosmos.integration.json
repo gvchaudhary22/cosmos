@@ -1,9 +1,9 @@
 {
   "$schema": "./rocketmind.config.schema.json",
   "integration": {
-    "type": "orbit-nexus",
+    "type": "cosmos-nexus",
     "version": "1.0.0",
-    "description": "COSMOS registers itself in the Orbit Nexus for multi-repo orchestration"
+    "description": "COSMOS registers itself in the COSMOS Nexus for multi-repo orchestration"
   },
   "project": {
     "name": "cosmos",
@@ -81,7 +81,7 @@
       "GET  /v1/costs"
     ]
   },
-  "orbit_commands": {
+  "cosmos_commands": {
     "prefix": "/cosmos:",
     "registry": ".claude/commands/cosmos.md",
     "adapters": {

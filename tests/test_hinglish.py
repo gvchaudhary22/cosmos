@@ -15,7 +15,7 @@ Covers:
 
 import pytest
 
-from cosmos.app.engine.classifier import (
+from app.engine.classifier import (
     ClassifyResult,
     Entity,
     Intent,

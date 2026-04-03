@@ -5,18 +5,18 @@ Tests for Brain Wiring — GREL→Pipeline→Cache→Router→N8N connections.
 import asyncio
 import pytest
 
-from cosmos.app.brain.cache import SemanticCache
-from cosmos.app.brain.grel import (
+from app.brain.cache import SemanticCache
+from app.brain.grel import (
     GRELEngine,
     LearningInsight,
     LearningType,
     ApprovalStatus,
 )
-from cosmos.app.brain.indexer import KBDocument, KnowledgeIndexer
-from cosmos.app.brain.pipeline import KBUpdatePipeline
-from cosmos.app.brain.router import IntelligentRouter
-from cosmos.app.brain.tournament import StrategyName, StrategyResult
-from cosmos.app.brain.wiring import (
+from app.brain.indexer import KBDocument, KnowledgeIndexer
+from app.brain.pipeline import KBUpdatePipeline
+from app.brain.router import IntelligentRouter
+from app.brain.tournament import StrategyName, StrategyResult
+from app.brain.wiring import (
     KBScanScheduler,
     create_cache_invalidation_callback,
     create_grel_learning_callback,

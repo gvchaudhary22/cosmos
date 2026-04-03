@@ -812,7 +812,7 @@ class QueryOrchestrator:
         self.cost_tracker.record_tier_cost(cost_record, tier=1, api_calls=1 if live_data else 0, latency_ms=tier1_ms)
 
         # ---------------------------------------------------------------
-        # CLARIFICATION GATE (Orbit pattern — middle confidence tier)
+        # CLARIFICATION GATE (COSMOS pattern — middle confidence tier)
         # When confidence is 0.3-0.6 AND KB evidence is sparse AND entity
         # is unresolved, ask ONE targeted clarifying question instead of
         # returning a low-confidence answer. This is the active clarification
@@ -1121,7 +1121,7 @@ class QueryOrchestrator:
                 domain=domain,
             )
 
-            # Session entity tracking (STATE.md pattern from Orbit):
+            # Session entity tracking (STATE.md pattern from COSMOS):
             # When an entity was resolved, store it so future turns in the
             # same session can skip re-retrieval for the same entity.
             if entity_resolved and self._current_session_id:
@@ -1165,7 +1165,7 @@ class QueryOrchestrator:
     ) -> Optional[str]:
         """Generate ONE targeted clarifying question when query is ambiguous.
 
-        Orbit clarification gate pattern: detect what specifically blocks
+        COSMOS clarification gate pattern: detect what specifically blocks
         retrieval and ask a precise question to unlock it. Returns None
         when no targeted question can be generated (fall through to normal
         uncertain answer path).

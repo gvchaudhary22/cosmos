@@ -5,7 +5,7 @@ Tests for the Tournament Architecture — parallel strategy racing.
 import asyncio
 import pytest
 
-from cosmos.app.brain.tournament import (
+from app.brain.tournament import (
     StrategyName,
     StrategyResult,
     StrategyStats,

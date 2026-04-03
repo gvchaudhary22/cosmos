@@ -18,10 +18,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import yaml
 
-from cosmos.app.brain.indexer import KBDocument, KnowledgeIndexer
-from cosmos.app.brain.graph import GraphPhase, QueryGraph, QueryState
-from cosmos.app.brain.pipeline import IndexUpdate, KBUpdatePipeline
-from cosmos.app.brain.setup import create_brain
+from app.brain.indexer import KBDocument, KnowledgeIndexer
+from app.brain.graph import GraphPhase, QueryGraph, QueryState
+from app.brain.pipeline import IndexUpdate, KBUpdatePipeline
+from app.brain.setup import create_brain
 
 
 # =====================================================================

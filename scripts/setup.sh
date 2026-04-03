@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # COSMOS Setup Script
-# Sets up the full COSMOS development environment including Orbit sync.
+# Sets up the full COSMOS development environment including COSMOS config sync.
 set -e
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,7 +11,7 @@ GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='
 echo -e "${BOLD}"
 echo "╔══════════════════════════════════════════╗"
 echo "║   COSMOS Setup — RocketMind v1.0.0       ║"
-echo "║   Orbit-powered AI Brain                 ║"
+echo "║   COSMOS AI Brain                 ║"
 echo "╚══════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -72,7 +72,7 @@ node "$ROOT/bin/cosmos.js" generate
 echo -e "${GREEN}  ✓ .claude/commands/cosmos.md generated${NC}"
 echo -e "${GREEN}  ✓ .cosmos/state/STATE.md initialized${NC}"
 
-# ── 5. Sync Orbit into COSMOS ─────────────────────────────────────────────────
+# ── 5. Sync COSMOS config ─────────────────────────────────────────────────
 echo -e "${BLUE}▶ Syncing RocketMind agents + skills → COSMOS...${NC}"
 if [ -f "$REGISTRY" ]; then
   "$ROOT/.venv/bin/python" "$ROOT/scripts/rocketmind_sync.py" --target all 2>/dev/null || {
@@ -102,6 +102,6 @@ echo -e "  ${BOLD}Run a command:${NC}        npm run cosmos:plan"
 echo -e "  ${BOLD}In Claude Code:${NC}       /cosmos:plan"
 echo -e "  ${BOLD}Train KB:${NC}             npm run train"
 echo -e "  ${BOLD}Run tests:${NC}            npm test"
-echo -e "  ${BOLD}Sync Orbit:${NC}           npm run sync"
+echo -e "  ${BOLD}Sync config:${NC}           npm run sync"
 echo -e "  ${BOLD}Show all commands:${NC}    npm run cosmos:help"
 echo ""

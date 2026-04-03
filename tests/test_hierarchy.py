@@ -16,8 +16,8 @@ import tempfile
 import pytest
 import yaml
 
-from cosmos.app.brain.indexer import KBDocument, KnowledgeIndexer
-from cosmos.app.brain.hierarchy import HierarchicalIndex, HierarchyNode
+from app.brain.indexer import KBDocument, KnowledgeIndexer
+from app.brain.hierarchy import HierarchicalIndex, HierarchyNode
 
 
 # =====================================================================

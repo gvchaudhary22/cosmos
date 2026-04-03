@@ -1,7 +1,7 @@
 """
 Model Router for COSMOS Phase 4.
 
-Pillar-aware routing (Orbit transfer): routes to minimum-sufficient model
+Pillar-aware routing (COSMOS transfer): routes to minimum-sufficient model
 based on query pillar complexity. Three tiers:
 
   HAIKU  — P1 schema lookups, entity ID resolution, simple exact-match queries
@@ -96,7 +96,7 @@ class ModelRouter:
         complexity_signals: Dict = None,
     ) -> ModelProfile:
         """
-        Pillar-aware routing (Orbit transfer):
+        Pillar-aware routing (COSMOS transfer):
 
         Routing rules (priority order):
         1. Low confidence (<0.5) → Opus (never compromise on uncertain queries)
@@ -126,6 +126,8 @@ class ModelRouter:
         # 3. Multi-intent → Opus
         if signals.get("multi_intent") or signals.get("intent_count", 1) > 1:
             return self._select(ModelTier.OPUS)
+        if signals.get("sub_intents"):
+            return self._select(ModelTier.OPUS)
 
         # 4. Explicit pillar hint → route by pillar
         pillar = signals.get("pillar_hint", "").upper()
@@ -144,14 +146,37 @@ class ModelRouter:
             logger.info("model_router.entity_lookup_haiku", confidence=confidence)
             return self._select(ModelTier.HAIKU)
 
-        # 6. Navigate/explain intent → Sonnet (structured retrieval, no deep reasoning)
-        intent_val = intent.value if hasattr(intent, "value") else str(intent)
-        if intent_val in ("NAVIGATE", "EXPLAIN") and confidence >= 0.6:
-            logger.info("model_router.navigate_explain_sonnet", intent=intent_val)
+        # 6. Intent-based routing (confidence already ≥ 0.5 from rule 1)
+        intent_val = (intent.value if hasattr(intent, "value") else str(intent)).lower()
+
+        if intent_val == "lookup":
+            if confidence >= 0.85:
+                logger.info("model_router.selected", tier="haiku")
+                return self._select(ModelTier.HAIKU)
+            logger.info("model_router.selected", tier="sonnet")
             return self._select(ModelTier.SONNET)
 
-        # 7. Everything else → Opus (quality-first fallback)
-        return self._select(ModelTier.OPUS)
+        if intent_val == "navigate":
+            if confidence >= 0.8:
+                logger.info("model_router.selected", tier="haiku")
+                return self._select(ModelTier.HAIKU)
+            logger.info("model_router.selected", tier="sonnet")
+            return self._select(ModelTier.SONNET)
+
+        if intent_val == "explain":
+            if signals.get("entity_count", 1) > 1 or signals.get("causal"):
+                logger.info("model_router.selected", tier="opus")
+                return self._select(ModelTier.OPUS)
+            logger.info("model_router.selected", tier="sonnet")
+            return self._select(ModelTier.SONNET)
+
+        if intent_val in ("act", "report"):
+            logger.info("model_router.selected", tier="sonnet")
+            return self._select(ModelTier.SONNET)
+
+        # 7. Unknown intent → Sonnet (safe default, not Opus)
+        logger.info("model_router.selected", tier="sonnet")
+        return self._select(ModelTier.SONNET)
 
     def route_by_pillar(self, pillar: str) -> ModelProfile:
         """

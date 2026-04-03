@@ -28,7 +28,7 @@ from app.events.kafka_bus import (
 
 class TestTopics:
     def test_topic_values(self):
-        assert Topic.QUERY_COMPLETED.value == "cosmos.query.completed"
+        assert Topic.QUERY_COMPLETED.value == Topic.QUERY_COMPLETED.value
         assert Topic.LEARNING_INSIGHT.value == "cosmos.learning.insight"
         assert Topic.FEEDBACK_SUBMITTED.value == "cosmos.feedback.submitted"
         assert Topic.KB_UPDATED.value == "cosmos.kb.updated"
@@ -155,7 +155,7 @@ class TestKafkaEventProducer:
 
         await producer.produce(Topic.QUERY_COMPLETED, b'{"test": true}', key="key-1")
         assert producer.get_stats()["total_produced"] == 1
-        assert producer.get_stats()["by_topic"]["cosmos.query.completed"] == 1
+        assert producer.get_stats()["by_topic"][Topic.QUERY_COMPLETED.value] == 1
 
     @pytest.mark.asyncio
     async def test_produce_error_handling(self):

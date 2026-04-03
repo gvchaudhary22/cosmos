@@ -10,8 +10,8 @@ Covers:
 import pytest
 from unittest.mock import MagicMock
 
-from cosmos.app.brain.indexer import KBDocument, KnowledgeIndexer
-from cosmos.app.brain.router import (
+from app.brain.indexer import KBDocument, KnowledgeIndexer
+from app.brain.router import (
     DecisionTreeRouter,
     IntelligentRouter,
     RouteResult,

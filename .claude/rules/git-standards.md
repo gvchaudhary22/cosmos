@@ -1,6 +1,6 @@
 # Cosmos Git Standards
 
-Enforced conventions for all branches and commits. Adopted from Orbit v2.8.1.
+Enforced conventions for all branches and commits. Adopted from COSMOS v1.0.
 
 ## Branch Naming
 

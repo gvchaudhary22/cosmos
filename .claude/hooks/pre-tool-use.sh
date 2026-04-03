@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Cosmos Pre-Tool-Use Hook — Safety Guard (Orbit-enhanced)
+# Cosmos Pre-Tool-Use Hook — Safety Guard (COSMOS-enhanced)
 # Blocks: destructive bash commands, .env writes, --no-verify bypasses,
 #         prompt injection patterns, base64 payloads, eval/exec abuse.
 # Exits 1 to block, 0 to allow.

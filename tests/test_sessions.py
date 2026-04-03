@@ -16,7 +16,7 @@ from uuid import uuid4, UUID
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from cosmos.app.api.endpoints.sessions import router as sessions_router
+from app.api.endpoints.sessions import router as sessions_router
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ def _build_app(db=None):
 
 def _app_with_db(db):
     """Build app with DB dependency override."""
-    from cosmos.app.db.session import get_db
+    from app.db.session import get_db
 
     app = FastAPI()
     app.include_router(sessions_router, prefix="/sessions")

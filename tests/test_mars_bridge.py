@@ -11,8 +11,8 @@ Covers:
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from cosmos.app.clients.mars import MarsClient, MarsResponse, MarsError
-from cosmos.app.middleware.mars_bridge import MarsBridge
+from app.clients.mars import MarsClient, MarsResponse, MarsError
+from app.middleware.mars_bridge import MarsBridge
 
 
 # =====================================================================

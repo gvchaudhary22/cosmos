@@ -17,9 +17,9 @@ from sqlalchemy import event, JSON, String
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB as PG_JSONB
 
-from cosmos.app.db.models import Base, ICRMSession, ICRMMessage, MessageRole
+from app.db.models import Base, ICRMSession, ICRMMessage, MessageRole
 
-from cosmos.app.db.repositories import (
+from app.db.repositories import (
     ApprovalRepository,
     AuditRepository,
     AnalyticsRepository,
@@ -29,7 +29,7 @@ from cosmos.app.db.repositories import (
     SessionStateRepository,
     CostRepository,
 )
-from cosmos.app.db.redis_cache import RedisCache
+from app.db.redis_cache import RedisCache
 
 # Note: redis_cache uses 'app.config' internally but for tests we only use mocks
 

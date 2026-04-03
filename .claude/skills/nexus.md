@@ -2,7 +2,7 @@
 > Coordination and intelligence across multiple repositories in the MARS platform workspace
 
 ## ACTIVATION
-Activated when the task involves multi-repo logic across LIME (React), MARS (Go), and COSMOS (Python), or when `orbit.integration.json` is referenced.
+Activated when the task involves multi-repo logic across LIME (React), MARS (Go), and COSMOS (Python), or when `cosmos.integration.json` is referenced.
 
 ## CORE PRINCIPLES
 1. **Workspace Sovereignty**: The Nexus root is the single source of truth for repository relationships.
@@ -28,7 +28,7 @@ Activated when the task involves multi-repo logic across LIME (React), MARS (Go)
 | COSMOS | Python AI brain | 10001 |
 
 ## CHECKLISTS
-- [ ] Does `orbit.integration.json` correctly describe this repo's role in the platform?
+- [ ] Does `cosmos.integration.json` correctly describe this repo's role in the platform?
 - [ ] Are cross-repo API contracts (gRPC, REST) verified before deployment?
 - [ ] Is the "Architect" agent loaded for cross-repo reasoning?
 - [ ] Are findings documented in `NEXUS-STATE.md`?
@@ -39,6 +39,6 @@ Activated when the task involves multi-repo logic across LIME (React), MARS (Go)
 - **Silent Failures**: Changing a shared interface without running a cross-repo compatibility audit.
 
 ## VERIFICATION WORKFLOW
-1. Verify `orbit.integration.json` describes the correct service relationships.
+1. Verify `cosmos.integration.json` describes the correct service relationships.
 2. Confirm `NEXUS-STATE.md` is updated after any cross-repo decision.
 3. Ensure no sub-repo context is bleeding beyond the summary level.

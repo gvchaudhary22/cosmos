@@ -1,7 +1,7 @@
 {
   "name": "@shiprocket/cosmos",
   "version": "1.0.0",
-  "description": "COSMOS — AI Brain for Shiprocket ICRM. Orbit-powered orchestration, wave execution, and knowledge retrieval.",
+  "description": "COSMOS — AI Brain for Shiprocket ICRM. COSMOS-powered orchestration, wave execution, and knowledge retrieval.",
   "main": "bin/cosmos.js",
   "bin": {
     "cosmos": "bin/cosmos.js"

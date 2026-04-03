@@ -15,12 +15,12 @@ import pytest
 from datetime import datetime, date
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from cosmos.app.engine.classifier import Intent
-from cosmos.app.engine.model_router import ModelRouter, ModelTier, ModelProfile, PROFILES
-from cosmos.app.engine.prompt_cache import PromptCacheManager
-from cosmos.app.engine.context_budget import ContextBudgeter, BUDGETS, TokenBudget
-from cosmos.app.engine.cost_tracker import CostTracker, CostEntry
-from cosmos.app.engine.llm_client import LLMClient, BudgetExceededError, LLMClientError
+from app.engine.classifier import Intent
+from app.engine.model_router import ModelRouter, ModelTier, ModelProfile, PROFILES
+from app.engine.prompt_cache import PromptCacheManager
+from app.engine.context_budget import ContextBudgeter, BUDGETS, TokenBudget
+from app.engine.cost_tracker import CostTracker, CostEntry
+from app.engine.llm_client import LLMClient, BudgetExceededError, LLMClientError
 
 
 def _run(coro):
@@ -345,7 +345,7 @@ class TestCostTracker:
 
 class TestLLMClient:
     def test_complete_without_client_raises(self):
-        client = LLMClient()
+        client = LLMClient(llm_mode="api")  # force api mode, no key → raises
         with pytest.raises(LLMClientError):
             _run(client.complete("hello"))
 
@@ -393,6 +393,7 @@ class TestLLMClient:
 
         client = LLMClient(
             api_key="test-key",
+            llm_mode="api",
             anthropic_client=mock_client,
         )
 
@@ -416,7 +417,7 @@ class TestLLMClient:
         mock_client.messages = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        client = LLMClient(anthropic_client=mock_client)
+        client = LLMClient(anthropic_client=mock_client, llm_mode="api")
         result = _run(client.classify("show order 123"))
 
         # Check that Haiku was used
@@ -433,30 +434,30 @@ class TestCostEndpoints:
     """Test the cost API endpoints using FastAPI test client pattern."""
 
     def test_current_budget_endpoint(self):
-        from cosmos.app.api.endpoints.costs import get_current_budget
+        from app.api.endpoints.costs import get_current_budget
         result = _run(get_current_budget(session_id="test"))
         assert "allowed" in result
         assert "daily_remaining" in result
 
     def test_daily_summary_endpoint(self):
-        from cosmos.app.api.endpoints.costs import get_daily_summary
+        from app.api.endpoints.costs import get_daily_summary
         result = _run(get_daily_summary())
         assert "total_cost_usd" in result
         assert "query_count" in result
 
     def test_session_costs_endpoint(self):
-        from cosmos.app.api.endpoints.costs import get_session_costs
+        from app.api.endpoints.costs import get_session_costs
         result = _run(get_session_costs("test-session"))
         assert "session_id" in result
         assert result["session_id"] == "test-session"
 
     def test_cost_trend_endpoint(self):
-        from cosmos.app.api.endpoints.costs import get_cost_trend
+        from app.api.endpoints.costs import get_cost_trend
         result = _run(get_cost_trend(days=3))
         assert len(result) == 3
 
     def test_model_usage_endpoint(self):
-        from cosmos.app.api.endpoints.costs import get_model_usage
+        from app.api.endpoints.costs import get_model_usage
         result = _run(get_model_usage())
         assert "total_queries" in result
         assert "by_tier" in result

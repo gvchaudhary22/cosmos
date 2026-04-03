@@ -67,7 +67,7 @@ COSMOS  (Python — port 10001)          ← YOU ARE HERE
 | [rocketmind.registry.json](rocketmind.registry.json) | Machine-readable agent + skill + workflow registry |
 | [cosmos.config.json](cosmos.config.json) | Runtime config: model routing, RRF weights, wave settings |
 | [rocketmind.config.schema.json](rocketmind.config.schema.json) | JSON schema for config validation |
-| [orbit.integration.json](orbit.integration.json) | Orbit Nexus integration — registers COSMOS in multi-repo orchestration |
+| [cosmos.integration.json](cosmos.integration.json) | COSMOS Nexus integration — registers COSMOS in multi-repo orchestration |
 | [templates/rocketmind.base.md](templates/rocketmind.base.md) | Source template for CLAUDE.md and INSTRUCTIONS.md |
 | [.claude/agents/](.claude/agents/) | 11 specialist agent definitions |
 | [.claude/skills/](.claude/skills/) | 19 reusable process skills |
