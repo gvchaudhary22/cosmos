@@ -390,23 +390,57 @@ class HallucinationGuard(Guardrail):
                     ungrounded.append({"type": id_type, "value": match.group(0)})
 
         if ungrounded:
-            # Don't block — warn, since the LLM might have derived the value
             logger.warning(
                 "guard.hallucination_detected",
                 ungrounded_ids=ungrounded[:5],
             )
             if len(ungrounded) >= 3:
-                # 3+ ungrounded IDs = likely hallucination
+                # 3+ ungrounded IDs = high-confidence hallucination → BLOCK
+                return GuardrailResult(
+                    action=GuardrailAction.BLOCK,
+                    reason=(
+                        f"Hallucination blocked: {len(ungrounded)} fabricated IDs detected "
+                        f"({', '.join(u['value'] for u in ungrounded[:3])}). "
+                        f"Response replaced with safe fallback."
+                    ),
+                )
+            elif len(ungrounded) >= 1:
+                # 1-2 ungrounded IDs = possible hallucination → WARN
                 return GuardrailResult(
                     action=GuardrailAction.WARN,
                     reason=(
                         f"Possible hallucination: {len(ungrounded)} IDs in response "
-                        f"not found in tool results: "
+                        f"not found in context: "
                         f"{', '.join(u['value'] for u in ungrounded[:3])}"
                     ),
                 )
 
+        # Semantic grounding check: verify response claims against context
+        grounding_score = self._compute_grounding_score(response, grounded_text)
+        if grounding_score < 0.3:
+            return GuardrailResult(
+                action=GuardrailAction.WARN,
+                reason=f"Low evidence grounding ({grounding_score:.0%}). Response may contain unverified claims.",
+            )
+
         return GuardrailResult(action=GuardrailAction.ALLOW)
+
+    @staticmethod
+    def _compute_grounding_score(response: str, context: str) -> float:
+        """Compute what fraction of response content words appear in context.
+        Higher = more grounded in evidence. Lower = more fabricated."""
+        if not response or not context:
+            return 0.0
+        # Extract meaningful words (>3 chars, not common stopwords)
+        stopwords = {"the", "and", "for", "are", "but", "not", "you", "all", "can",
+                     "has", "her", "was", "one", "our", "out", "this", "that", "with",
+                     "have", "from", "they", "been", "will", "more", "when", "which",
+                     "their", "would", "there", "about", "your", "please", "based"}
+        response_words = {w.lower() for w in response.split() if len(w) > 3 and w.lower() not in stopwords}
+        if not response_words:
+            return 1.0
+        grounded = sum(1 for w in response_words if w in context)
+        return grounded / len(response_words)
 
 
 class LegalCommitmentGuard(Guardrail):

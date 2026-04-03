@@ -22,49 +22,49 @@ logger = structlog.get_logger()
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS cosmos_test_suites (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id          CHAR(36) PRIMARY KEY,
     name        TEXT NOT NULL,
     description TEXT,
     agent_type  TEXT NOT NULL DEFAULT 'react',
     repo_id     TEXT,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at  TIMESTAMP NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS cosmos_test_cases (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id              CHAR(36) PRIMARY KEY,
     suite_id        UUID NOT NULL REFERENCES cosmos_test_suites(id) ON DELETE CASCADE,
     input_prompt    TEXT NOT NULL,
     expected_output TEXT,
-    expected_tools  JSONB DEFAULT '[]'::jsonb,
+    expected_tools  JSON DEFAULT '[]',
     category        TEXT,
     difficulty      TEXT DEFAULT 'medium',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_test_cases_suite ON cosmos_test_cases(suite_id);
 
 CREATE TABLE IF NOT EXISTS cosmos_sandbox_runs (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id              CHAR(36) PRIMARY KEY,
     suite_id        UUID NOT NULL REFERENCES cosmos_test_suites(id) ON DELETE CASCADE,
     agent_version   TEXT NOT NULL,
     status          TEXT NOT NULL DEFAULT 'pending',
-    started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    completed_at    TIMESTAMPTZ,
-    metrics         JSONB DEFAULT '{}'::jsonb
+    started_at      TIMESTAMP NOT NULL DEFAULT now(),
+    completed_at    TIMESTAMP,
+    metrics         JSON DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_sandbox_runs_suite ON cosmos_sandbox_runs(suite_id);
 
 CREATE TABLE IF NOT EXISTS cosmos_run_results (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id              CHAR(36) PRIMARY KEY,
     run_id          UUID NOT NULL REFERENCES cosmos_sandbox_runs(id) ON DELETE CASCADE,
     test_case_id    UUID NOT NULL REFERENCES cosmos_test_cases(id) ON DELETE CASCADE,
     actual_output   TEXT,
-    actual_tools    JSONB DEFAULT '[]'::jsonb,
+    actual_tools    JSON DEFAULT '[]',
     passed          BOOLEAN DEFAULT false,
     score           DOUBLE PRECISION DEFAULT 0.0,
     latency_ms      INTEGER DEFAULT 0,
     tokens_used     INTEGER DEFAULT 0,
     cost_usd        DOUBLE PRECISION DEFAULT 0.0,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_run_results_run ON cosmos_run_results(run_id);
 """
@@ -174,7 +174,7 @@ class SandboxService:
                 text(
                     "INSERT INTO cosmos_test_cases "
                     "(id, suite_id, input_prompt, expected_output, expected_tools, category, difficulty) "
-                    "VALUES (:id, :suite_id, :prompt, :expected, :tools::jsonb, :cat, :diff)"
+                    "VALUES (:id, :suite_id, :prompt, :expected, :tools, :cat, :diff)"
                 ),
                 {
                     "id": case_id,
@@ -269,7 +269,7 @@ class SandboxService:
                     "INSERT INTO cosmos_run_results "
                     "(id, run_id, test_case_id, actual_output, actual_tools, passed, score, "
                     "latency_ms, tokens_used, cost_usd) "
-                    "VALUES (:id, :run, :case, :output, :tools::jsonb, :passed, :score, "
+                    "VALUES (:id, :run, :case, :output, :tools, :passed, :score, "
                     ":latency, :tokens, :cost)"
                 ),
                 {
@@ -315,7 +315,7 @@ class SandboxService:
             await session.execute(
                 text(
                     "UPDATE cosmos_sandbox_runs "
-                    "SET status = 'completed', completed_at = :now, metrics = :metrics::jsonb "
+                    "SET status = 'completed', completed_at = :now, metrics = :metrics "
                     "WHERE id = :id"
                 ),
                 {"id": run_id, "now": now, "metrics": _json.dumps(metrics)},

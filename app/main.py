@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 from contextlib import asynccontextmanager
 import os
 import structlog
@@ -29,9 +30,9 @@ def _init_react_engine():
     Returns None if any critical dependency fails to initialize.
     """
     try:
-        from cosmos.app.engine.classifier import IntentClassifier
-        from cosmos.app.engine.react import ReActEngine
-        from cosmos.app.engine.llm_client import LLMClient
+        from app.engine.classifier import IntentClassifier
+        from app.engine.react import ReActEngine
+        from app.engine.llm_client import LLMClient
         from app.guardrails.setup import create_guardrail_pipeline
 
         classifier = IntentClassifier(hinglish_enabled=settings.HINGLISH_ENABLED)
@@ -80,7 +81,7 @@ def _init_tournament_engine():
     Returns None if initialization fails.
     """
     try:
-        from cosmos.app.brain.tournament import TournamentEngine, TournamentMode
+        from app.brain.tournament import TournamentEngine, TournamentMode
         engine = TournamentEngine(mode=TournamentMode.TOURNAMENT)
         logger.info("tournament_engine.initialized")
         return engine
@@ -220,11 +221,12 @@ async def lifespan(app: FastAPI):
                 mcapi_client=None,
             )
 
-            # Initialize vectorstore BEFORE wire_brain (H1 fix: was used before init)
+            # Initialize vectorstore + Qdrant BEFORE wire_brain
             try:
                 from app.services.vectorstore import VectorStoreService
                 vectorstore_svc = VectorStoreService()
-                logger.info("vectorstore_service.early_init")
+                await vectorstore_svc.ensure_schema()  # Initialize Qdrant connection
+                logger.info("vectorstore_service.early_init", qdrant_ready=vectorstore_svc._qdrant_ready)
             except Exception as vs_err:
                 logger.warning("vectorstore.early_init_failed", error=str(vs_err))
                 vectorstore_svc = None
@@ -343,6 +345,12 @@ async def lifespan(app: FastAPI):
                     )
                     app.state.training_pipeline = training_pipeline
                     app.state.vectorstore = vectorstore_svc
+                    # Inject into gRPC servicer so TriggerEmbeddingTraining uses KB pipeline
+                    try:
+                        from app.grpc_servicers.training_servicer import set_training_pipeline
+                        set_training_pipeline(training_pipeline)
+                    except Exception:
+                        pass
                     logger.info("Training Pipeline initialized", kb_path=kb_path, data_dir=data_dir)
                 except Exception as e:
                     logger.warning("Training Pipeline failed to init", error=str(e))
@@ -367,12 +375,83 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("gRPC server failed to start", error=str(e))
 
+    # Phase 5e: Start RALPH→KB feedback consumer (Kafka, background task)
+    try:
+        from app.services.kb_feedback_consumer import get_kb_feedback_consumer
+        fb_consumer = get_kb_feedback_consumer()
+        fb_task = asyncio.create_task(fb_consumer.run())
+        app.state.kb_feedback_consumer = fb_consumer
+        app.state.kb_feedback_task = fb_task
+        logger.info("RALPH→KB feedback consumer started",
+                    topic=fb_consumer.topic)
+    except Exception as e:
+        logger.warning("kb_feedback_consumer.start_failed", error=str(e))
+
+    # Phase 7: Start Proactive Monitor (background anomaly detection)
+    try:
+        from app.engine.proactive_monitor import ProactiveMonitor
+        proactive_monitor = ProactiveMonitor()
+        app.state.proactive_monitor = proactive_monitor
+
+        async def _proactive_loop():
+            import asyncio as _aio
+            while True:
+                try:
+                    await proactive_monitor.run_all_checks()
+                except Exception as _e:
+                    logger.debug("proactive_monitor.loop_error", error=str(_e))
+                await _aio.sleep(900)  # Check every 15 minutes
+
+        app.state.proactive_task = asyncio.create_task(_proactive_loop())
+        logger.info("Proactive Monitor started (15 min interval)")
+    except Exception as e:
+        logger.warning("proactive_monitor.start_failed", error=str(e))
+
+    # Phase 6c: Start async KB file watcher (watchdog, incremental re-ingest on YAML change)
+    try:
+        _tp = getattr(app.state, "training_pipeline", None)
+        _vs = getattr(app.state, "vectorstore", None)
+        if _tp is not None and _vs is not None and os.path.isdir(kb_path):
+            from app.services.kb_watcher import get_kb_watcher
+            from app.services.canonical_ingestor import CanonicalIngestor
+            _canonical = CanonicalIngestor(vectorstore=_vs)
+            _kb_watcher = get_kb_watcher(
+                kb_path=kb_path,
+                kb_ingestor=_tp.kb_reader,
+                canonical_ingestor=_canonical,
+            )
+            if _kb_watcher is not None:
+                await _kb_watcher.start()
+                app.state.kb_watcher = _kb_watcher
+                logger.info("KB file watcher started", kb_path=kb_path)
+    except Exception as _e6c:
+        logger.warning("kb_watcher.start_failed", error=str(_e6c))
+
+    # Phase 6d: Configure OpenTelemetry tracer (OTLP exporter, best-effort)
+    try:
+        from app.monitoring.otel_tracing import configure_tracer
+        configure_tracer(service_name=os.environ.get("OTEL_SERVICE_NAME", "cosmos"))
+    except Exception as _e6d:
+        logger.debug("otel_tracing.configure_failed", error=str(_e6d))
+
     yield
 
     # Shutdown settings cache refresh loop
     sc = getattr(app.state, "settings_cache", None)
     if sc:
         await sc.stop()
+
+    # Shutdown RALPH→KB feedback consumer
+    fb_consumer = getattr(app.state, "kb_feedback_consumer", None)
+    if fb_consumer:
+        await fb_consumer.stop()
+        logger.info("RALPH→KB feedback consumer stopped")
+
+    # Shutdown Phase 6c KB file watcher
+    kb_watcher = getattr(app.state, "kb_watcher", None)
+    if kb_watcher:
+        await kb_watcher.stop()
+        logger.info("KB file watcher stopped")
 
     # Shutdown Kafka event bus
     event_bus = getattr(app.state, "event_bus", None)

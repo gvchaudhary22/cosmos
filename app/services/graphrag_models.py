@@ -33,6 +33,12 @@ class NodeType(str, Enum):
     # Phase 3: Pillar 4 page/role nodes
     page = "page"
     role = "role"
+    # Phase 5c: Pillar 3 request-schema field nodes
+    schema_field = "schema_field"
+    # Pillar 6: Action contracts
+    action_contract = "action_contract"
+    # Pillar 7: Workflow runbooks
+    workflow = "workflow"
 
 
 class EdgeType(str, Enum):
@@ -57,6 +63,13 @@ class EdgeType(str, Enum):
     # Phase 3: Pillar 4 page graph edges
     has_action = "has_action"       # page → api_endpoint (from api_bindings.yaml)
     requires_role = "requires_role"  # page → role (from role_permissions.yaml)
+    # Phase 5c: API → schema field edges
+    has_field = "has_field"          # api_endpoint → schema_field (from request_schema.yaml)
+    # Pillar 6/7: Action and workflow edges
+    uses_action = "uses_action"      # workflow → action_contract
+    has_precondition = "has_precondition"  # action_contract → table (precondition check)
+    dispatches_job = "dispatches_job"      # action_contract → action_contract (async follow-up)
+    calls_api = "calls_api"               # action_contract → api_endpoint
 
 
 # ── Universal identity context ─────────────────────────────────────────────

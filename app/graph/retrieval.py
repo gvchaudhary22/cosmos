@@ -52,6 +52,7 @@ RRF_K = 60
 # Leg weights — exact entity resolution is the strongest signal
 LEG_WEIGHTS = {
     "exact_lookup": 2.0,
+    "personalized_pagerank": 1.8,  # PPR: query-specific importance at any depth
     "graph_neighborhood": 1.5,
     "vector_search": 1.0,
     "lexical_search": 0.8,
@@ -171,12 +172,13 @@ class HybridRetriever:
         else:
             vector_leg_coro = self._leg_vector_search(expanded_query, repo_id, top_k * 2)
 
-        # Launch all 4 legs concurrently (vector search uses expanded query)
-        leg1, leg2, leg3, leg4 = await asyncio.gather(
+        # Launch all 5 legs concurrently (vector search uses expanded query)
+        leg1, leg2, leg3, leg4, leg5 = await asyncio.gather(
             self._leg_exact_lookup(entity, entity_id, repo_id, max_depth),
             self._leg_graph_neighborhood(query, intent, entity, repo_id, max_depth, session_entity_seeds),
             vector_leg_coro,
             self._leg_lexical_search(query, repo_id, top_k),
+            self._leg_personalized_pagerank(entity, entity_id, intent, repo_id, top_k),
         )
 
         # Collect all legs
@@ -185,10 +187,49 @@ class HybridRetriever:
             "graph_neighborhood": leg2,
             "vector_search": leg3,
             "lexical_search": leg4,
+            "personalized_pagerank": leg5,
         }
 
         # Weighted RRF fusion across all legs
-        ranked_nodes = self._rrf_fuse(legs, top_k)
+        # Phase 4b: expose query for guardrail penalty check inside _rrf_fuse
+        self._current_query_lower = query.lower()
+        ranked_nodes = self._rrf_fuse(legs, top_k * 2)  # fetch 2× for reranker
+        self._current_query_lower = ""
+
+        # Phase 5b: Cross-encoder reranking on top-20 post-RRF candidates.
+        # Converts RetrievedNode list → Reranker dict format, rerankss, rebuilds.
+        # Falls back silently to RRF order on any error.
+        if len(ranked_nodes) > top_k:
+            try:
+                rerank_candidates = [
+                    {
+                        "content": rn.node.label + " " + str(rn.node.properties),
+                        "similarity": rn.score,
+                        "trust_score": rn.node.properties.get("trust_score",
+                                       rn.node.properties.get("quality_score", 0.5)),
+                        "entity_id": rn.node.id,
+                        "metadata": {
+                            "chunk_type": rn.node.properties.get("chunk_type", ""),
+                            "domain": rn.node.domain or "",
+                            "node_type": rn.node.node_type.value,
+                            "api_id": rn.node.id if rn.node.node_type.value == "api_endpoint" else "",
+                        },
+                        "_rn": rn,  # carry original object through
+                    }
+                    for rn in ranked_nodes[:20]
+                ]
+                reranked = await self._reranker.rerank(
+                    query=query,
+                    candidates=rerank_candidates,
+                    top_k=top_k,
+                )
+                ranked_nodes = [c["_rn"] for c in reranked if "_rn" in c]
+                # Clean the private key from dicts (not strictly needed but tidy)
+            except Exception as _rr_err:
+                logger.debug("hybrid_retrieval.reranker_fallback", error=str(_rr_err))
+                ranked_nodes = ranked_nodes[:top_k]
+        else:
+            ranked_nodes = ranked_nodes[:top_k]
 
         # Collect all edges from legs that found edges
         all_edges: List[GraphEdge] = []
@@ -684,7 +725,7 @@ class HybridRetriever:
     ) -> LegResult:
         """Full-text search on graph_nodes using GIN index + ts_rank_cd.
 
-        Also searches JSONB properties for keywords and aliases.
+        Also searches JSON properties for keywords and aliases.
         """
         start = time.monotonic()
         result = LegResult(leg_name="lexical_search")
@@ -698,14 +739,14 @@ class HybridRetriever:
 
             # Primary: GIN-indexed full-text on label
             # Secondary: ILIKE on label (catches partial matches ts misses)
-            # Tertiary: JSONB keyword/alias search
+            # Tertiary: JSON keyword/alias search
             sql = text(f"""
                 WITH fts AS (
                     SELECT
                         gn.id, gn.node_type, gn.label, gn.repo_id, gn.domain,
                         gn.properties, gn.created_at, gn.updated_at,
                         ts_rank_cd(
-                            to_tsvector('english', gn.label),
+                            gn.label,
                             plainto_tsquery('english', :query)
                         ) AS fts_score,
                         CASE
@@ -720,7 +761,7 @@ class HybridRetriever:
                         END AS prop_score
                     FROM graph_nodes gn
                     WHERE (
-                        to_tsvector('english', gn.label) @@ plainto_tsquery('english', :query)
+                        gn.label LIKE CONCAT('%', :query, '%')
                         OR gn.label ILIKE '%' || :query || '%'
                         OR gn.properties->>'keywords' ILIKE '%' || :query || '%'
                         OR gn.properties->>'aliases' ILIKE '%' || :query || '%'
@@ -775,6 +816,94 @@ class HybridRetriever:
         return (await session.execute(stmt)).scalars().all()
 
     # -------------------------------------------------------------------
+    # Leg 5: Personalized PageRank
+    # -------------------------------------------------------------------
+
+    async def _leg_personalized_pagerank(
+        self,
+        entity: Optional[str],
+        entity_id: Optional[str],
+        intent: Optional[str],
+        repo_id: Optional[str],
+        top_k: int,
+    ) -> LegResult:
+        """Compute Personalized PageRank from query-specific seed nodes.
+
+        PPR finds important nodes at ANY depth (not just 2 hops) by
+        propagating relevance from seeds through the graph. This catches
+        cross-domain relationships that BFS misses.
+        """
+        t0 = time.monotonic()
+        try:
+            from app.services.graphrag import GraphRAGService
+            graphrag = GraphRAGService()
+            if not graphrag._loaded:
+                await graphrag.load_from_pg()
+
+            # Build seed node IDs from entity, intent, domain
+            seeds = []
+            if entity_id and entity:
+                # Try common entity node patterns
+                for pattern in [f"{entity}:{entity_id}", f"table:{entity}", f"api:{entity}",
+                                f"tool:{entity}", f"action_contract:{entity}", entity]:
+                    if graphrag._graph.has_node(pattern):
+                        seeds.append(pattern)
+                        break
+            if intent:
+                intent_node = f"intent:{intent}"
+                if graphrag._graph.has_node(intent_node):
+                    seeds.append(intent_node)
+            # Add domain seed if entity maps to a known domain
+            if entity:
+                domain_node = f"domain:{entity}"
+                if graphrag._graph.has_node(domain_node):
+                    seeds.append(domain_node)
+
+            if not seeds:
+                return LegResult(
+                    leg_name="personalized_pagerank",
+                    node_ids=[], nodes={}, edges=[],
+                    latency_ms=(time.monotonic() - t0) * 1000,
+                    hit_count=0,
+                )
+
+            # Run PPR
+            ppr_results = await graphrag.personalized_pagerank(
+                seed_node_ids=seeds, alpha=0.15, top_k=top_k,
+            )
+
+            # Convert to LegResult
+            node_ids = [nid for nid, _ in ppr_results]
+            nodes = {}
+            for nid, score in ppr_results:
+                node_data = graphrag._graph.nodes.get(nid)
+                if node_data:
+                    nodes[nid] = GraphNode(
+                        id=nid,
+                        node_type=node_data.get("node_type", "unknown"),
+                        label=node_data.get("label", nid),
+                        repo_id=node_data.get("repo_id"),
+                        properties={**node_data.get("properties", {}), "_ppr_score": score},
+                    )
+
+            return LegResult(
+                leg_name="personalized_pagerank",
+                node_ids=node_ids,
+                nodes=nodes,
+                edges=[],  # PPR doesn't return edges directly
+                latency_ms=(time.monotonic() - t0) * 1000,
+                hit_count=len(node_ids),
+            )
+        except Exception as e:
+            logger.warning("leg.ppr_failed", error=str(e))
+            return LegResult(
+                leg_name="personalized_pagerank",
+                node_ids=[], nodes={}, edges=[],
+                latency_ms=(time.monotonic() - t0) * 1000,
+                hit_count=0,
+            )
+
+    # -------------------------------------------------------------------
     # Weighted RRF Fusion
     # -------------------------------------------------------------------
 
@@ -812,6 +941,14 @@ class HybridRetriever:
 
                 if node_id in leg.nodes and node_id not in all_nodes:
                     all_nodes[node_id] = leg.nodes[node_id]
+
+        # Phase 4b: Apply guardrail penalty when query matches negative_routing_keywords
+        # Multiplier ×0.3 — still returned (may be useful context) but ranked much lower
+        if query_lower := getattr(self, "_current_query_lower", ""):
+            for node_id, node in all_nodes.items():
+                neg_kws = (node.properties or {}).get("negative_routing_keywords", [])
+                if neg_kws and any(kw in query_lower for kw in neg_kws):
+                    scores[node_id] = scores.get(node_id, 0.0) * 0.3
 
         # Sort by weighted RRF score descending
         sorted_ids = sorted(scores.keys(), key=lambda nid: scores[nid], reverse=True)
@@ -887,13 +1024,12 @@ async def ensure_lexical_indexes() -> None:
         await session.execute(text("""
             CREATE INDEX IF NOT EXISTS idx_graph_nodes_label_fts
             ON graph_nodes
-            USING GIN (to_tsvector('english', label))
+            
         """))
-        # Index on JSONB properties for keyword/alias search
+        # Index on JSON properties for keyword/alias search
         await session.execute(text("""
             CREATE INDEX IF NOT EXISTS idx_graph_nodes_properties_gin
             ON graph_nodes
-            USING GIN (properties jsonb_path_ops)
         """))
         await session.commit()
     logger.info("hybrid_retrieval.lexical_indexes_ensured")

@@ -20,11 +20,11 @@ import structlog
 import time
 from typing import Any, AsyncIterator, Dict, Optional
 
-from cosmos.app.engine.classifier import Intent
-from cosmos.app.engine.model_router import ModelRouter, ModelTier, PROFILES
-from cosmos.app.engine.prompt_cache import PromptCacheManager
-from cosmos.app.engine.context_budget import ContextBudgeter
-from cosmos.app.engine.cost_tracker import CostTracker
+from app.engine.classifier import Intent
+from app.engine.model_router import ModelRouter, ModelTier, PROFILES
+from app.engine.prompt_cache import PromptCacheManager
+from app.engine.context_budget import ContextBudgeter
+from app.engine.cost_tracker import CostTracker
 
 logger = structlog.get_logger()
 
@@ -46,12 +46,12 @@ class CLIBackend:
     CLI backend — uses Max plan subscription via subprocess.
 
     Each call spawns: claude -p "prompt" --output-format json
-    Session management via --session-id for multi-turn context.
+    Each call is stateless (no --session-id / --continue) — COSMOS queries
+    are single-shot retrieval tasks that don't require multi-turn context.
     """
 
     def __init__(self, model: str = "sonnet"):
         self.model = model
-        self._session_map: Dict[str, str] = {}  # session_id → CLI session_id
 
     async def complete(
         self,
@@ -78,10 +78,6 @@ class CLIBackend:
             "--model", self.model,
             "--max-turns", "1",
         ]
-
-        # Session continuation
-        if session_id and session_id in self._session_map:
-            cmd.extend(["--session-id", self._session_map[session_id], "--continue"])
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -128,11 +124,6 @@ class CLIBackend:
             input_tokens = usage.get("input_tokens", len(full_prompt.split()) * 2)  # estimate
             output_tokens = usage.get("output_tokens", len(text.split()) * 2)
 
-            # Track session
-            cli_session = data.get("session_id", "") if isinstance(data, dict) else ""
-            if session_id and cli_session:
-                self._session_map[session_id] = cli_session
-
             logger.info(
                 "cli_backend.complete",
                 latency_ms=round(latency_ms, 1),
@@ -174,9 +165,6 @@ class CLIBackend:
             "--model", self.model,
             "--max-turns", "1",
         ]
-
-        if session_id and session_id in self._session_map:
-            cmd.extend(["--session-id", self._session_map[session_id], "--continue"])
 
         try:
             proc = await asyncio.create_subprocess_exec(

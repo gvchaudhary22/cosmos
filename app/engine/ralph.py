@@ -326,18 +326,38 @@ class RALPHEngine:
         # Check 4: Context grounding (response should reference provided data)
         chunks = context.get("knowledge_chunks", [])
         if chunks:
-            # Check if at least one chunk term appears in response
-            grounded = False
-            for chunk in chunks[:3]:
-                content = chunk.get("content", "")
-                # Check if any significant term (>5 chars) from chunk is in response
-                terms = [w for w in content.lower().split() if len(w) > 5][:5]
-                if any(t in response_lower for t in terms):
-                    grounded = True
-                    break
-            result.context_grounded = grounded
-            if not grounded:
-                result.issues.append("Response not grounded in provided KB context")
+            # Compute grounding score: what fraction of response claims are in context
+            all_context_text = " ".join(
+                (c.get("content", "") or "").lower() for c in chunks[:8] if isinstance(c, dict)
+            )
+            # Add field traces and entity data to grounded context
+            for ft in context.get("field_traces", [])[:5]:
+                if isinstance(ft, dict):
+                    all_context_text += " " + " ".join(str(v) for v in ft.values())
+            entity = context.get("entity", {})
+            if isinstance(entity, dict):
+                all_context_text += " " + " ".join(str(v) for v in entity.values())
+
+            # Extract significant response terms and check grounding
+            stopwords = {"the", "and", "for", "are", "but", "not", "you", "all", "can",
+                         "this", "that", "with", "have", "from", "will", "your", "please",
+                         "based", "available", "information"}
+            response_terms = {w for w in response_lower.split() if len(w) > 4 and w not in stopwords}
+            if response_terms:
+                grounded_count = sum(1 for t in response_terms if t in all_context_text)
+                grounding_score = grounded_count / len(response_terms)
+                result.context_grounded = grounding_score >= 0.3
+                if grounding_score < 0.3:
+                    result.issues.append(
+                        f"Low evidence grounding ({grounding_score:.0%}). "
+                        f"Only {grounded_count}/{len(response_terms)} response terms found in KB context."
+                    )
+                elif grounding_score < 0.5:
+                    result.issues.append(
+                        f"Moderate grounding ({grounding_score:.0%}). Response may contain unverified claims."
+                    )
+            else:
+                result.context_grounded = True
         else:
             result.context_grounded = True  # No context to ground against
 

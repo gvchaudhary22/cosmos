@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import select, update, delete, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cosmos.app.db.models import (
+from app.db.models import (
     ActionApproval,
     AuditLog,
     Analytics,

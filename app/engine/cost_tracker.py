@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, date
 from typing import Dict, List, Optional
 
-from cosmos.app.engine.model_router import PROFILES, ModelTier
+from app.engine.model_router import PROFILES, ModelTier
 
 logger = structlog.get_logger()
 

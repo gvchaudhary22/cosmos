@@ -1,12 +1,13 @@
 """
 Model Router for COSMOS Phase 4.
 
-Routes queries to the minimum-sufficient model tier based on
-intent, confidence, and complexity signals. Three tiers:
+Quality-first routing: uses Opus for all substantive tasks, Haiku only
+for pure classification. Three tiers:
 
-  HAIKU  — classification, simple lookups        (~$0.0001/query)
-  SONNET — standard reasoning, tool use          (~$0.003/query)
-  OPUS   — complex multi-step reasoning          (~$0.01/query)
+  HAIKU  — intent/entity classification only     (~$0.0001/query)
+  SONNET — (reserved; not used in default routing)
+  OPUS   — everything else: lookup, explain, act, report, navigate,
+            unknown, low-confidence, multi-intent (~$0.01/query)
 """
 
 import structlog
@@ -14,7 +15,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List
 
-from cosmos.app.engine.classifier import Intent
+from app.engine.classifier import Intent
 
 logger = structlog.get_logger()
 
@@ -80,62 +81,35 @@ class ModelRouter:
         complexity_signals: Dict = None,
     ) -> ModelProfile:
         """
-        Route to the cheapest model that can handle the task.
+        Quality-first routing: almost everything goes to Opus.
 
-        Routing rules:
-        - LOOKUP with high confidence (>0.8) -> HAIKU
-        - NAVIGATE -> HAIKU
-        - EXPLAIN with single entity -> SONNET
-        - ACT (any write action) -> SONNET minimum
-        - REPORT with aggregation -> SONNET
-        - Multi-intent / low confidence (<0.5) -> OPUS
-        - Complex EXPLAIN (multi-entity, causal reasoning) -> OPUS
-        - Any query with security implications -> OPUS
+        Routing rules (quality-first policy):
+        - ALL intents (LOOKUP, EXPLAIN, ACT, REPORT, NAVIGATE, UNKNOWN) -> OPUS
+        - Low confidence (<0.5) -> OPUS
+        - Multi-intent -> OPUS
+        - Security signals -> OPUS
+        - HAIKU is never selected here; use route_classify() for classification tasks.
+
+        Callers that explicitly need Haiku for classification should call
+        route_classify() instead.
         """
-        signals = complexity_signals or {}
+        # Everything goes to Opus — quality over cost.
+        return self._select(ModelTier.OPUS)
 
-        # Security always gets Opus
-        if signals.get("security", False):
-            return self._select(ModelTier.OPUS)
+    def route_classify(
+        self,
+        intent: Intent,
+        confidence: float,
+        complexity_signals: Dict = None,
+    ) -> ModelProfile:
+        """
+        Route a pure classification / entity-extraction task to Haiku.
 
-        # Low confidence -> Opus for better reasoning
-        if confidence < 0.5:
-            return self._select(ModelTier.OPUS)
-
-        # Multi-intent -> Opus
-        sub_intents = signals.get("sub_intents", [])
-        if len(sub_intents) >= 1:
-            return self._select(ModelTier.OPUS)
-
-        # Complex EXPLAIN (multi-entity or causal)
-        if intent == Intent.EXPLAIN:
-            entity_count = signals.get("entity_count", 1)
-            if entity_count > 1 or signals.get("causal", False):
-                return self._select(ModelTier.OPUS)
-            return self._select(ModelTier.SONNET)
-
-        # LOOKUP with high confidence -> Haiku
-        if intent == Intent.LOOKUP and confidence > 0.8:
-            return self._select(ModelTier.HAIKU)
-
-        # NAVIGATE -> Haiku
-        if intent == Intent.NAVIGATE:
-            return self._select(ModelTier.HAIKU)
-
-        # ACT -> Sonnet minimum
-        if intent == Intent.ACT:
-            return self._select(ModelTier.SONNET)
-
-        # REPORT -> Sonnet
-        if intent == Intent.REPORT:
-            return self._select(ModelTier.SONNET)
-
-        # UNKNOWN with ok confidence -> Sonnet
-        if intent == Intent.UNKNOWN:
-            return self._select(ModelTier.SONNET)
-
-        # Default: LOOKUP with moderate confidence, etc.
-        return self._select(ModelTier.SONNET)
+        This method exists exclusively for the classifier pipeline, where
+        speed and low cost matter more than deep reasoning. All other callers
+        should use route().
+        """
+        return self._select(ModelTier.HAIKU)
 
     def estimate_cost(
         self, tier: ModelTier, input_tokens: int, output_tokens: int

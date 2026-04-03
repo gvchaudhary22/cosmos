@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -20,8 +21,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 import yaml
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import func, select, text
+try:
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+except ImportError:
+    pg_insert = None  # Not needed when using Neo4j primary
 
 from app.db.session import AsyncSessionLocal
 from app.services.graphrag import (
@@ -555,6 +559,76 @@ class CanonicalIngestionPipeline:
             )
             self._report.bump_edge(etype, edge_new)
 
+        # ── Phase 4b+4c: medium.yaml → guardrails + auth_permissions ──────────
+        medium = self._read_yaml(str(api_path / "medium.yaml"))
+        if isinstance(medium, dict):
+            # 4b: guardrails → negative_routing_keywords on node properties
+            guardrails = medium.get("guardrails", {})
+            if isinstance(guardrails, dict):
+                do_not_use: List[str] = guardrails.get("do_not_use_for", []) or []
+                restricted: List[str] = guardrails.get("restricted_conditions", []) or []
+                neg_keywords: List[str] = [
+                    str(k).lower().strip() for k in (do_not_use + restricted) if k
+                ]
+                if neg_keywords:
+                    props["negative_routing_keywords"] = neg_keywords[:20]
+                    await self._upsert_node(
+                        node_id=node_id,
+                        node_type=NodeType.api_endpoint.value,
+                        label=label,
+                        repo_id=repo_name,
+                        domain=domain_name,
+                        properties=props,
+                    )
+                    logger.debug("kb.ingest.guardrails", api=api_id,
+                                 count=len(neg_keywords))
+
+            # 4c: auth_permissions → required_roles on node + requires_role edges
+            auth = medium.get("auth_permissions", {})
+            if isinstance(auth, dict):
+                required_roles_raw = (
+                    auth.get("required_roles")
+                    or auth.get("roles")
+                    or auth.get("allowed_roles")
+                    or []
+                )
+                if isinstance(required_roles_raw, str):
+                    required_roles_raw = [required_roles_raw]
+                required_roles: List[str] = [
+                    str(r).strip() for r in required_roles_raw if r
+                ]
+                if required_roles:
+                    props["required_roles"] = required_roles
+                    await self._upsert_node(
+                        node_id=node_id,
+                        node_type=NodeType.api_endpoint.value,
+                        label=label,
+                        repo_id=repo_name,
+                        domain=domain_name,
+                        properties=props,
+                    )
+                    for role_name in required_roles:
+                        role_node_id = f"role:{role_name}"
+                        role_new = await self._upsert_node(
+                            node_id=role_node_id,
+                            node_type=NodeType.role.value,
+                            label=role_name,
+                            repo_id=repo_name,
+                            domain=None,
+                            properties={"role_name": role_name},
+                        )
+                        self._report.bump_node(NodeType.role.value, role_new)
+                        edge_new = await self._upsert_edge(
+                            source_id=node_id,
+                            target_id=role_node_id,
+                            edge_type=EdgeType.requires_role.value,
+                            repo_id=repo_name,
+                            properties={"source": "auth_permissions"},
+                        )
+                        self._report.bump_edge(EdgeType.requires_role.value, edge_new)
+                    logger.debug("kb.ingest.auth_permissions", api=api_id,
+                                 roles=required_roles)
+
         # ── 6. examples → entity_lookup from param_extraction_pairs ─────────
         examples = high.get("examples", {}) or self._read_yaml(str(api_path / "examples.yaml"))
         if isinstance(examples, dict) and examples.get("_status") == "stub":
@@ -572,7 +646,118 @@ class CanonicalIngestionPipeline:
                         repo_id=repo_name,
                     )
 
+        # ── Phase 5c: request_schema → schema_field nodes + has_field edges ─────
+        await self._ingest_schema_fields(api_path, api_id, node_id, repo_name, domain_name)
+
+        # ── Phase 5d: low.yaml panel_usage → page→has_action→api edges ─────────
+        low = self._read_yaml(str(api_path / "low.yaml"))
+        if isinstance(low, dict):
+            panel_usage = low.get("panel_usage", {})
+            if isinstance(panel_usage, dict):
+                pages_using: list = panel_usage.get("pages", []) or []
+                for page_ref in pages_using:
+                    if not page_ref or not isinstance(page_ref, str):
+                        continue
+                    # page_ref can be "page_id" or "repo/page_id"
+                    parts = page_ref.strip("/").split("/")
+                    p_id = parts[-1]
+                    p_repo = parts[-2] if len(parts) >= 2 else repo_name
+                    page_node_id = f"page:{p_repo}:{p_id}"
+                    edge_new = await self._upsert_edge(
+                        source_id=page_node_id,
+                        target_id=node_id,
+                        edge_type=EdgeType.has_action.value,
+                        repo_id=repo_name,
+                        properties={"source": "panel_usage"},
+                    )
+                    self._report.bump_edge(EdgeType.has_action.value, edge_new)
+
         logger.debug("kb.ingest.api_done", api_id=api_id, repo=repo_name)
+
+    # -----------------------------------------------------------------------
+    # Phase 5c: Request schema field ingestion
+    # -----------------------------------------------------------------------
+
+    async def _ingest_schema_fields(
+        self,
+        api_path: "Path",
+        api_id: str,
+        api_node_id: str,
+        repo_name: str,
+        domain_name: Optional[str],
+    ) -> None:
+        """Create schema_field nodes for each parameter in request_schema.yaml.
+
+        Produces: api_endpoint →[has_field]→ schema_field nodes.
+        Enables graph traversal from query mentioning a field name → api endpoint.
+        """
+        from pathlib import Path as _Path
+        high = self._read_yaml(str(api_path / "high.yaml")) or {}
+        schema_data = high.get("request_schema", {})
+        if isinstance(schema_data, dict) and schema_data.get("_status") == "stub":
+            schema_data = self._read_yaml(str(api_path / "request_schema.yaml"))
+        if not schema_data or not isinstance(schema_data, dict):
+            schema_data = self._read_yaml(str(api_path / "request_schema.yaml")) or {}
+
+        # Params can be under "parameters", "properties", "fields", or a top-level list
+        params: List[Dict[str, Any]] = []
+        for key in ("parameters", "fields", "properties"):
+            raw = schema_data.get(key)
+            if isinstance(raw, list):
+                params = raw
+                break
+            elif isinstance(raw, dict):
+                params = [{"name": k, **v} if isinstance(v, dict) else {"name": k}
+                          for k, v in raw.items()]
+                break
+
+        seen_fields: set = set()
+        for param in params:
+            if not isinstance(param, dict):
+                continue
+            param_name = param.get("name") or param.get("field") or param.get("param")
+            if not param_name or param_name in seen_fields:
+                continue
+            seen_fields.add(param_name)
+
+            field_node_id = f"schema_field:{repo_name}:{api_id}:{param_name}"
+            field_props: Dict[str, Any] = {
+                "field_name": param_name,
+                "type": param.get("type", ""),
+                "required": param.get("required", False),
+                "description": str(param.get("description", ""))[:300],
+                "api_id": api_id,
+            }
+            is_new = await self._upsert_node(
+                node_id=field_node_id,
+                node_type=NodeType.schema_field.value,
+                label=f"{api_id}.{param_name}",
+                repo_id=repo_name,
+                domain=domain_name,
+                properties=field_props,
+            )
+            self._report.bump_node(NodeType.schema_field.value, is_new)
+
+            edge_new = await self._upsert_edge(
+                source_id=api_node_id,
+                target_id=field_node_id,
+                edge_type=EdgeType.has_field.value,
+                repo_id=repo_name,
+                properties={"required": param.get("required", False)},
+            )
+            self._report.bump_edge(EdgeType.has_field.value, edge_new)
+
+            # Entity lookup so queries mentioning the param name resolve to this API
+            await self._upsert_lookup(
+                entity_type=f"field:{param_name}",
+                entity_value=api_id,
+                node_id=api_node_id,
+                repo_id=repo_name,
+            )
+
+        if seen_fields:
+            logger.debug("kb.ingest.schema_fields", api=api_id,
+                         count=len(seen_fields), repo=repo_name)
 
     # -----------------------------------------------------------------------
     # Table folder ingestion
@@ -689,24 +874,44 @@ class CanonicalIngestionPipeline:
         }
 
         # Extract rich metadata from index.yaml
-        top_entities = index_data.get("top_entities", {})
-        controllers = 0
-        api_routes = 0
-        db_tables = 0
-        if isinstance(top_entities, dict):
-            controllers = top_entities.get("controllers", 0)
-            api_routes = top_entities.get("api_routes", 0)
-            db_tables = top_entities.get("db_tables", 0)
-            props["controllers"] = controllers
-            props["api_routes"] = api_routes
-            props["db_tables"] = db_tables
+        # KB generator writes "entities" (not "top_entities") — read both for compat
+        entities_data = index_data.get("entities", index_data.get("top_entities", {}))
+        controller_list: List[str] = []
+        api_route_list: List[str] = []
+        db_table_list: List[str] = []
+        keyword_list: List[str] = []
+        service_list: List[str] = []
+        if isinstance(entities_data, dict):
+            raw_ctrl = entities_data.get("controllers", [])
+            raw_apis = entities_data.get("api_routes", [])
+            raw_tbls = entities_data.get("db_tables", [])
+            raw_kw   = entities_data.get("keywords", [])
+            raw_svc  = entities_data.get("services", [])
+            controller_list = [c for c in raw_ctrl if isinstance(c, str)][:20]
+            api_route_list  = [r for r in raw_apis if isinstance(r, str)][:20]
+            db_table_list   = [t for t in raw_tbls if isinstance(t, str)][:15]
+            keyword_list    = [k for k in raw_kw if isinstance(k, str)][:20]
+            service_list    = [s for s in raw_svc if isinstance(s, str)][:10]
+            props["controllers"] = len(controller_list)
+            props["api_routes"]  = len(api_route_list)
+            props["db_tables"]   = len(db_table_list)
+            props["controller_names"] = ", ".join(controller_list)
+            props["table_names"]      = ", ".join(db_table_list)
 
-        # Build searchable embedding_text so graph keyword search can surface this module
-        props["embedding_text"] = (
-            f"module {module_name}: controllers={controllers} "
-            f"api_routes={api_routes} db_tables={db_tables} "
-            f"repo={repo_name}"
-        )
+        # Build rich searchable embedding_text from actual entity lists
+        # This is what graph keyword BFS seeds from — must be descriptive
+        parts = [f"module {module_name} repo {repo_name}"]
+        if controller_list:
+            parts.append("controllers: " + " ".join(controller_list))
+        if service_list:
+            parts.append("services: " + " ".join(service_list))
+        if db_table_list:
+            parts.append("tables: " + " ".join(db_table_list))
+        if api_route_list:
+            parts.append("routes: " + " ".join(api_route_list[:10]))
+        if keyword_list:
+            parts.append("topics: " + " ".join(keyword_list))
+        props["embedding_text"] = ". ".join(parts)
 
         # Extract file list, features, dependencies from other YAML files
         for extra_file in ["dependencies.yaml", "CLAUDE.yaml"]:
@@ -965,7 +1170,7 @@ class CanonicalIngestionPipeline:
         is_new = node_id not in self._seen_node_ids
         self._seen_node_ids.add(node_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         self._node_batch.append({
             "id": node_id,
             "node_type": node_type,
@@ -978,7 +1183,7 @@ class CanonicalIngestionPipeline:
         })
 
         # Flush when batch gets large
-        if len(self._node_batch) >= 200:
+        if len(self._node_batch) >= 50:
             await self._flush_nodes()
 
         return is_new
@@ -1001,19 +1206,41 @@ class CanonicalIngestionPipeline:
         is_new = triple_key not in self._seen_edge_triples
         self._seen_edge_triples.add(triple_key)  # type: ignore[attr-defined]
 
-        now = datetime.now(timezone.utc)
+        # Semantic edge weights — stronger relationships rank higher in PPR + Dijkstra
+        EDGE_WEIGHT_MAP = {
+            "belongs_to_domain": 2.0,
+            "reads_table": 1.5,
+            "writes_table": 1.8,
+            "implements_tool": 1.5,
+            "calls_api": 1.6,
+            "uses_action": 1.7,
+            "has_action": 1.4,
+            "requires_role": 1.2,
+            "has_field": 1.3,
+            "has_intent": 1.3,
+            "assigned_to_agent": 1.2,
+            "dispatches_job": 1.0,
+            "has_precondition": 1.4,
+            "cross_repo_shares": 0.8,
+            "depends_on": 0.5,
+            "imports": 0.4,
+            "calls": 0.6,
+        }
+        weight = EDGE_WEIGHT_MAP.get(edge_type, 1.0)
+
+        now = datetime.utcnow()
         self._edge_batch.append({
             "id": str(uuid.uuid4()),
             "source_id": source_id,
             "target_id": target_id,
             "edge_type": edge_type,
-            "weight": 1.0,
+            "weight": weight,
             "repo_id": repo_id,
             "properties": properties,
             "created_at": now,
         })
 
-        if len(self._edge_batch) >= 200:
+        if len(self._edge_batch) >= 50:
             await self._flush_edges()
 
         return is_new
@@ -1030,7 +1257,7 @@ class CanonicalIngestionPipeline:
             "entity_type": entity_type,
             "entity_value": entity_value,
             "node_id": node_id,
-            "repo_id": repo_id,
+            "repo_id": repo_id or "default",
         })
         self._report.lookups_upserted += 1
 
@@ -1042,55 +1269,110 @@ class CanonicalIngestionPipeline:
     # -----------------------------------------------------------------------
 
     async def _flush_batches(self) -> None:
-        """Flush all pending node / edge / lookup batches to PostgreSQL."""
+        """Flush all pending node / edge / lookup batches to Neo4j."""
         await self._flush_nodes()
         await self._flush_edges()
         await self._flush_lookups()
 
+    def _get_neo4j(self):
+        """Get Neo4j service (lazy init)."""
+        if not hasattr(self, '_neo4j') or self._neo4j is None:
+            try:
+                from app.services.neo4j_graph import neo4j_graph_service
+                self._neo4j = neo4j_graph_service
+            except Exception:
+                self._neo4j = None
+        return self._neo4j
+
     async def _flush_nodes(self) -> None:
         if not self._node_batch:
             return
-        batch = self._node_batch[:]
+        # Deduplicate within batch (keep last occurrence per id)
+        seen = {}
+        for item in self._node_batch:
+            seen[item["id"]] = item
+        batch = list(seen.values())
         self._node_batch.clear()
 
-        async with AsyncSessionLocal() as session:
-            stmt = pg_insert(GraphNodeRow).values(batch)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["id"],
-                set_={
-                    "node_type": stmt.excluded.node_type,
-                    "label": stmt.excluded.label,
-                    "repo_id": stmt.excluded.repo_id,
-                    "domain": stmt.excluded.domain,
-                    "properties": stmt.excluded.properties,
-                    "updated_at": stmt.excluded.updated_at,
-                },
-            )
-            await session.execute(stmt)
-            await session.commit()
+        neo4j = self._get_neo4j()
+        if neo4j and neo4j.available:
+            # PRIMARY: Neo4j bulk ingest
+            try:
+                neo4j_nodes = [
+                    {
+                        "node_id": item["id"],
+                        "node_type": item.get("node_type", "unknown"),
+                        "label": item.get("label", item["id"]),
+                        "repo_id": item.get("repo_id"),
+                        "properties": item.get("properties", {}),
+                    }
+                    for item in batch
+                ]
+                count = await neo4j.ingest_nodes_bulk(neo4j_nodes)
+                logger.debug("kb.flush.nodes.neo4j", count=count)
+            except Exception as e:
+                logger.warning("kb.flush.nodes.neo4j_failed", error=str(e))
 
-        logger.debug("kb.flush.nodes", count=len(batch))
+        # ALWAYS write to MySQL (dual-write — MARS reads from MySQL for agent registry UI)
+        try:
+            async with AsyncSessionLocal() as session:
+                for item in batch:
+                    await session.execute(
+                        text("""INSERT INTO graph_nodes (id, node_type, label, repo_id, domain, properties, created_at)
+                                VALUES (:id, :nt, :label, :repo, :domain, :props, NOW())
+                                ON DUPLICATE KEY UPDATE node_type=:nt, label=:label, repo_id=:repo, domain=:domain, properties=:props, updated_at=NOW()"""),
+                        {"id": item["id"], "nt": item.get("node_type",""), "label": item.get("label",""),
+                         "repo": item.get("repo_id",""), "domain": item.get("domain",""),
+                         "props": json.dumps(item.get("properties",{}))},
+                    )
+                await session.commit()
+            logger.debug("kb.flush.nodes.mysql", count=len(batch))
+        except Exception as e:
+            logger.warning("kb.flush.nodes.mysql_failed", error=str(e))
 
     async def _flush_edges(self) -> None:
         if not self._edge_batch:
             return
-        batch = self._edge_batch[:]
+        seen = {}
+        for item in self._edge_batch:
+            key = (item["source_id"], item["target_id"], item["edge_type"])
+            seen[key] = item
+        batch = list(seen.values())
         self._edge_batch.clear()
 
-        async with AsyncSessionLocal() as session:
-            stmt = pg_insert(GraphEdgeRow).values(batch)
-            stmt = stmt.on_conflict_do_update(
-                constraint="idx_graph_edges_unique_triple",
-                set_={
-                    "weight": stmt.excluded.weight,
-                    "repo_id": stmt.excluded.repo_id,
-                    "properties": stmt.excluded.properties,
-                },
-            )
-            await session.execute(stmt)
-            await session.commit()
+        neo4j = self._get_neo4j()
+        if neo4j and neo4j.available:
+            try:
+                neo4j_edges = [
+                    {
+                        "source_id": item["source_id"],
+                        "target_id": item["target_id"],
+                        "edge_type": item["edge_type"],
+                        "weight": item.get("weight", 1.0),
+                        "repo_id": item.get("repo_id"),
+                    }
+                    for item in batch
+                ]
+                count = await neo4j.ingest_edges_bulk(neo4j_edges)
+                logger.debug("kb.flush.edges.neo4j", count=count)
+            except Exception as e:
+                logger.warning("kb.flush.edges.neo4j_failed", error=str(e))
 
-        logger.debug("kb.flush.edges", count=len(batch))
+        # ALWAYS write to MySQL (dual-write — MARS reads from MySQL for agent registry UI)
+        try:
+            async with AsyncSessionLocal() as session:
+                for item in batch:
+                    await session.execute(
+                        text("""INSERT INTO graph_edges (id, source_id, target_id, edge_type, weight, repo_id, created_at)
+                                VALUES (:id, :src, :tgt, :et, :w, :repo, NOW())
+                                ON DUPLICATE KEY UPDATE weight=:w, repo_id=:repo"""),
+                        {"id": item["id"], "src": item["source_id"], "tgt": item["target_id"],
+                         "et": item["edge_type"], "w": item.get("weight", 1.0), "repo": item.get("repo_id","")},
+                    )
+                await session.commit()
+            logger.debug("kb.flush.edges.mysql", count=len(batch))
+        except Exception as e:
+            logger.warning("kb.flush.edges.mysql_failed", error=str(e))
 
     async def _flush_lookups(self) -> None:
         if not self._lookup_batch:
@@ -1098,19 +1380,35 @@ class CanonicalIngestionPipeline:
         batch = self._lookup_batch[:]
         self._lookup_batch.clear()
 
-        async with AsyncSessionLocal() as session:
-            stmt = pg_insert(EntityLookupRow).values(batch)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["entity_type", "entity_value"],
-                set_={
-                    "node_id": stmt.excluded.node_id,
-                    "repo_id": stmt.excluded.repo_id,
-                },
-            )
-            await session.execute(stmt)
-            await session.commit()
+        neo4j = self._get_neo4j()
+        if neo4j and neo4j.available:
+            try:
+                for item in batch:
+                    await neo4j.register_entity(
+                        entity_type=item["entity_type"],
+                        entity_value=item["entity_value"],
+                        node_id=item["node_id"],
+                        repo_id=item.get("repo_id"),
+                    )
+                logger.debug("kb.flush.lookups.neo4j", count=len(batch))
+            except Exception as e:
+                logger.warning("kb.flush.lookups.neo4j_failed", error=str(e))
 
-        logger.debug("kb.flush.lookups", count=len(batch))
+        # ALWAYS write to MySQL (dual-write)
+        try:
+            async with AsyncSessionLocal() as session:
+                for item in batch:
+                    await session.execute(
+                        text("""INSERT INTO entity_lookup (entity_type, entity_value, repo_id, node_id)
+                                VALUES (:et, :ev, :repo, :nid)
+                                ON DUPLICATE KEY UPDATE node_id=:nid"""),
+                        {"et": item["entity_type"], "ev": item["entity_value"],
+                         "repo": item.get("repo_id","default"), "nid": item["node_id"]},
+                    )
+                await session.commit()
+            logger.debug("kb.flush.lookups.mysql", count=len(batch))
+        except Exception as e:
+            logger.warning("kb.flush.lookups.failed", error=str(e))
 
     # -----------------------------------------------------------------------
     # YAML reader

@@ -36,12 +36,12 @@ END $$;
 
 -- 1. Sessions
 CREATE TABLE IF NOT EXISTS icrm_sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
     company_id VARCHAR(255),
     channel VARCHAR(50) NOT NULL DEFAULT 'web',
     status VARCHAR(50) NOT NULL DEFAULT 'active',
-    metadata JSONB DEFAULT '{}',
+    metadata JSON DEFAULT '{}',
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
@@ -53,13 +53,13 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user_status ON icrm_sessions(user_id, st
 
 -- 2. Messages
 CREATE TABLE IF NOT EXISTS icrm_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     session_id UUID NOT NULL REFERENCES icrm_sessions(id) ON DELETE CASCADE,
     role message_role NOT NULL,
     content TEXT NOT NULL,
     token_count INTEGER,
     model VARCHAR(100),
-    metadata JSONB DEFAULT '{}',
+    metadata JSON DEFAULT '{}',
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
@@ -69,12 +69,12 @@ CREATE INDEX IF NOT EXISTS idx_messages_session_created ON icrm_messages(session
 
 -- 3. Conversation Context
 CREATE TABLE IF NOT EXISTS icrm_conversation_context (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     session_id UUID NOT NULL UNIQUE REFERENCES icrm_sessions(id) ON DELETE CASCADE,
     intent VARCHAR(255),
-    entities JSONB DEFAULT '{}',
-    tool_state JSONB DEFAULT '{}',
-    user_profile JSONB DEFAULT '{}',
+    entities JSON DEFAULT '{}',
+    tool_state JSON DEFAULT '{}',
+    user_profile JSON DEFAULT '{}',
     conversation_summary TEXT,
     updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
@@ -82,13 +82,13 @@ CREATE TABLE IF NOT EXISTS icrm_conversation_context (
 
 -- 4. Reasoning Traces
 CREATE TABLE IF NOT EXISTS icrm_reasoning_traces (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     session_id UUID NOT NULL REFERENCES icrm_sessions(id) ON DELETE CASCADE,
     message_id UUID REFERENCES icrm_messages(id) ON DELETE SET NULL,
     phase reasoning_phase NOT NULL,
     content TEXT NOT NULL,
     duration_ms INTEGER,
-    metadata JSONB DEFAULT '{}',
+    metadata JSON DEFAULT '{}',
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
@@ -98,11 +98,11 @@ CREATE INDEX IF NOT EXISTS idx_traces_session_phase ON icrm_reasoning_traces(ses
 
 -- 5. Tool Executions
 CREATE TABLE IF NOT EXISTS icrm_tool_executions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     session_id UUID NOT NULL REFERENCES icrm_sessions(id) ON DELETE CASCADE,
     tool_name VARCHAR(255) NOT NULL,
-    input_params JSONB DEFAULT '{}',
-    output_result JSONB DEFAULT '{}',
+    input_params JSON DEFAULT '{}',
+    output_result JSON DEFAULT '{}',
     status execution_status NOT NULL DEFAULT 'pending',
     duration_ms INTEGER,
     error_message TEXT,
@@ -116,7 +116,7 @@ CREATE INDEX IF NOT EXISTS idx_tool_exec_session_status ON icrm_tool_executions(
 
 -- 6. Action Approvals
 CREATE TABLE IF NOT EXISTS icrm_action_approvals (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     session_id UUID NOT NULL REFERENCES icrm_sessions(id) ON DELETE CASCADE,
     tool_execution_id UUID REFERENCES icrm_tool_executions(id) ON DELETE SET NULL,
     action_type VARCHAR(255) NOT NULL,
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS icrm_action_approvals (
     approved BOOLEAN,
     approved_by VARCHAR(255),
     reason TEXT,
-    metadata JSONB DEFAULT '{}',
+    metadata JSON DEFAULT '{}',
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     resolved_at TIMESTAMP
 );
@@ -136,13 +136,13 @@ CREATE INDEX IF NOT EXISTS idx_approvals_session_risk ON icrm_action_approvals(s
 
 -- 7. Audit Log
 CREATE TABLE IF NOT EXISTS icrm_audit_log (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     session_id UUID,
     user_id VARCHAR(255),
     action VARCHAR(255) NOT NULL,
     resource_type VARCHAR(255),
     resource_id VARCHAR(255),
-    details JSONB DEFAULT '{}',
+    details JSON DEFAULT '{}',
     ip_address VARCHAR(45),
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
@@ -154,10 +154,10 @@ CREATE INDEX IF NOT EXISTS idx_audit_action_created ON icrm_audit_log(action, cr
 
 -- 8. Analytics
 CREATE TABLE IF NOT EXISTS icrm_analytics (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     session_id UUID REFERENCES icrm_sessions(id) ON DELETE SET NULL,
     event_type VARCHAR(255) NOT NULL,
-    event_data JSONB DEFAULT '{}',
+    event_data JSON DEFAULT '{}',
     user_id VARCHAR(255),
     company_id VARCHAR(255),
     duration_ms INTEGER,
@@ -174,13 +174,13 @@ CREATE INDEX IF NOT EXISTS idx_analytics_event_created ON icrm_analytics(event_t
 
 -- 9. Feedback
 CREATE TABLE IF NOT EXISTS icrm_feedback (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     session_id UUID REFERENCES icrm_sessions(id) ON DELETE SET NULL,
     message_id UUID REFERENCES icrm_messages(id) ON DELETE SET NULL,
     user_id VARCHAR(255),
     rating INTEGER,
     comment TEXT,
-    tags JSONB DEFAULT '[]',
+    tags JSON DEFAULT '[]',
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
@@ -190,13 +190,13 @@ CREATE INDEX IF NOT EXISTS idx_feedback_session_rating ON icrm_feedback(session_
 
 -- 10. Tool Registry
 CREATE TABLE IF NOT EXISTS icrm_tool_registry (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE,
     display_name VARCHAR(255),
     description TEXT,
     category VARCHAR(100),
-    parameters JSONB DEFAULT '{}',
-    returns JSONB DEFAULT '{}',
+    parameters JSON DEFAULT '{}',
+    returns JSON DEFAULT '{}',
     requires_approval BOOLEAN DEFAULT FALSE,
     risk_level risk_level NOT NULL DEFAULT 'low',
     enabled BOOLEAN DEFAULT TRUE,
@@ -211,13 +211,13 @@ CREATE INDEX IF NOT EXISTS idx_tool_registry_category_enabled ON icrm_tool_regis
 
 -- 11. Distillation Records
 CREATE TABLE IF NOT EXISTS icrm_distillation_records (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     session_id UUID NOT NULL,
     user_query TEXT NOT NULL,
     intent VARCHAR(255),
     entity VARCHAR(255),
-    tools_used JSONB DEFAULT '[]',
-    tool_results JSONB DEFAULT '[]',
+    tools_used JSON DEFAULT '[]',
+    tool_results JSON DEFAULT '[]',
     llm_prompt TEXT,
     llm_response TEXT,
     final_response TEXT,
@@ -238,7 +238,7 @@ CREATE INDEX IF NOT EXISTS idx_distillation_created ON icrm_distillation_records
 
 -- 12. Knowledge Entries
 CREATE TABLE IF NOT EXISTS icrm_knowledge_entries (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     category knowledge_category NOT NULL,
     question TEXT NOT NULL,
     answer TEXT NOT NULL,
@@ -256,13 +256,13 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_category_enabled ON icrm_knowledge_entr
 
 -- 13. Query Analytics
 CREATE TABLE IF NOT EXISTS icrm_query_analytics (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id CHAR(36) PRIMARY KEY,
     session_id UUID,
     intent VARCHAR(255),
     entity VARCHAR(255),
     confidence DOUBLE PRECISION,
     latency_ms DOUBLE PRECISION,
-    tools_used JSONB DEFAULT '[]',
+    tools_used JSON DEFAULT '[]',
     escalated BOOLEAN DEFAULT FALSE,
     model VARCHAR(100),
     cost_usd DOUBLE PRECISION DEFAULT 0.0,

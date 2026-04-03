@@ -187,12 +187,13 @@ class QueryOrchestrator:
         self._ralph_engine = None
         self._agent_forge = None
 
-        # New: Pattern cache, agent registry, planner, skills, scoped retrieval
+        # New: Pattern cache, agent registry, planner, skills, scoped retrieval, KB registry
         self._pattern_cache = None
         self._agent_registry = None
         self._agent_planner = None
         self._skill_registry = None
         self._scoped_retrieval = None
+        self._kb_registry = None
 
     @property
     def request_classifier(self):
@@ -261,6 +262,14 @@ class QueryOrchestrator:
             self._scoped_retrieval = ScopedRetrieval(self.vectorstore)
         return self._scoped_retrieval
 
+    @property
+    def kb_registry(self):
+        if self._kb_registry is None:
+            from app.engine.kb_driven_registry import KBDrivenRegistry
+            kb_path = getattr(self, '_kb_path', '')
+            self._kb_registry = KBDrivenRegistry(kb_path=kb_path)
+        return self._kb_registry
+
     async def execute(
         self,
         query: str,
@@ -271,6 +280,8 @@ class QueryOrchestrator:
         session_context: Optional[Dict] = None,
         session_id: Optional[str] = None,
         workflow_settings=None,  # WorkflowSettings | None
+        on_wave_progress=None,   # Phase 5f: async callable(wave_id, task_id, status, data)
+        seller_token: Optional[str] = None,  # Pre-fetched by MARS SSO — used for live API calls
     ) -> OrchestratorResult:
         """
         Complete tier pipeline with all 7 production improvements:
@@ -289,6 +300,20 @@ class QueryOrchestrator:
         result = OrchestratorResult()
         uid = user_id or "anonymous"
         cid = company_id or ""
+
+        # Hinglish normalization: convert Hindi-English mixed queries to clean English
+        # before intent classification. Uses lightweight keyword mapping (no LLM call).
+        # Claude-based normalization happens at the LIME/MARS layer before reaching COSMOS.
+        query = self._normalize_hinglish(query)
+
+        # Query decomposition: split multi-part questions for separate retrieval
+        sub_queries = self._decompose_query(query)
+        if len(sub_queries) > 1:
+            logger.info("orchestrator.query_decomposed", original=query[:80],
+                        sub_queries=len(sub_queries))
+        # Store for multi-retrieval merge later
+        self._sub_queries = sub_queries
+
         # Bug 2 fix: store session_id on instance so _deep_graphrag can pick up cross-turn seeds
         self._current_session_id = session_id or ""
 
@@ -299,6 +324,63 @@ class QueryOrchestrator:
         _force_complex = ws.force_complex
         # Store effective settings for use in sub-methods
         self._active_ws = ws
+
+        # Phase 6b: Multi-turn context compression.
+        # Before the pipeline starts, check if the session has accumulated enough
+        # turns to benefit from compression (>= COMPRESS_THRESHOLD).  If so,
+        # compress older turns into a compact summary block and prepend it to
+        # session_context so all downstream stages see the condensed history.
+        if session_id:
+            try:
+                from app.engine.session_state import SessionStateManager as _SSM
+                _session_mgr: Optional[_SSM] = getattr(self, "_session_manager", None)
+                if _session_mgr is None:
+                    # Lazily create a shared manager on the orchestrator instance
+                    _session_mgr = _SSM()
+                    self._session_manager = _session_mgr
+
+                if _session_mgr.get_state(session_id) is None:
+                    # Create session state if it doesn't exist yet
+                    _session_mgr.create_session(session_id, uid, cid)
+
+                if _session_mgr.should_compress(session_id):
+                    # Run async compression (LLM or keyword fallback)
+                    _llm_client = getattr(self.react_engine, "llm_client", None) if self.react_engine else None
+                    await _session_mgr.compress_history(session_id, llm_client=_llm_client)
+                    logger.info("orchestrator.session_compressed", session_id=session_id)
+
+                # Prepend compressed context prefix to session_context dict
+                _ctx_prefix = _session_mgr.get_compressed_context_prefix(session_id)
+                if _ctx_prefix:
+                    if session_context is None:
+                        session_context = {}
+                    session_context.setdefault("compressed_history", _ctx_prefix)
+            except Exception as _e6b:
+                logger.debug("orchestrator.session_compress_error", error=str(_e6b))
+
+        # Phase 5f: WaveExecutor — tracks per-wave progress for SSE streaming.
+        # If on_wave_progress is provided (e.g. from /chat/stream endpoint),
+        # progress events are emitted as each wave starts/completes.
+        # WaveExecutor is used purely for progress tracking here — it doesn't
+        # replace asyncio.gather() because the waves already run in parallel
+        # within the existing pipeline.  The callback is stored on self so
+        # sub-methods (_stage1, _deep_graphrag, etc.) can call it directly.
+        self._wave_progress_cb = on_wave_progress
+        if on_wave_progress is not None:
+            from app.engine.wave_executor import WaveExecutor
+            self._wave_executor = WaveExecutor(on_progress=on_wave_progress)
+        else:
+            self._wave_executor = None
+
+        # Inject pre-fetched seller token from MARS into session_context so tools
+        # can use it for live Shiprocket API calls without a separate SSO login.
+        if seller_token:
+            if session_context is None:
+                session_context = {}
+            session_context["seller_token"] = seller_token
+            session_context["sso_token"] = seller_token
+            logger.info("orchestrator.seller_token_injected",
+                        company_id=cid, token_preview=seller_token[:8] + "...")
 
         # Cost tracking
         cost_record = self.cost_tracker.start_record(query, uid, cid)
@@ -392,16 +474,82 @@ class QueryOrchestrator:
         self._active_classification = result.request_classification
 
         # ===============================================================
+        # QUERY INTELLIGENCE LAYER (Claude-powered prompt optimization)
+        # Before waves execute, Claude analyzes the raw query and generates
+        # an enriched retrieval plan with: search terms, expected pillars,
+        # entity hints, and query mode. This gives waves precise instructions
+        # instead of relying on keyword matching.
+        # ===============================================================
+        query_intel = await self._enrich_query_with_claude(
+            query, result.request_classification, role, cid,
+        )
+        if query_intel:
+            # Store enriched query for downstream use
+            self._query_intel = query_intel
+            # Use enriched search query for retrieval if available
+            enriched_query = query_intel.get("search_query", query)
+            if enriched_query and len(enriched_query) > 5:
+                query = enriched_query
+                logger.info("orchestrator.query_enriched",
+                            original=query[:60], enriched=enriched_query[:60],
+                            entities=query_intel.get("entities", []),
+                            pillars=query_intel.get("target_pillars", []))
+
+        # ===============================================================
         # TIER 1: Brain (probe + deep + tools)
         # ===============================================================
         result.tiers_visited.append(1)
         tier1_start = time.monotonic()
 
-        # Stage 1a: Parallel Probe
+        # Phase 4e: W2 speculative prefetch — start Legs 3+4 immediately
+        # with the raw query in parallel with Wave 1 probes.
+        # Legs 3 (vector) and 4 (lexical) don't need Wave 1 intent/entity.
+        # When Wave 1 finishes we pass pre_vector_hits to skip re-embedding.
+        _prefetch_task: Optional[asyncio.Task] = None
+        if classification.complexity != QueryComplexity.QUICK:
+            _prefetch_task = asyncio.create_task(
+                self._prefetch_wave2_legs3_and_4(query, repo_id)
+            )
+
+        # Emit Wave 1 start progress
+        await self._emit_wave_progress(1, "wave1_scope_detect", "running",
+                                       {"query": query[:80]})
+
+        # Stage 1a: Parallel Probe (runs while prefetch is in flight)
         probe_results = await self._stage1_parallel_probe(
             query, user_id, repo_id, role, session_context
         )
         result.probe_latency_ms = (time.monotonic() - tier1_start) * 1000
+
+        # Emit Wave 1 done
+        await self._emit_wave_progress(1, "wave1_scope_detect", "completed",
+                                       {"latency_ms": round(result.probe_latency_ms, 1),
+                                        "intents": len(result.intents)})
+
+        # Collect prefetch results (almost always done by now — overlapped with W1)
+        _prefetch_hits: Optional[List[Dict]] = None
+        if _prefetch_task is not None:
+            try:
+                _prefetch_hits = await asyncio.wait_for(_prefetch_task, timeout=0.5)
+            except (asyncio.TimeoutError, Exception):
+                _prefetch_hits = None
+
+        # Inject prefetch hits into vector probe result so _deep_graphrag
+        # reuses them via pre_vector_hits (avoids re-embedding)
+        if _prefetch_hits:
+            vector_probe = probe_results.get(PipelineName.VECTOR)
+            if vector_probe and not (vector_probe.found_data and
+                                     vector_probe.data.get("chunks")):
+                if not vector_probe.data:
+                    vector_probe = ProbeResult(
+                        pipeline=PipelineName.VECTOR,
+                        found_data=bool(_prefetch_hits),
+                        data={"chunks": _prefetch_hits,
+                              "top_relevance": _prefetch_hits[0].get("score", 0.5)
+                              if _prefetch_hits else 0.0},
+                        latency_ms=vector_probe.latency_ms,
+                    )
+                    probe_results[PipelineName.VECTOR] = vector_probe
 
         for pr in probe_results.values():
             result.attributions.append(PipelineAttribution(
@@ -495,14 +643,18 @@ class QueryOrchestrator:
                 # Fall through to normal single-agent path
 
         # Stage 1b: Conditional Deep
+        # Quality override: force Wave 2 for admin/ICRM queries (quality > cost)
+        _admin_override = (role or "").lower() in ("admin", "icrm_admin", "operator", "support")
         deep_results = {}
         _effective_complex = (
-            classification.complexity == QueryComplexity.COMPLEX or _force_complex
+            classification.complexity == QueryComplexity.COMPLEX or _force_complex or _admin_override
         )
-        if classification.complexity == QueryComplexity.QUICK and not _force_complex:
+        if classification.complexity == QueryComplexity.QUICK and not _force_complex and not _admin_override:
             result.deep_latency_ms = 0.0
         else:
             deep_start = time.monotonic()
+            await self._emit_wave_progress(2, "wave2_deep_retrieval", "running",
+                                           {"complex": _effective_complex})
             if _effective_complex:
                 deep_decisions = {
                     PipelineName.GRAPH_RAG: {"fire": True, "reason": "COMPLEX"},
@@ -516,6 +668,8 @@ class QueryOrchestrator:
                 deep_decisions, probe_results, query, repo_id
             )
             result.deep_latency_ms = (time.monotonic() - deep_start) * 1000
+            await self._emit_wave_progress(2, "wave2_deep_retrieval", "completed",
+                                           {"latency_ms": round(result.deep_latency_ms, 1)})
 
             for pn, decision in deep_decisions.items():
                 if decision["fire"]:
@@ -527,7 +681,7 @@ class QueryOrchestrator:
                             contributed=dr.found_data, items_count=self._count_items(dr.data),
                         ))
 
-        result.context = self._merge_context(probe_results, deep_results)
+        result.context = await self._merge_context(probe_results, deep_results)
         result.tier1_context = dict(result.context)  # snapshot for carry-down
 
         # ===============================================================
@@ -536,7 +690,26 @@ class QueryOrchestrator:
         # about gaps, refine entities, and select tools iteratively.
         # Output feeds into Wave 4 as refined entity targets.
         # ===============================================================
-        if ws.wave3_langgraph_enabled:
+        # Auto-enable Wave 3 for ambiguous or action queries (low confidence, action intent)
+        _w3_auto = False
+        if not ws.wave3_langgraph_enabled:
+            cls_conf = classification.confidence if hasattr(classification, 'confidence') else (
+                (result.request_classification or {}).get("confidence", 1.0)
+            )
+            cls_domain = (result.request_classification or {}).get("domain", "")
+            _w3_auto = (
+                cls_conf < 0.6  # ambiguous query
+                or cls_domain in ("action", "process", "workflow", "troubleshoot")
+                or _admin_override
+            )
+            if _w3_auto:
+                logger.info("orchestrator.wave3_auto_enabled", reason="ambiguous_or_action",
+                            confidence=cls_conf, domain=cls_domain)
+
+        if ws.wave3_langgraph_enabled or _w3_auto:
+            await self._emit_wave_progress(3, "wave3_langgraph",
+                                           "running" if not ws.wave3_shadow_mode else "running_shadow",
+                                           {"shadow": ws.wave3_shadow_mode})
             try:
                 w3_result = await asyncio.wait_for(
                     self._stage3_langgraph(query, result.context, result.intents, ws),
@@ -544,6 +717,9 @@ class QueryOrchestrator:
                 )
                 if w3_result:
                     result.wave3_context = w3_result
+                    await self._emit_wave_progress(3, "wave3_langgraph", "completed",
+                                                   {"shadow": ws.wave3_shadow_mode,
+                                                    "confidence": w3_result.get("confidence", 0)})
                     if ws.wave3_shadow_mode:
                         # Shadow mode: log for comparison only, do NOT inject into context
                         logger.info("orchestrator.wave3_shadow",
@@ -561,12 +737,45 @@ class QueryOrchestrator:
                 logger.warning("orchestrator.wave3_failed", error=str(w3_err))
 
         # ===============================================================
+        # WAVE 3.5: Module-hint targeted vector search
+        # Uses module_hint from LangGraph enrichment to run a precise
+        # metadata-filtered vector search for module docs.
+        # Runs only when wave3 produced a module_hint and vectorstore available.
+        # This bypasses broken graph BFS when cross_links are empty.
+        # ===============================================================
+        _w3_ctx = result.wave3_context or {}
+        _module_hint = _w3_ctx.get("module_hint", "")
+        if _module_hint and self.vectorstore:
+            try:
+                _enriched_q = _w3_ctx.get("enriched_query", "") or query
+                _module_chunks = await asyncio.wait_for(
+                    self.vectorstore.search_similar(
+                        query=_enriched_q,
+                        limit=6,
+                        entity_type="module_doc",
+                        module=_module_hint,
+                        repo_id=repo_id,
+                        threshold=0.2,
+                    ),
+                    timeout=5.0,
+                )
+                if _module_chunks:
+                    result.context["module_chunks"] = _module_chunks
+                    logger.info("orchestrator.module_hint_search",
+                                module=_module_hint, hits=len(_module_chunks))
+            except Exception as _mh_err:
+                logger.warning("orchestrator.module_hint_search_failed", error=str(_mh_err))
+
+        # ===============================================================
         # WAVE 4: Neo4j targeted graph traversal
         # Runs independently after W3. Uses W3-refined entities for
         # targeted BFS (not keyword search) — much more precise.
         # Falls back silently if Neo4j is unavailable.
         # ===============================================================
         if ws.wave4_neo4j_enabled:
+            await self._emit_wave_progress(4, "wave4_neo4j",
+                                           "running" if not ws.wave4_shadow_mode else "running_shadow",
+                                           {"shadow": ws.wave4_shadow_mode})
             try:
                 w4_result = await asyncio.wait_for(
                     self._stage4_neo4j(query, result.context, ws),
@@ -574,6 +783,9 @@ class QueryOrchestrator:
                 )
                 if w4_result:
                     result.wave4_context = w4_result
+                    await self._emit_wave_progress(4, "wave4_neo4j", "completed",
+                                                   {"shadow": ws.wave4_shadow_mode,
+                                                    "paths": w4_result.get("path_count", 0)})
                     if ws.wave4_shadow_mode:
                         # Shadow mode: log for comparison only, do NOT inject into context
                         logger.info("orchestrator.wave4_shadow",
@@ -659,7 +871,7 @@ class QueryOrchestrator:
                     retry_probes = await self._stage1_parallel_probe(
                         code_ctx.refined_query, user_id, repo_id, role, session_context
                     )
-                    retry_context = self._merge_context(retry_probes, {})
+                    retry_context = await self._merge_context(retry_probes, {})
                     # CARRY DOWN: merge Tier 1 + Tier 2 contexts
                     result.context.update(retry_context)
                     result.context["code_intelligence"] = result.tier2_context
@@ -825,6 +1037,50 @@ class QueryOrchestrator:
         # Cache DISABLED — every query runs fresh
         # Re-enable when scale requires it (>10K queries/day)
 
+        # ── Grounding Verification: Check factual claims against evidence ──
+        # Runs on the final response before returning to user.
+        try:
+            response_text = ""
+            if isinstance(result.context, dict):
+                response_text = result.context.get("content", "") or result.context.get("response", "") or ""
+            if response_text and len(response_text) > 50:
+                from app.engine.grounding import GroundingVerifier
+                verifier = GroundingVerifier()
+                chunks = result.context.get("knowledge_chunks", []) if isinstance(result.context, dict) else []
+                grounding_result = await verifier.verify(response_text, chunks)
+                if result.response_metadata is None:
+                    result.response_metadata = {}
+                result.response_metadata["grounding"] = {
+                    "score": grounding_result.grounding_score,
+                    "verified_claims": grounding_result.verified_claims,
+                    "unverified_claims": grounding_result.unverified_claims,
+                    "total_claims": grounding_result.total_claims,
+                    "sources": grounding_result.sources_used,
+                }
+                # If grounding score is low, add disclaimer to context
+                if grounding_result.grounding_score < 0.5 and grounding_result.total_claims > 0:
+                    result.response_metadata["low_grounding_warning"] = True
+        except Exception as e:
+            logger.debug("orchestrator.grounding_failed", error=str(e))
+
+        # ── Learning Memory: Record interaction for future improvement ──
+        try:
+            from app.engine.learning_memory import LearningMemory
+            memory = LearningMemory()
+            tools_used_names = [a.pipeline for a in result.attributions if a.contributed]
+            domain = ""
+            if result.intents:
+                domain = result.intents[0].get("domain", "") if isinstance(result.intents[0], dict) else ""
+            await memory.record_interaction(
+                operator_id=uid,
+                query=query[:500],
+                response=str(result.context.get("content", ""))[:500] if isinstance(result.context, dict) else "",
+                tools_used=tools_used_names,
+                domain=domain,
+            )
+        except Exception as e:
+            logger.debug("orchestrator.learning_memory_failed", error=str(e))
+
         logger.info(
             "orchestrator.complete",
             query=query[:60],
@@ -982,6 +1238,18 @@ class QueryOrchestrator:
                     reason="vectorstore not available",
                 )
 
+            # Detect query mode for retrieval routing
+            query_mode = self._detect_query_mode(query)
+
+            # Use Claude Query Intelligence hints if available
+            _intel = getattr(self, '_query_intel', None) or {}
+            if _intel.get("intent"):
+                query_mode = _intel["intent"]  # Claude's intent overrides keyword detection
+            target_pillar = None
+            if _intel.get("target_pillars"):
+                # Use first target pillar as primary filter
+                target_pillar = _intel["target_pillars"][0]
+
             # Use scoped retrieval if agent is identified, else global search
             agent = None
             try:
@@ -993,17 +1261,35 @@ class QueryOrchestrator:
                 pass
 
             if agent and self.scoped_retrieval:
+                # Pass capability based on query mode
+                cap = {"act": "action", "diagnose": "workflow"}.get(query_mode)
                 results = await self.scoped_retrieval.search_for_agent(
                     query=query, agent=agent, limit=5,
-                    threshold=0.3, repo_id=repo_id,
+                    threshold=0.3, repo_id=repo_id, capability=cap,
                 )
             else:
+                # G4+G5 fix: lower threshold for act/diagnose (P6/P7 embeddings are newer, lower base scores)
+                # Don't use query_mode filter exclusively — also do a fallback unfiltered search
+                _threshold = 0.25 if query_mode in ("act", "diagnose") else 0.3
                 results = await self.vectorstore.search_similar(
                     query=query,
                     limit=5,
                     repo_id=repo_id,
-                    threshold=0.3,
+                    threshold=_threshold,
+                    query_mode=query_mode if query_mode not in ("lookup", None) else None,
+                    pillar=target_pillar,
                 )
+
+                # G4 fix: if filtered search returned <3 results, do unfiltered fallback
+                if len(results) < 3:
+                    fallback = await self.vectorstore.search_similar(
+                        query=query, limit=5, repo_id=repo_id, threshold=_threshold,
+                    )
+                    seen = {r.get("entity_id") for r in results}
+                    for fb in fallback:
+                        if fb.get("entity_id") not in seen:
+                            results.append(fb)
+                            seen.add(fb.get("entity_id"))
 
             found = len(results) > 0
             top_score = results[0]["similarity"] if found else 0.0
@@ -1190,6 +1476,40 @@ class QueryOrchestrator:
             )
 
     # ===================================================================
+    # Phase 5f: Wave progress emission helper
+    # ===================================================================
+
+    async def _emit_wave_progress(
+        self,
+        wave_id: int,
+        task_id: str,
+        status: str,
+        data: Optional[Dict] = None,
+    ) -> None:
+        """Emit a progress event via the on_wave_progress callback if registered.
+
+        Called at each wave start/completion so the SSE endpoint can stream
+        real-time progress to the client.  Also records to the active OTEL span
+        if tracing is configured.  Fails silently — progress errors must never
+        block the main query pipeline.
+        """
+        # Phase 6d: record wave event to active OTEL span
+        try:
+            from app.monitoring.otel_tracing import record_wave_event
+            _active_span = getattr(self, "_active_otel_span", None)
+            record_wave_event(_active_span, wave_id, task_id, status, data)
+        except Exception:
+            pass
+
+        if self._wave_progress_cb is None:
+            return
+        try:
+            await self._wave_progress_cb(wave_id, task_id, status, data or {})
+        except Exception as _prog_err:
+            logger.debug("orchestrator.wave_progress_error",
+                         wave=wave_id, task=task_id, error=str(_prog_err))
+
+    # ===================================================================
     # Stage 2: Conditional Deepening Router + Execution
     # ===================================================================
 
@@ -1371,7 +1691,7 @@ class QueryOrchestrator:
 
             # Phase 2: Neighbor chunk expansion (sibling evidence from same parent_doc_id)
             # Pass pre_vector_hits as the primary source — they carry full metadata
-            # JSONB (parent_doc_id + chunk_index) regardless of whether the hit resolved
+            # JSON (parent_doc_id + chunk_index) regardless of whether the hit resolved
             # to a real graph node or a proxy node.
             neighbor_chunks = []
             try:
@@ -1391,7 +1711,8 @@ class QueryOrchestrator:
             module_context = await self._unify_module_docs(retrieval)
 
             # Assemble token-budgeted context with Phase 2 extras
-            assembler = ContextAssembler(max_tokens=2000)
+            max_ctx = getattr(self._active_ws, 'max_context_tokens', 8000) if self._active_ws else 8000
+            assembler = ContextAssembler(max_tokens=max_ctx)
             ctx = assembler.assemble_with_extras(
                 retrieval,
                 neighbor_chunks=neighbor_chunks,
@@ -1457,6 +1778,35 @@ class QueryOrchestrator:
                 latency_ms=(time.monotonic() - t0) * 1000,
                 error=str(e),
             )
+
+    async def _prefetch_wave2_legs3_and_4(
+        self, query: str, repo_id: Optional[str]
+    ) -> List[Dict]:
+        """Phase 4e: Speculative prefetch — run vector + lexical search immediately.
+
+        Starts before Wave 1 finishes. Returns raw vector hits so _deep_graphrag
+        can pass them as pre_vector_hits to HybridRetriever (skips re-embedding).
+
+        Only Legs 3 (vector similarity) and 4 (lexical GIN) are run here because:
+          - Leg 1 needs entity_id from Wave 1 (exact lookup)
+          - Leg 2 needs intent from Wave 1 (graph neighborhood seeding)
+          - Legs 3+4 only need the raw query text → can start immediately
+
+        Savings: ~80–100ms per request (the vector embedding call overlaps
+        entirely with the ~100ms Wave 1 probe execution).
+        """
+        try:
+            if self.vectorstore is None:
+                return []
+            hits = await self.vectorstore.search(
+                query=query,
+                top_k=10,
+                repo_id=repo_id,
+            )
+            return hits or []
+        except Exception as exc:
+            logger.debug("orchestrator.prefetch_failed", error=str(exc))
+            return []
 
     async def _unify_module_docs(self, retrieval) -> Dict[str, Any]:
         """Phase 2: Merge module_doc vector hits with graph module node context.
@@ -1627,7 +1977,7 @@ class QueryOrchestrator:
     # Stage 3: Context Merger
     # ===================================================================
 
-    def _merge_context(
+    async def _merge_context(
         self,
         probes: Dict[PipelineName, ProbeResult],
         deeps: Dict[PipelineName, DeepResult],
@@ -1645,10 +1995,46 @@ class QueryOrchestrator:
         if entity_probe and entity_probe.data:
             ctx["entity"] = entity_probe.data
 
-        # Vector chunks
+        # Vector chunks — enrich with source attribution for factuality
         vector_probe = probes.get(PipelineName.VECTOR)
         if vector_probe and vector_probe.found_data:
-            ctx["knowledge_chunks"] = vector_probe.data.get("chunks", [])
+            chunks = vector_probe.data.get("chunks", [])
+            # Add source attribution prefix to each chunk's content
+            for chunk in chunks:
+                if isinstance(chunk, dict) and "content" in chunk:
+                    meta = chunk.get("metadata", {}) or {}
+                    source_id = chunk.get("entity_id", "unknown")
+                    pillar = meta.get("pillar", "")
+                    trust = chunk.get("trust_score", 0.5)
+                    chunk["_source_label"] = f"[{pillar}:{source_id} trust={trust:.1f}]"
+            # Parent-child chunking: if a child chunk matches, include parent for broader context
+            # e.g., if "table:orders:states_constants" matches, also include "table:orders:identity_core"
+            parent_ids_to_fetch = set()
+            seen_ids = {c.get("entity_id", "") for c in chunks if isinstance(c, dict)}
+            for chunk in chunks:
+                if isinstance(chunk, dict):
+                    meta = chunk.get("metadata", {}) or {}
+                    parent_id = meta.get("parent_doc_id", "")
+                    if parent_id and parent_id not in seen_ids:
+                        parent_ids_to_fetch.add(parent_id)
+
+            if parent_ids_to_fetch and self.vectorstore:
+                try:
+                    for pid in list(parent_ids_to_fetch)[:3]:  # Max 3 parents
+                        # Search by entity_id to find parent chunk
+                        parent_results = await self.vectorstore.search_similar(
+                            query=pid, limit=1, threshold=0.0,
+                        )
+                        for pr in parent_results:
+                            if pr.get("entity_id") and pr["entity_id"] not in seen_ids:
+                                pr["_source_label"] = f"[parent:{pr.get('entity_id','')}]"
+                                pr["_is_parent_context"] = True
+                                chunks.append(pr)
+                                seen_ids.add(pr["entity_id"])
+                except Exception:
+                    pass  # Parent fetch is best-effort
+
+            ctx["knowledge_chunks"] = chunks
 
         # Page-role + field traces
         page_probe = probes.get(PipelineName.PAGE_ROLE)
@@ -1687,6 +2073,26 @@ class QueryOrchestrator:
         if session_deep and session_deep.found_data:
             ctx["session_history"] = session_deep.data
 
+        # ── Process Engine: Add business process lifecycle context ──
+        # If we resolved an entity with a status, tell Claude where it is in the lifecycle.
+        try:
+            from app.engine.process_engine import ProcessEngine
+            pe = ProcessEngine()
+            entity_data = ctx.get("entity", {})
+            status = None
+            if isinstance(entity_data, dict):
+                status = entity_data.get("status") or entity_data.get("current_status")
+            if status:
+                process_context = pe.get_context_for_llm(str(status))
+                if process_context:
+                    ctx["process_position"] = process_context
+                    position = pe.get_process_position(str(status))
+                    if position:
+                        ctx["valid_actions"] = position.valid_actions
+                        ctx["risk_factors"] = position.risk_factors
+        except Exception as e:
+            logger.debug("orchestrator.process_engine_failed", error=str(e))
+
         return ctx
 
     # ===================================================================
@@ -1718,11 +2124,23 @@ class QueryOrchestrator:
         """
         from app.graph.langgraph_pipeline import build_wave_pipeline, WaveState
 
-        # Build the pipeline (auto-detects langgraph vs fallback)
+        # Build (or retrieve cached) pipeline — compiled once per process
+        _llm = getattr(self.react_engine, "llm", None) if self.react_engine else None
+        # Get Neo4j service for combined LangGraph+Neo4j retrieval
+        _neo4j = None
+        try:
+            from app.services.neo4j_graph import neo4j_graph_service
+            if neo4j_graph_service.available:
+                _neo4j = neo4j_graph_service
+        except Exception:
+            pass
+
         pipeline = build_wave_pipeline(
             vectorstore=self.vectorstore,
             graphrag=self.graphrag,
             react_engine=self.react_engine,
+            llm_client=_llm,
+            neo4j_service=_neo4j,
             confidence_threshold=ws.wave1_confidence_threshold,
         )
 
@@ -1744,30 +2162,80 @@ class QueryOrchestrator:
                     "value": str(intent["entity_id"]),
                 })
 
+        # Extract structured KB data from merged_context for W3
+        chunks = merged_context.get("knowledge_chunks", [])
+        p6_actions = [c for c in chunks if isinstance(c, dict) and
+                      (c.get("metadata", {}) or {}).get("pillar") == "pillar_6"]
+        p7_workflows = [c for c in chunks if isinstance(c, dict) and
+                        (c.get("metadata", {}) or {}).get("pillar") == "pillar_7"]
+        field_traces = merged_context.get("field_traces", [])
+        page_ctx = merged_context.get("page_context", {})
+        graph_traversal = merged_context.get("graph_traversal", {})
+        neighbor_chunks = merged_context.get("neighbor_chunks", [])
+
+        # Build graph_hits from W2 graph traversal (was previously empty)
+        graph_hits = []
+        if isinstance(graph_traversal, dict):
+            for node in graph_traversal.get("nodes", [])[:10]:
+                if isinstance(node, dict):
+                    graph_hits.append({
+                        "node_id": node.get("id", ""),
+                        "label": node.get("label", ""),
+                        "node_type": node.get("node_type", ""),
+                        "depth": node.get("depth", 0),
+                    })
+
         initial_state: WaveState = {
             "query": query,
+            "raw_query": query,          # enrichment node will overwrite query; raw preserved here
+            "enriched_query": "",
+            "intent_keywords": [],
+            "api_hint": "",
+            "module_hint": "",
+            "enrichment_latency_ms": 0.0,
             "user_id": "",
             "session_id": getattr(self, "_current_session_id", ""),
             "confidence_threshold": ws.wave1_confidence_threshold,
             # Pre-populate from W1+W2 so Wave 3 knows what we already have
             "vector_hits": [
                 {"doc_id": c.get("id", ""), "content": c.get("content", ""), "score": c.get("similarity", 0.5)}
-                for c in merged_context.get("knowledge_chunks", [])[:5]
+                for c in chunks[:5]
             ],
-            "graph_hits": [],
+            "graph_hits": graph_hits,
             "entity_hit": entity_data if entity_data else None,
             "wave1_confidence": 0.5,  # start fresh — W3 re-evaluates
             "wave2_triggered": False,
             "pipeline_backend": "langgraph-wave3",
             "embedding_model": "auto",
+            # Structured KB context from P4/P6/P7
+            "action_contracts": [
+                {"action_id": c.get("entity_id", ""), "content": c.get("content", ""),
+                 "domain": (c.get("metadata", {}) or {}).get("domain", "")}
+                for c in p6_actions[:5]
+            ],
+            "workflow_states": [
+                {"workflow_id": c.get("entity_id", ""), "content": c.get("content", ""),
+                 "domain": (c.get("metadata", {}) or {}).get("domain", "")}
+                for c in p7_workflows[:5]
+            ],
+            "field_traces": field_traces[:10] if isinstance(field_traces, list) else [],
+            "page_context": page_ctx if isinstance(page_ctx, dict) else None,
+            "neighbor_chunks": [
+                {"content": nc.get("content", "")[:200], "entity_type": nc.get("entity_type", "")}
+                for nc in (neighbor_chunks[:5] if isinstance(neighbor_chunks, list) else [])
+            ],
+            "assembled_context_text": "",  # populated below if ContextAssembler available
         }
 
         # Run pipeline (langgraph or fallback)
+        # thread_id = session_id so MemorySaver keyed per conversation turn
+        _session_id = getattr(self, "_current_session_id", "") or ""
+        _config = {"configurable": {"thread_id": _session_id}} if _session_id else {}
         try:
             if hasattr(pipeline, "ainvoke"):
-                final_state = await pipeline.ainvoke(initial_state)
+                final_state = await pipeline.ainvoke(initial_state, config=_config)
             else:
-                final_state = await pipeline(initial_state)
+                final_state = await pipeline(initial_state, config=_config)
         except Exception as exc:
             logger.warning("wave3._pipeline_invoke_failed", error=str(exc))
             return {}
@@ -1779,6 +2247,12 @@ class QueryOrchestrator:
             if tool_name and not any(e.get("value") == tool_name for e in refined_entities):
                 refined_entities.append({"type": "tool", "value": tool_name})
 
+        # Extract matched action/workflow IDs from W3 state
+        matched_actions = [a.get("action_id", "") for a in final_state.get("action_contracts", [])
+                           if a.get("action_id")]
+        matched_workflows = [w.get("workflow_id", "") for w in final_state.get("workflow_states", [])
+                             if w.get("workflow_id")]
+
         return {
             "refined_entities": refined_entities,
             "tool_plan": [h.get("tool_name") for h in final_state.get("final_hits", []) if h.get("tool_name")],
@@ -1787,6 +2261,15 @@ class QueryOrchestrator:
             "wave2_triggered": final_state.get("wave2_triggered", False),
             "total_latency_ms": final_state.get("total_latency_ms", 0.0),
             "additional_chunks": final_state.get("vector_hits", []),
+            "matched_actions": matched_actions,
+            "matched_workflows": matched_workflows,
+            "vector_hits_provided": len(initial_state.get("vector_hits", [])),
+            # Enrichment signals — visible in wave_trace for debugging
+            "enriched_query": final_state.get("enriched_query", ""),
+            "intent_keywords": final_state.get("intent_keywords", []),
+            "api_hint": final_state.get("api_hint", ""),
+            "module_hint": final_state.get("module_hint", ""),
+            "enrichment_latency_ms": final_state.get("enrichment_latency_ms", 0.0),
         }
 
     # =========================================================================
@@ -1912,6 +2395,223 @@ class QueryOrchestrator:
             "relationship_context": relationship_context,
             "source": "neo4j_wave4",
         }
+
+    # Common Hinglish → English mappings for ICRM queries
+    _HINGLISH_MAP = {
+        # Actions
+        "karo": "do", "kar do": "do", "karna hai": "need to", "karna": "do",
+        "bhejo": "send", "batao": "tell", "dikhao": "show", "nikalo": "extract",
+        "chala do": "run", "rok do": "stop", "badlo": "change", "hatao": "remove",
+        # Questions
+        "kya hai": "what is", "kahan hai": "where is", "kab": "when",
+        "kyun": "why", "kyu": "why", "kaise": "how", "kitna": "how much",
+        "kaun": "who", "konsa": "which",
+        # Entities
+        "mera": "my", "mere": "my", "is": "this", "yeh": "this", "woh": "that",
+        "paisa": "money", "payment": "payment",
+        # Status
+        "nahi hua": "not done", "nahi ho raha": "not working", "ho gaya": "completed",
+        "stuck hai": "is stuck", "pending hai": "is pending",
+        # Domain
+        "courier wala": "courier agent", "delivery boy": "delivery agent",
+        "pickup": "pickup", "shipment": "shipment",
+        # COD
+        "COD ka paisa": "COD remittance", "COD remit": "COD remittance",
+    }
+
+    async def _enrich_query_with_claude(
+        self, query: str, classification: Dict, role: Optional[str], company_id: str,
+    ) -> Optional[Dict]:
+        """Claude-powered Query Intelligence Layer.
+
+        Before waves execute, Claude analyzes the raw query and generates
+        an optimized retrieval plan. This transforms vague user queries into
+        precise search instructions for each wave.
+
+        Example:
+          Input:  "I placed my order on 15 March but still not picked up"
+          Output: {
+            "search_query": "order pickup status not scheduled delayed",
+            "entities": [{"type": "date", "value": "2026-03-15"}],
+            "intent": "diagnose",
+            "target_pillars": ["pillar_7", "pillar_6", "pillar_1"],
+            "expected_docs": ["workflow.pickup", "action.schedule_pickup", "table:orders"],
+            "complexity": "medium",
+            "follow_up_needed": false
+          }
+
+        Cost: ~$0.001 per query (150 input + 100 output tokens via Claude Haiku)
+        Latency: ~200ms (runs before Wave 1, but saves time by making retrieval precise)
+        """
+        try:
+            import httpx
+            import json
+
+            api_key = os.environ.get("AIGATEWAY_API_KEY", "")
+            api_url = os.environ.get("AIGATEWAY_URL", "https://aigateway.shiprocket.in")
+            if not api_key:
+                return None
+
+            domain = classification.get("domain", "unknown")
+            mode = classification.get("mode", "lookup")
+
+            prompt = f"""You are a query optimizer for Shiprocket's ICRM copilot. Analyze this user query and produce a JSON retrieval plan.
+
+User query: "{query}"
+Detected domain: {domain}
+User role: {role or "operator"}
+Company: {company_id or "unknown"}
+
+Your job: Convert this query into optimized search instructions.
+
+Return ONLY valid JSON with these fields:
+{{
+  "search_query": "optimized search text for vector retrieval (remove filler words, add synonyms)",
+  "entities": [{{"type": "order_id|awb|company_id|phone|date", "value": "extracted value"}}],
+  "intent": "lookup|diagnose|act|explain",
+  "target_pillars": ["pillar_1|pillar_3|pillar_4|pillar_6|pillar_7|entity_hub"],
+  "expected_docs": ["table:orders", "action.orders.create_order", "workflow.shipments.pickup"],
+  "complexity": "simple|medium|complex",
+  "follow_up_needed": false
+}}
+
+Rules:
+- search_query should be 5-15 words, focused, no filler
+- entities: extract ALL specific IDs (order numbers, AWB, dates, phone numbers)
+- target_pillars: which KB pillars are most likely to have the answer
+- expected_docs: specific doc IDs that would answer this query
+- If the query is ambiguous, set follow_up_needed: true"""
+
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.post(
+                    f"{api_url}/api/v1/chat/completion",
+                    headers={"x-api-key": api_key, "Content-Type": "application/json"},
+                    json={
+                        "model": "claude-haiku-4-5-20251001",
+                        "provider": "anthropic",
+                        "project_key": "cosmos",
+                        "user_prompt": prompt,
+                        "max_tokens": 200,
+                        "temperature": 0.0,
+                    },
+                )
+
+                if resp.status_code != 200:
+                    return None
+
+                data = resp.json()
+                output = data.get("data", {}).get("output", {}).get("summary", "")
+                if not output:
+                    # Try alternate response format
+                    choices = data.get("choices", [])
+                    if choices:
+                        output = choices[0].get("message", {}).get("content", "")
+
+                if not output:
+                    return None
+
+                # Parse JSON from response
+                # Handle cases where Claude wraps in ```json
+                output = output.strip()
+                if output.startswith("```"):
+                    output = output.split("\n", 1)[-1].rsplit("```", 1)[0]
+
+                return json.loads(output)
+
+        except Exception as e:
+            logger.debug("orchestrator.query_intel_failed", error=str(e))
+            return None
+
+    @staticmethod
+    def _decompose_query(query: str) -> List[str]:
+        """Decompose multi-part queries into sub-queries for separate retrieval.
+
+        "Show me order status AND billing details" → ["order status", "billing details"]
+        "cancel karo aur refund bhi" → ["cancel karo", "refund bhi"]
+
+        Single-part queries return [original_query].
+        """
+        q = query.lower()
+
+        # Split on conjunctions
+        conjunctions = [" and ", " aur ", " also ", " bhi ", " plus ", " along with ", " as well as "]
+        parts = [query]
+        for conj in conjunctions:
+            new_parts = []
+            for part in parts:
+                if conj in part.lower():
+                    splits = part.lower().split(conj)
+                    # Reconstruct with original case approximately
+                    idx = 0
+                    for s in splits:
+                        s = s.strip()
+                        if s and len(s) > 3:  # Skip tiny fragments
+                            new_parts.append(s)
+                else:
+                    new_parts.append(part)
+            parts = new_parts
+
+        # Clean and filter
+        result = [p.strip() for p in parts if len(p.strip()) > 5]
+
+        # Max 3 sub-queries to prevent explosion
+        return result[:3] if result else [query]
+
+    @classmethod
+    def _normalize_hinglish(cls, query: str) -> str:
+        """Normalize Hinglish queries to English for better intent matching.
+
+        This is a lightweight keyword replacement (no LLM call).
+        Full Claude-based normalization should happen at LIME/MARS layer
+        before reaching COSMOS using a system prompt like:
+          'Convert the following Hinglish text to clean English,
+           preserving all entity IDs (order numbers, AWB, etc.)'
+        """
+        normalized = query
+        # Sort by length descending to replace longer phrases first
+        for hindi, english in sorted(cls._HINGLISH_MAP.items(), key=lambda x: -len(x[0])):
+            if hindi in normalized.lower():
+                # Case-insensitive replacement preserving original case
+                import re
+                normalized = re.sub(re.escape(hindi), english, normalized, flags=re.IGNORECASE)
+        return normalized
+
+    @staticmethod
+    def _detect_query_mode(query: str) -> str:
+        """Detect query mode from natural language for retrieval routing.
+
+        Modes:
+          lookup  — "what is X?", "find X", "show me X"
+          diagnose — "why did X?", "what went wrong?", "stuck", "failed"
+          act     — "cancel X", "update X", "trigger X", "do X"
+          explain — "how does X work?", "what happens if?"
+        """
+        q = query.lower()
+
+        # Act: imperative action queries
+        act_signals = ["cancel", "update", "trigger", "process", "schedule", "assign",
+                       "reschedule", "refund", "send", "mark", "approve", "reject",
+                       "create", "delete", "karo", "chala do", "kar do", "bhejo"]
+        if any(s in q for s in act_signals):
+            return "act"
+
+        # Diagnose: causal/investigation queries
+        diag_signals = ["why", "stuck", "failed", "error", "wrong", "not working",
+                        "issue", "problem", "kyun", "kyu", "nahi ho raha",
+                        "what happened", "what went wrong", "diagnose", "investigate",
+                        "reason", "root cause", "status mismatch"]
+        if any(s in q for s in diag_signals):
+            return "diagnose"
+
+        # Explain: how/what-if queries
+        explain_signals = ["how does", "how do", "what happens if", "what will happen",
+                           "explain", "kaise", "kya hoga", "flow", "lifecycle",
+                           "process of", "steps for"]
+        if any(s in q for s in explain_signals):
+            return "explain"
+
+        # Default: lookup
+        return "lookup"
 
     @staticmethod
     def _count_items(data: Any) -> int:

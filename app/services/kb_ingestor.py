@@ -21,10 +21,11 @@ Also handles:
   - Registry files → entity_def, intent_def, agent_def, etc.
 """
 
+import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 
@@ -36,6 +37,116 @@ class KBIngestor:
 
     def __init__(self, kb_path: str):
         self.kb_path = Path(kb_path)
+
+    # ------------------------------------------------------------------
+    # Manifest integrity helpers
+    # ------------------------------------------------------------------
+
+    _MANIFEST_FILENAME = ".cosmos_manifest.json"
+
+    def _compute_manifest(self, directory: str) -> Dict[str, str]:
+        """Compute SHA-256 checksums for all .yaml/.yml files in directory.
+
+        Returns:
+            {filename: sha256_hex} mapping (filenames are relative to directory).
+        """
+        manifest: Dict[str, str] = {}
+        base = Path(directory)
+        for ext in ("*.yaml", "*.yml"):
+            for path in sorted(base.rglob(ext)):
+                try:
+                    data = path.read_bytes()
+                    digest = hashlib.sha256(data).hexdigest()
+                    rel = str(path.relative_to(base))
+                    manifest[rel] = digest
+                except OSError as exc:
+                    logger.warning(
+                        "kb_ingestor.manifest.read_error",
+                        path=str(path),
+                        error=str(exc),
+                    )
+        return manifest
+
+    def _verify_manifest(
+        self, directory: str, manifest: Dict[str, str]
+    ) -> List[str]:
+        """Compare current files against a previously computed manifest.
+
+        Returns:
+            List of change descriptions (changed, new, or missing files).
+            Empty list means everything matches.
+        """
+        current = self._compute_manifest(directory)
+        changes: List[str] = []
+
+        for filename, saved_hash in manifest.items():
+            current_hash = current.get(filename)
+            if current_hash is None:
+                changes.append(f"MISSING: {filename}")
+            elif current_hash != saved_hash:
+                changes.append(f"CHANGED: {filename}")
+
+        for filename in current:
+            if filename not in manifest:
+                changes.append(f"NEW: {filename}")
+
+        return changes
+
+    def save_manifest(self, directory: str) -> Dict[str, str]:
+        """Compute checksums and persist them to {directory}/.cosmos_manifest.json.
+
+        Returns:
+            The manifest dict that was saved.
+        """
+        manifest = self._compute_manifest(directory)
+        manifest_path = Path(directory) / self._MANIFEST_FILENAME
+        try:
+            manifest_path.write_text(json.dumps(manifest, indent=2))
+            logger.info(
+                "kb_ingestor.manifest.saved",
+                directory=directory,
+                files=len(manifest),
+            )
+        except OSError as exc:
+            logger.warning(
+                "kb_ingestor.manifest.save_error",
+                directory=directory,
+                error=str(exc),
+            )
+        return manifest
+
+    def verify_against_saved_manifest(
+        self, directory: str
+    ) -> Tuple[bool, List[str]]:
+        """Load the saved manifest and verify current files against it.
+
+        Returns:
+            (True, [])           — all files match the saved manifest.
+            (False, [changes])   — list of CHANGED/NEW/MISSING entries.
+            (True, [])           — no manifest found (treated as clean first run).
+        """
+        manifest_path = Path(directory) / self._MANIFEST_FILENAME
+        if not manifest_path.exists():
+            logger.info(
+                "kb_ingestor.manifest.not_found",
+                directory=directory,
+            )
+            return True, []
+
+        try:
+            saved: Dict[str, str] = json.loads(manifest_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "kb_ingestor.manifest.load_error",
+                directory=directory,
+                error=str(exc),
+            )
+            return True, []
+
+        changes = self._verify_manifest(directory, saved)
+        if changes:
+            return False, changes
+        return True, []
 
     # ------------------------------------------------------------------
     # Pillar 1 — Schema tables
@@ -62,19 +173,24 @@ class KBIngestor:
             table_name = table_dir.name
             high_dir = table_dir / "high"
 
-            if high_dir.is_dir():
-                # Preferred: read chunk files from high/ folder
-                chunk_docs = self._read_high_folder(high_dir, table_name, repo_id, "schema")
-                docs.extend(chunk_docs)
-            else:
-                # Fallback: single high.yaml
-                high = self._read_yaml(table_dir / "high.yaml")
+            # Prefer high.yaml (merged) over high/ dir. Skip stubs.
+            high_yaml = table_dir / "high.yaml"
+            if high_yaml.exists():
+                high = self._read_yaml(high_yaml)
                 if high:
+                    if high.get("_status") == "stub" or high.get("_tier") == "stub":
+                        continue  # Skip stub files entirely
                     doc = self._build_table_doc_from_high(table_name, repo_id, high)
                 else:
-                    doc = self._build_table_doc_from_files(table_dir, table_name, repo_id)
-                if doc:
-                    docs.append(doc)
+                    doc = None
+            elif high_dir.is_dir():
+                chunk_docs = self._read_high_folder(high_dir, table_name, repo_id, "schema")
+                docs.extend(chunk_docs)
+                continue
+            else:
+                doc = self._build_table_doc_from_files(table_dir, table_name, repo_id)
+            if doc:
+                docs.append(doc)
 
         logger.info("kb_ingestor.pillar1_read", repo=repo_id, tables=len(docs))
         return docs
@@ -96,7 +212,7 @@ class KBIngestor:
         Each file becomes a separate embedding doc with entity_id suffixed
         by the chunk name (e.g., table:orders:identity, table:orders:states).
         Adds typed metadata (chunk_type, parent_doc_id, section, pillar, chunk_index)
-        to the metadata JSONB for post-retrieval filtering.
+        to the metadata JSON for post-retrieval filtering.
         """
         docs = []
         is_api = entity_type == "api_tool"
@@ -111,9 +227,8 @@ class KBIngestor:
                 continue
 
             chunk_name = yf.stem
-            content = str(data)[:3600]  # cap at ideal embedding size
 
-            if len(content) < 30:
+            if len(str(data)) < 30:
                 continue
 
             # Determine typed chunk_type
@@ -121,6 +236,57 @@ class KBIngestor:
                 chunk_type = self._P3_CHUNK_TYPE_MAP.get(chunk_name, "api_doc")
             else:
                 chunk_type = f"schema_{chunk_name}"
+
+            # Phase 4a: split examples.yaml into one chunk per param_extraction_pair
+            # One blob scores ~0.70 similarity; one chunk per pair scores ~0.95
+            if is_api and chunk_name == "examples" and isinstance(data, dict):
+                pairs = data.get("param_extraction_pairs", [])
+                if pairs:
+                    for pair_idx, pair in enumerate(pairs):
+                        if not isinstance(pair, dict):
+                            continue
+                        input_text = pair.get("input", pair.get("query", ""))
+                        expected_tool = pair.get("expected_tool", pair.get("tool", ""))
+                        entity_type_val = pair.get("entity_type", "")
+                        entity_val = pair.get("entity_value", "")
+                        params = pair.get("params", {})
+
+                        if not input_text:
+                            continue
+
+                        parts = [f"Example: {input_text}"]
+                        if expected_tool:
+                            parts.append(f"tool: {expected_tool}")
+                        if entity_type_val:
+                            parts.append(f"entity_type: {entity_type_val}")
+                        if entity_val:
+                            parts.append(f"entity_value: {entity_val}")
+                        if params:
+                            parts.append(f"params: {params}")
+                        pair_content = " | ".join(parts)
+
+                        docs.append({
+                            "entity_type": entity_type,
+                            "entity_id": f"{entity_prefix}:{entity_name}:example:{pair_idx}",
+                            "content": f"[{entity_name}:example:{pair_idx}] {pair_content}",
+                            "repo_id": repo_id,
+                            "capability": "retrieval",
+                            "trust_score": 0.85,  # examples are highly reliable signal
+                            "metadata": {
+                                "entity_name": entity_name,
+                                "chunk_type": "api_example",
+                                "section": "examples",
+                                "parent_doc_id": parent_doc_id,
+                                "chunk_index": chunk_index * 1000 + pair_idx,  # stable ordering
+                                "pillar": pillar,
+                                "source": "high_folder",
+                                "expected_tool": expected_tool,
+                                "entity_type_val": entity_type_val,
+                            },
+                        })
+                    continue  # skip the blob — per-pair chunks replace it
+
+            content = self._render_chunk(data, chunk_name, entity_name, is_api)
 
             docs.append({
                 "entity_type": entity_type,
@@ -438,42 +604,77 @@ class KBIngestor:
                 if not api_dir.is_dir():
                     continue
 
-                high_dir = api_dir / "high"
-                if high_dir.is_dir():
-                    chunk_docs = self._read_high_folder(high_dir, api_dir.name, repo_id, "api_tool")
-                    docs.extend(chunk_docs)
-                else:
-                    high = self._read_yaml(api_dir / "high.yaml")
+                # Prefer high.yaml (merged) over high/ dir (split) to avoid double-embedding.
+                # Skip entire file if it's a stub (_status: stub or _tier: stub).
+                high_yaml_path = api_dir / "high.yaml"
+                if high_yaml_path.exists():
+                    high = self._read_yaml(high_yaml_path)
                     if high:
+                        # Skip stubs at file level
+                        if high.get("_status") == "stub" or high.get("_tier") == "stub":
+                            continue
                         doc = self._build_api_doc_from_high(api_dir.name, repo_id, high)
                     else:
-                        doc = self._build_api_doc_from_files(api_dir, repo_id)
-                    if doc:
-                        docs.append(doc)
+                        doc = None
+                elif (api_dir / "high").is_dir():
+                    chunk_docs = self._read_high_folder(api_dir / "high", api_dir.name, repo_id, "api_tool")
+                    docs.extend(chunk_docs)
+                    continue
+                else:
+                    doc = self._build_api_doc_from_files(api_dir, repo_id)
+                if doc:
+                    docs.append(doc)
 
-        # Registry files
+        # Registry files — ingest per-record instead of one blob
         registry_files = {
-            "entity_dictionary.yaml": "entity_def",
-            "intent_taxonomy.yaml": "intent_def",
-            "agent_registry.yaml": "agent_def",
-            "api_registry.yaml": "api_registry",
-            "tool_registry.yaml": "tool_registry",
+            "entity_dictionary.yaml": ("entity_def", "entities"),
+            "intent_taxonomy.yaml": ("intent_def", "intents"),
+            "agent_registry.yaml": ("agent_def", "agents"),
+            "api_registry.yaml": ("api_registry", "apis"),
+            "tool_registry.yaml": ("tool_registry", "tools"),
         }
-        for filename, entity_type in registry_files.items():
+        for filename, (entity_type, list_key) in registry_files.items():
             reg_path = api_base / filename
             if not reg_path.exists():
                 continue
             data = self._read_yaml(reg_path) or {}
-            content = str(data)[:3000]
-            docs.append({
-                "entity_type": entity_type,
-                "entity_id": f"registry:{repo_id}:{filename}",
-                "content": f"[{repo_id}] {filename}: {content}",
-                "repo_id": repo_id,
-                "capability": "retrieval",
-                "trust_score": 0.8,
-                "metadata": {"file": filename},
-            })
+            records = data.get(list_key, [])
+            if isinstance(records, list) and records:
+                # Per-record ingestion: each API/tool/agent gets its own doc
+                for rec in records:
+                    if not isinstance(rec, dict):
+                        continue
+                    rec_id = rec.get("api_id") or rec.get("tool_id") or rec.get("agent_id") or rec.get("entity_id") or rec.get("id", "")
+                    if not rec_id:
+                        continue
+                    parts = [f"{k}: {v}" for k, v in rec.items() if isinstance(v, (str, int, float, bool)) and v]
+                    content = " | ".join(parts)
+                    docs.append({
+                        "entity_type": entity_type,
+                        "entity_id": f"registry:{repo_id}:{rec_id}",
+                        "content": f"[{repo_id}:{filename}] {content}",
+                        "repo_id": repo_id,
+                        "capability": "retrieval",
+                        "trust_score": 0.8,
+                        "metadata": {
+                            "file": filename,
+                            "domain": rec.get("domain", ""),
+                            "training_ready": rec.get("training_ready", False),
+                        },
+                    })
+            else:
+                # Fallback for registries without a list key
+                parts = [f"{k}: {v}" for k, v in data.items()
+                         if isinstance(v, (str, int, float, bool)) and not k.startswith("_")]
+                docs.append({
+                    "entity_type": entity_type,
+                    "entity_id": f"registry:{repo_id}:{filename}",
+                    "content": f"[{repo_id}] {filename}: {' | '.join(parts)}",
+                    "repo_id": repo_id,
+                    "capability": "retrieval",
+                    "trust_score": 0.8,
+                    "metadata": {"file": filename},
+                })
 
         logger.info("kb_ingestor.pillar3_read", repo=repo_id, apis=len(docs))
         return docs
@@ -523,7 +724,29 @@ class KBIngestor:
         resp = high.get("response_fields", {})
         if isinstance(resp, dict) and resp.get("fields"):
             fields = resp["fields"][:15]
-            response_text = f" | Response: [{', '.join(fields)}]"
+            response_text = f" | Response: [{', '.join(str(f) for f in fields)}]"
+
+        # Check if this API was enriched by Claude (source code reading)
+        is_enriched = high.get("_enriched_by_claude", False)
+
+        # For enriched APIs: include business_logic description (much richer content)
+        business_logic_text = ""
+        if is_enriched:
+            bl = high.get("overview", {}).get("business_logic", {})
+            if isinstance(bl, dict):
+                desc = bl.get("description", "")
+                if desc:
+                    business_logic_text = f" | Business Logic: {desc[:500]}"
+                # Include database reads
+                db_reads = bl.get("database_reads", [])
+                if db_reads and isinstance(db_reads, list):
+                    tables = [r.get("table", "") for r in db_reads if isinstance(r, dict)]
+                    if tables:
+                        business_logic_text += f" | Tables: {', '.join(tables[:10])}"
+                # Include side effects
+                side_effects = bl.get("side_effects", [])
+                if side_effects and isinstance(side_effects, list):
+                    business_logic_text += f" | Side Effects: {'; '.join(str(s) for s in side_effects[:5])}"
 
         content = (
             f"API: {method} {endpoint} | ID: {api_id}"
@@ -534,9 +757,13 @@ class KBIngestor:
             f"{f' | Tool: {tool_candidate}' if tool_candidate else ''}"
             f"{f' | Risk: {risk_level}' if risk_level else ''}"
             f"{f' | RW: {read_write}' if read_write else ''}"
-            f"{f' | Keywords: {', '.join(str(k) for k in keywords[:5])}' if keywords else ''}"
+            f"{f' | Keywords: {", ".join(str(k) for k in keywords[:5])}' if keywords else ''}"
+            f"{business_logic_text}"
             f"{examples_text}{params_text}{response_text}"
         )
+
+        # Enriched APIs get higher trust score (rank higher in retrieval)
+        trust = 0.95 if is_enriched else 0.5
 
         return {
             "entity_type": "api_tool",
@@ -544,7 +771,7 @@ class KBIngestor:
             "content": content,
             "repo_id": repo_id,
             "capability": "retrieval",
-            "trust_score": 0.8,
+            "trust_score": trust,
             "metadata": {
                 "api_id": api_id,
                 "method": method,
@@ -560,6 +787,7 @@ class KBIngestor:
                 "has_examples": bool(examples_text),
                 "has_request_schema": bool(params_text),
                 "has_response_fields": bool(response_text),
+                "enriched": is_enriched,
                 "source": "high.yaml",
             },
         }
@@ -663,11 +891,11 @@ class KBIngestor:
                 if not data:
                     continue
                 table = data.get("table", yf.stem)
-                content = str(data)[:4000]
+                content = self._render_chunk(data, "identity", yf.stem, False)
                 docs.append({
                     "entity_type": "catalog",
                     "entity_id": f"catalog:{repo_id}:{yf.stem}",
-                    "content": f"[Catalog] {content}",
+                    "content": f"[Catalog:{table}] {content}",
                     "repo_id": repo_id,
                     "capability": "retrieval",
                     "trust_score": 0.85,
@@ -681,7 +909,7 @@ class KBIngestor:
                 data = self._read_yaml(yf)
                 if not data:
                     continue
-                content = str(data)[:4000]
+                content = self._render_chunk(data, "rules", yf.stem, False)
                 docs.append({
                     "entity_type": "access_pattern",
                     "entity_id": f"access:{repo_id}:{yf.stem}",
@@ -699,7 +927,7 @@ class KBIngestor:
                 data = self._read_yaml(yf)
                 if not data:
                     continue
-                content = str(data)[:3000]
+                content = self._render_chunk(data, "identity", yf.stem, False)
                 docs.append({
                     "entity_type": "json_keys",
                     "entity_id": f"jsonkeys:{repo_id}:{yf.stem}",
@@ -722,7 +950,7 @@ class KBIngestor:
             data = self._read_yaml(fpath)
             if not data:
                 continue
-            content = str(data)[:5000]
+            content = self._render_chunk(data, "identity", filename.replace('.yaml', ''), False)
             docs.append({
                 "entity_type": entity_type,
                 "entity_id": f"p1:{repo_id}:{filename.replace('.yaml', '')}",
@@ -753,7 +981,7 @@ class KBIngestor:
                 data = self._read_yaml(yf)
                 if not data:
                     continue
-                content = str(data)[:4000]
+                content = self._render_chunk(data, "overview", yf.stem, True)
                 docs.append({
                     "entity_type": "api_classification",
                     "entity_id": f"apiclass:{repo_id}:{yf.stem}",
@@ -780,7 +1008,7 @@ class KBIngestor:
           page_api_bindings — endpoint + method + params
           page_field_trace  — field→api→column traces (highest value for ICRM queries)
 
-        Each chunk includes chunk_type, parent_doc_id, pillar in metadata JSONB
+        Each chunk includes chunk_type, parent_doc_id, pillar in metadata JSON
         for post-retrieval filtering in Wave 2 context assembly.
         """
         docs = []
@@ -934,7 +1162,7 @@ class KBIngestor:
         # --- role_matrix.yaml ---
         rm = self._read_yaml(p4_path / "role_matrix.yaml")
         if rm:
-            content = str(rm)[:4000]
+            content = self._render_chunk(rm if isinstance(rm, dict) else {"data": rm}, "rules", "role_matrix", False)
             docs.append({
                 "entity_type": "role_matrix",
                 "entity_id": f"role_matrix:{repo_id}",
@@ -948,7 +1176,7 @@ class KBIngestor:
         # --- cross_repo_mapping.yaml ---
         crm = self._read_yaml(p4_path / "cross_repo_mapping.yaml")
         if crm:
-            content = str(crm)[:3000]
+            content = self._render_chunk(crm if isinstance(crm, dict) else {"data": crm}, "identity", "cross_repo_mapping", False)
             docs.append({
                 "entity_type": "cross_repo_page_mapping",
                 "entity_id": f"cross_page_map:{repo_id}",
@@ -1137,7 +1365,7 @@ class KBIngestor:
                     docs.append({
                         "entity_type": artifact.stem,
                         "entity_id": f"gen:{repo_dir.name}:{module_dir.name}:{artifact.stem}",
-                        "content": f"[{repo_dir.name}/{module_dir.name}] {str(data)[:3000]}",
+                        "content": f"[{repo_dir.name}/{module_dir.name}] {self._render_chunk(data, artifact.stem, module_dir.name, False)}",
                         "repo_id": repo_dir.name,
                         "capability": "retrieval",
                         "trust_score": trust,
@@ -1147,11 +1375,404 @@ class KBIngestor:
         return docs
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Pillar 6: Action contracts (multi-file: domains/{domain}/{action}/{file}.yaml)
+    # ------------------------------------------------------------------
+
+    # File types and how to build content for each
+    _ACTION_FILE_RENDERERS = {
+        "index": lambda d: f"Action: {d.get('title','')} | Domain: {d.get('domain','')} | Kind: {d.get('kind','')} | Owner: {d.get('owner_module','')}",
+        "intent_map": lambda d: (
+            "Positive: " + "; ".join(d.get("positive_phrases", {}).get("english", [])[:5]) +
+            "\nHinglish: " + "; ".join(d.get("positive_phrases", {}).get("hinglish", [])[:3]) +
+            "\nNegative: " + "; ".join(n.get("query","") for n in d.get("negative_phrases", [])[:3])
+        ),
+        "contract": lambda d: f"Purpose: {d.get('purpose','')}\nInputs: {', '.join(i.get('name','') for i in d.get('required_inputs',[]))}\nSync/Async: {d.get('sync_async','')}\nIdempotent: {d.get('idempotent','')}",
+        "permissions": lambda d: f"Roles: {', '.join(d.get('allowed_roles',[]))}\nApproval: {d.get('approval_mode','')}\nRisk: {d.get('customer_impact_level','')}",
+        "data_access": lambda d: (
+            "Reads: " + ", ".join(t.get("table","") for t in d.get("tables_read",[])) +
+            "\nWrites: " + ", ".join(t.get("table","") for t in d.get("tables_written",[])) +
+            "\nQueues: " + ", ".join(q.get("name","") for q in d.get("queues_used",[]))
+        ),
+        "execution_graph": lambda d: "\n".join(f"Step {s.get('step','')}: {s.get('action','')}" for s in d.get("steps", [])[:6]),
+        "failure_modes": lambda d: "\n".join(f"Fail: {f.get('condition','')}" for f in d.get("validation_failures", [])[:3] + d.get("external_api_failure", [])[:2]),
+        "observability": lambda d: f"Logs: {', '.join(d.get('log_tags',[]))}\nQueue: {d.get('queue_name','')}\nJob: {d.get('job_class','')}",
+        "examples": lambda d: "\n".join(f"Q: {e.get('query','')}" for e in d.get("preview", [])[:2] + d.get("execute", [])[:2]),
+        "eval_cases": lambda d: "\n".join(f"Eval: {e.get('query','')}" for e in d.get("positive", [])[:3] + d.get("regression", [])[:2]),
+        "rollback": lambda d: "\n".join(f"Rollback: {s.get('action','')}" for s in d.get("rollback_steps", [])[:3]),
+    }
+
+    def read_pillar6_actions(self, repo_id: str = "MultiChannel_API") -> List[Dict]:
+        """Read multi-file action contracts from pillar_6_action_contracts/domains/."""
+        p6_path = self.kb_path / repo_id / "pillar_6_action_contracts" / "domains"
+        if not p6_path.exists():
+            return []
+        docs = []
+        for domain_dir in sorted(p6_path.iterdir()):
+            if not domain_dir.is_dir():
+                continue
+            for action_dir in sorted(domain_dir.iterdir()):
+                if not action_dir.is_dir():
+                    continue
+                # Read index.yaml for metadata
+                index = self._read_yaml(action_dir / "index.yaml")
+                if not index:
+                    continue
+                action_id = index.get("action_id", f"action.{domain_dir.name}.{action_dir.name}")
+                domain = index.get("domain", domain_dir.name)
+
+                # Each YAML file becomes one embedding doc
+                for fname, renderer in self._ACTION_FILE_RENDERERS.items():
+                    fpath = action_dir / f"{fname}.yaml"
+                    data = self._read_yaml(fpath)
+                    if not data:
+                        continue
+                    try:
+                        content = renderer(data)
+                    except Exception:
+                        content = str(data)[:500]
+
+                    docs.append({
+                        "source_id": f"{action_id}.{fname}",
+                        "source_type": f"action_{fname}",
+                        "content": content,
+                        "metadata": {
+                            "repo_id": repo_id,
+                            "pillar": "pillar_6",
+                            "domain": domain,
+                            "action_id": action_id,
+                            "file_type": fname,
+                            "kind": index.get("kind", ""),
+                            "training_ready": index.get("training_ready", False),
+                        },
+                        "entity_type": "action",
+                        "entity_id": action_id,
+                        "capability": "action",
+                    })
+        logger.info("kb_ingestor.pillar6_action_contracts", repo_id=repo_id, count=len(docs))
+        return docs
+
+    # ------------------------------------------------------------------
+    # Pillar 7: Workflow runbooks (multi-file: domains/{domain}/{workflow}/{file}.yaml)
+    # ------------------------------------------------------------------
+
+    _WORKFLOW_FILE_RENDERERS = {
+        "index": lambda d: f"Workflow: {d.get('title','')} | Domain: {d.get('domain','')} | Entry: {', '.join(d.get('entry_entities',[]))}",
+        "overview": lambda d: f"Starts: {d.get('what_starts_the_workflow','')}\nEnds: {d.get('what_ends_it','')}\nActors: {', '.join(d.get('main_actors',[]))}",
+        "state_machine": lambda d: "\n".join(f"{t.get('from','')} → {t.get('to','')} ({t.get('trigger','')})" for t in d.get("allowed_transitions", [])[:8]),
+        "entrypoints": lambda d: "\n".join(f"Entry: {e.get('page','') or e.get('api','') or e.get('name','')}" for e in d.get("ui_pages", [])[:3] + d.get("apis", [])[:3]),
+        "decision_matrix": lambda d: "\n".join(f"Decision: {dec.get('name','')}" for dec in d.get("decisions", [])[:5]),
+        "action_map": lambda d: "\n".join(f"Action: {a.get('action_name','')} → {a.get('linked_action_contract','')}" for a in d.get("actions", [])[:5]),
+        "data_flow": lambda d: "\n".join(f"Step: {s.get('step','')} → writes: {s.get('writes_to','')}" for s in d.get("evidence_chain", [])[:5]),
+        "ui_map": lambda d: "\n".join(f"Page: {p.get('page_id','')} ({p.get('path','')})" for p in d.get("pages", [])[:3]),
+        "async_map": lambda d: "\n".join(f"Queue: {q.get('name','')} → {', '.join(q.get('jobs',[]))}" for q in d.get("queues", [])[:3]),
+        "operator_playbook": lambda d: "\n".join(f"Diagnose: {s.get('action','')}" for s in d.get("diagnose", [])[:4]),
+        "user_language": lambda d: (
+            "Seller: " + "; ".join(d.get("seller_wording", [])[:4]) +
+            "\nHinglish: " + "; ".join(d.get("hinglish_variants", [])[:4])
+        ),
+        "exception_paths": lambda d: "\n".join(f"Exception: {e.get('name','')}: {e.get('handling','')[:100]}" for e in d.get("exceptions", [])[:4]),
+        "eval_cases": lambda d: "\n".join(f"Eval: {e.get('query','')}" for e in d.get("eval_cases", [])[:5]),
+    }
+
+    def read_pillar7_runbooks(self, repo_id: str = "MultiChannel_API") -> List[Dict]:
+        """Read multi-file workflow runbooks from pillar_7_workflow_runbooks/domains/."""
+        p7_path = self.kb_path / repo_id / "pillar_7_workflow_runbooks" / "domains"
+        if not p7_path.exists():
+            return []
+        docs = []
+        for domain_dir in sorted(p7_path.iterdir()):
+            if not domain_dir.is_dir():
+                continue
+            for wf_dir in sorted(domain_dir.iterdir()):
+                if not wf_dir.is_dir():
+                    continue
+                index = self._read_yaml(wf_dir / "index.yaml")
+                if not index:
+                    continue
+                wf_id = index.get("workflow_id", f"workflow.{domain_dir.name}.{wf_dir.name}")
+                domain = index.get("domain", domain_dir.name)
+
+                for fname, renderer in self._WORKFLOW_FILE_RENDERERS.items():
+                    fpath = wf_dir / f"{fname}.yaml"
+                    data = self._read_yaml(fpath)
+                    if not data:
+                        continue
+                    try:
+                        content = renderer(data)
+                    except Exception:
+                        content = str(data)[:500]
+
+                    docs.append({
+                        "source_id": f"{wf_id}.{fname}",
+                        "source_type": f"workflow_{fname}",
+                        "content": content,
+                        "metadata": {
+                            "repo_id": repo_id,
+                            "pillar": "pillar_7",
+                            "domain": domain,
+                            "workflow_id": wf_id,
+                            "file_type": fname,
+                            "training_ready": index.get("training_ready", False),
+                        },
+                        "entity_type": "workflow",
+                        "entity_id": wf_id,
+                        "capability": "workflow",
+                    })
+        logger.info("kb_ingestor.pillar7_workflow_runbooks", repo_id=repo_id, count=len(docs))
+        return docs
+
+    # ------------------------------------------------------------------
+    # Pillar 8: Negative routing examples
+    # ------------------------------------------------------------------
+
+    def read_pillar8_negative_routing(self, repo_id: str = "MultiChannel_API") -> List[Dict]:
+        """Read cross-domain negative routing examples from pillar_8_negative_routing/."""
+        p8_path = self.kb_path / repo_id / "pillar_8_negative_routing"
+        if not p8_path.exists():
+            return []
+        docs = []
+        for f in sorted(p8_path.glob("*.yaml")):
+            data = self._read_yaml(f)
+            if not data:
+                continue
+            examples = data.get("examples", [])
+            # Bundle negatives into chunks of 10 for embedding efficiency
+            for i in range(0, len(examples), 10):
+                chunk = examples[i:i+10]
+                content_parts = []
+                for ex in chunk:
+                    content_parts.append(
+                        f"Query: {ex.get('user_query','')}\n"
+                        f"  Looks like: {ex.get('looks_like','')}\n"
+                        f"  Do NOT use: {ex.get('should_not_use','')}\n"
+                        f"  Use instead: {ex.get('correct_tool','')}\n"
+                        f"  Reason: {ex.get('reason','')}"
+                    )
+                docs.append({
+                    "source_id": f"negative_routing.{f.stem}.chunk_{i//10}",
+                    "source_type": "negative_routing",
+                    "content": "\n---\n".join(content_parts),
+                    "metadata": {
+                        "repo_id": repo_id,
+                        "pillar": "pillar_8",
+                        "example_count": len(chunk),
+                    },
+                    "entity_type": "negative_routing",
+                    "entity_id": f"negative_routing.{f.stem}",
+                    "capability": "routing",
+                })
+        logger.info("kb_ingestor.pillar8_negatives", repo_id=repo_id, count=len(docs))
+        return docs
+
+    # ------------------------------------------------------------------
+    # Entity Hubs: Cross-pillar summaries
+    # ------------------------------------------------------------------
+
+    def read_entity_hubs(self, repo_id: str = "MultiChannel_API") -> List[Dict]:
+        """Read Entity Hub YAML docs from entity_hubs/."""
+        hub_path = self.kb_path / repo_id / "entity_hubs"
+        if not hub_path.exists():
+            return []
+        docs = []
+        for f in sorted(hub_path.glob("*.yaml")):
+            data = self._read_yaml(f)
+            if not data or not data.get("content"):
+                continue
+            docs.append({
+                "source_id": f"entity_hub:{f.stem}",
+                "source_type": "entity_hub",
+                "content": data["content"],
+                "entity_type": "entity_hub",
+                "entity_id": f"entity_hub:{f.stem}",
+                "capability": "retrieval",
+                "trust_score": 0.95,
+                "metadata": {
+                    "repo_id": repo_id,
+                    "pillar": "entity_hub",
+                    "domain": f.stem,
+                    "chunk_type": "entity_hub_summary",
+                    "query_mode": "lookup",
+                },
+            })
+        logger.info("kb_ingestor.entity_hubs", repo_id=repo_id, count=len(docs))
+        return docs
+
+    # ------------------------------------------------------------------
+    # Pillar 9: Agent Definitions
+    # ------------------------------------------------------------------
+
+    def read_pillar9_agents(self, repo_id: str = "MultiChannel_API") -> List[Dict]:
+        """Read agent definition YAMLs from pillar_9_agents/."""
+        p9_path = self.kb_path / repo_id / "pillar_9_agents"
+        if not p9_path.exists():
+            return []
+        docs = []
+        for f in sorted(p9_path.glob("*.yaml")):
+            data = self._read_yaml(f)
+            if not data:
+                continue
+            agent_name = data.get("agent_name", f.stem)
+            # Build rich content for embedding
+            parts = [
+                f"Agent: {data.get('display_name', agent_name)}",
+                f"Domain: {data.get('domain', '')}",
+                f"Tier: {data.get('tier', '')}",
+                f"Description: {data.get('description', '')}",
+            ]
+            if data.get("system_prompt"):
+                parts.append(f"Instructions: {data['system_prompt']}")
+            if data.get("tools_allowed"):
+                tools = data["tools_allowed"]
+                if isinstance(tools, list):
+                    parts.append(f"Tools: {', '.join(str(t) for t in tools)}")
+                elif isinstance(tools, dict):
+                    parts.append(f"Tools: {', '.join(f'{k}: {v}' for k, v in tools.items())}")
+            if data.get("skills"):
+                skills = data["skills"]
+                if isinstance(skills, list):
+                    parts.append(f"Skills: {', '.join(str(s) for s in skills)}")
+                elif isinstance(skills, dict):
+                    parts.append(f"Skills: {', '.join(f'{k}: {v}' for k, v in skills.items())}")
+            if data.get("handoff_rules"):
+                parts.append(f"Handoffs: {', '.join(f'{k}: {v}' for k, v in data['handoff_rules'].items())}")
+            if data.get("anti_patterns"):
+                parts.append(f"Never do: {'; '.join(data['anti_patterns'])}")
+            if data.get("example_queries"):
+                parts.append(f"Example queries: {'; '.join(data['example_queries'][:5])}")
+
+            docs.append({
+                "entity_type": "agent_definition",
+                "entity_id": f"agent:{agent_name}",
+                "content": "\n".join(parts),
+                "repo_id": repo_id,
+                "capability": "retrieval",
+                "trust_score": 0.95,
+                "metadata": {
+                    "pillar": "pillar_9_agents",
+                    "domain": data.get("domain", ""),
+                    "agent_name": agent_name,
+                    "tier": data.get("tier", ""),
+                    "query_mode": "explain",
+                },
+            })
+        logger.info("kb_ingestor.pillar9_agents", repo_id=repo_id, count=len(docs))
+        return docs
+
+    # ------------------------------------------------------------------
+    # Pillar 10: Skill Definitions
+    # ------------------------------------------------------------------
+
+    def read_pillar10_skills(self, repo_id: str = "MultiChannel_API") -> List[Dict]:
+        """Read skill definition YAMLs from pillar_10_skills/."""
+        p10_path = self.kb_path / repo_id / "pillar_10_skills"
+        if not p10_path.exists():
+            return []
+        docs = []
+        for f in sorted(p10_path.glob("*.yaml")):
+            data = self._read_yaml(f)
+            if not data:
+                continue
+            skill_name = data.get("skill_name", f.stem)
+            parts = [
+                f"Skill: {data.get('display_name', skill_name)}",
+                f"Domain: {data.get('domain', '')}",
+                f"Description: {data.get('description', '')}",
+            ]
+            if data.get("triggers"):
+                parts.append(f"Triggers: {', '.join(data['triggers'][:10])}")
+            if data.get("steps"):
+                for i, step in enumerate(data["steps"]):
+                    if isinstance(step, dict):
+                        parts.append(f"Step {i+1}: {step.get('type', '')} — {step.get('description', step.get('tool', ''))}")
+                    else:
+                        parts.append(f"Step {i+1}: {step}")
+            if data.get("required_params"):
+                parts.append(f"Required params: {', '.join(str(p) for p in data['required_params'])}")
+            docs.append({
+                "entity_type": "skill_definition",
+                "entity_id": f"skill:{skill_name}",
+                "content": "\n".join(parts),
+                "repo_id": repo_id,
+                "capability": "retrieval",
+                "trust_score": 0.95,
+                "metadata": {
+                    "pillar": "pillar_10_skills",
+                    "domain": data.get("domain", ""),
+                    "skill_name": skill_name,
+                    "query_mode": "explain",
+                },
+            })
+        logger.info("kb_ingestor.pillar10_skills", repo_id=repo_id, count=len(docs))
+        return docs
+
+    # ------------------------------------------------------------------
+    # Pillar 11: Tool Definitions
+    # ------------------------------------------------------------------
+
+    def read_pillar11_tools(self, repo_id: str = "MultiChannel_API") -> List[Dict]:
+        """Read tool definition YAMLs from pillar_11_tools/."""
+        p11_path = self.kb_path / repo_id / "pillar_11_tools"
+        if not p11_path.exists():
+            return []
+        docs = []
+        for f in sorted(p11_path.glob("*.yaml")):
+            data = self._read_yaml(f)
+            if not data:
+                continue
+            tool_name = data.get("tool_name", f.stem)
+            parts = [
+                f"Tool: {data.get('display_name', tool_name)}",
+                f"Category: {data.get('category', 'read')}",
+                f"Risk: {data.get('risk_level', 'low')}",
+                f"Description: {data.get('description', '')}",
+            ]
+            if data.get("parameters"):
+                for param in data["parameters"][:10]:
+                    if isinstance(param, dict):
+                        parts.append(f"Param: {param.get('name', '')} ({param.get('type', '')}) — {param.get('description', '')}")
+            if data.get("data_source"):
+                parts.append(f"Data source: {data['data_source']}")
+            if data.get("endpoints"):
+                for ep in data["endpoints"][:5]:
+                    if isinstance(ep, dict):
+                        parts.append(f"Endpoint: {ep.get('method', '')} {ep.get('path', '')}")
+            docs.append({
+                "entity_type": "tool_definition",
+                "entity_id": f"tool_def:{tool_name}",
+                "content": "\n".join(parts),
+                "repo_id": repo_id,
+                "capability": "retrieval",
+                "trust_score": 0.95,
+                "metadata": {
+                    "pillar": "pillar_11_tools",
+                    "domain": data.get("domain", ""),
+                    "tool_name": tool_name,
+                    "query_mode": "explain",
+                },
+            })
+        logger.info("kb_ingestor.pillar11_tools", repo_id=repo_id, count=len(docs))
+        return docs
+
+    # ------------------------------------------------------------------
     # Convenience: read everything
     # ------------------------------------------------------------------
 
     def read_all(self, repo_id: str = "MultiChannel_API") -> List[Dict]:
         docs = []
+
+        # Manifest integrity check — warn on any YAML file changes since last run.
+        kb_dir = str(self.kb_path)
+        manifest_ok, manifest_changes = self.verify_against_saved_manifest(kb_dir)
+        if not manifest_ok:
+            for change in manifest_changes:
+                logger.warning("kb_ingestor.manifest.change_detected", change=change)
+            logger.warning(
+                "kb_ingestor.manifest.changes_summary",
+                total_changes=len(manifest_changes),
+                directory=kb_dir,
+            )
+
         # Pillar 1: tables + extras (catalog, connections, relationships, etc.)
         docs.extend(self.read_pillar1_schema(repo_id))
         docs.extend(self.read_pillar1_extras(repo_id))
@@ -1166,11 +1787,92 @@ class KBIngestor:
                      if d.is_dir() and (d / "pillar_5_module_docs").exists()]
         for p5_repo in sorted(all_repos):
             docs.extend(self.read_pillar5_modules(p5_repo))
+        # Pillar 6: action contracts (multi-file)
+        for p6_repo in [d.name for d in self.kb_path.iterdir()
+                        if d.is_dir() and (d / "pillar_6_action_contracts").exists()]:
+            docs.extend(self.read_pillar6_actions(p6_repo))
+        # Pillar 7: workflow runbooks (multi-file)
+        for p7_repo in [d.name for d in self.kb_path.iterdir()
+                        if d.is_dir() and (d / "pillar_7_workflow_runbooks").exists()]:
+            docs.extend(self.read_pillar7_runbooks(p7_repo))
+        # Pillar 8: negative routing
+        for p8_repo in [d.name for d in self.kb_path.iterdir()
+                        if d.is_dir() and (d / "pillar_8_negative_routing").exists()]:
+            docs.extend(self.read_pillar8_negative_routing(p8_repo))
+        # Entity Hubs: cross-pillar summaries
+        for hub_repo in [d.name for d in self.kb_path.iterdir()
+                         if d.is_dir() and (d / "entity_hubs").exists()]:
+            docs.extend(self.read_entity_hubs(hub_repo))
         # Eval seeds + generated artifacts
         docs.extend(self.read_eval_seeds(repo_id))
         docs.extend(self.read_generated_artifacts())
+
+        # Tag every doc with query_mode for retrieval routing
+        self._tag_query_modes(docs)
+
         logger.info("kb_ingestor.read_all_complete", total=len(docs))
         return docs
+
+    # Mode mapping: which doc types help which query modes
+    _QUERY_MODE_MAP = {
+        # lookup: "what exists?" / "find X"
+        "schema": "lookup", "schema_identity": "lookup", "schema_states": "lookup",
+        "catalog": "lookup", "table_index": "lookup", "json_keys": "lookup",
+        "api_overview": "lookup", "api_registry": "lookup", "tool_registry": "lookup",
+        "entity_def": "lookup", "intent_def": "lookup", "agent_def": "lookup",
+        # diagnose: "why did X happen?" / "what went wrong?"
+        "workflow_state_machine": "diagnose", "workflow_exception_paths": "diagnose",
+        "workflow_decision_matrix": "diagnose", "action_failure_modes": "diagnose",
+        "workflow_data_flow": "diagnose", "workflow_eval_cases": "diagnose",
+        "operator_runbook": "diagnose",
+        # act: "what should I do?" / "trigger X"
+        "action_contract": "act", "action_execution_graph": "act",
+        "action_permissions": "act", "action_rollback": "act",
+        "action_data_access": "act", "workflow_action_map": "act",
+        "workflow_operator_playbook": "act",
+        # explain: "how does X work?" / "what will happen?"
+        "action_intent_map": "explain", "action_examples": "explain",
+        "action_observability": "explain", "workflow_overview": "explain",
+        "workflow_async_map": "explain", "workflow_user_language": "explain",
+        "workflow_ui_map": "explain", "workflow_entrypoints": "explain",
+        # routing: prevent hallucination
+        "negative_routing": "routing", "action_eval_cases": "routing",
+        # page: field questions
+        "page_field_trace": "lookup", "page_intelligence": "lookup",
+        "access_pattern": "lookup", "cross_repo_page_mapping": "lookup",
+    }
+
+    @classmethod
+    def _tag_query_modes(cls, docs: List[Dict]) -> None:
+        """Tag each doc with query_mode (lookup/diagnose/act/explain/routing)."""
+        for doc in docs:
+            meta = doc.get("metadata", {})
+            source_type = doc.get("source_type", "")
+            chunk_type = meta.get("chunk_type", "")
+            file_type = meta.get("file_type", "")
+            capability = doc.get("capability", "")
+
+            # Try source_type first, then chunk_type, then file_type
+            mode = (
+                cls._QUERY_MODE_MAP.get(source_type)
+                or cls._QUERY_MODE_MAP.get(chunk_type)
+                or cls._QUERY_MODE_MAP.get(f"{capability}_{file_type}" if file_type else "")
+                or cls._QUERY_MODE_MAP.get(file_type)
+            )
+
+            # Fallback by capability
+            if not mode:
+                if capability == "action":
+                    mode = "act"
+                elif capability == "workflow":
+                    mode = "diagnose"
+                elif capability == "routing":
+                    mode = "routing"
+                else:
+                    mode = "lookup"
+
+            meta["query_mode"] = mode
+            doc["metadata"] = meta
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -1185,3 +1887,112 @@ class KBIngestor:
                 return yaml.safe_load(f)
         except Exception:
             return None
+
+    @staticmethod
+    def _render_chunk(data: Dict, chunk_name: str, entity_name: str, is_api: bool) -> str:
+        """Render YAML data into retrieval-optimized text instead of raw str(data).
+
+        Each chunk type gets a custom renderer that extracts the most
+        retrieval-relevant fields as clean text.
+        """
+        if not isinstance(data, dict):
+            return str(data)[:3600]
+
+        try:
+            if chunk_name == "overview":
+                api = data.get("overview", data).get("api", data.get("api", {})) if isinstance(data.get("overview", data), dict) else {}
+                cls = data.get("overview", data).get("classification", data.get("classification", {})) if isinstance(data.get("overview", data), dict) else {}
+                parts = []
+                if api.get("path"):
+                    parts.append(f"{api.get('method', '?')} {api.get('path', '')}")
+                if api.get("controller"):
+                    parts.append(f"Controller: {api['controller']}")
+                if cls.get("domain"):
+                    parts.append(f"Domain: {cls['domain']}")
+                if cls.get("intent_primary"):
+                    parts.append(f"Intent: {cls['intent_primary']}")
+                hints = data.get("overview", data).get("retrieval_hints", {}) if isinstance(data.get("overview", data), dict) else {}
+                if hints.get("canonical_summary"):
+                    parts.append(hints["canonical_summary"])
+                if hints.get("aliases"):
+                    parts.append(f"Aliases: {', '.join(hints['aliases'][:5])}")
+                return " | ".join(parts) if parts else str(data)[:3600]
+
+            elif chunk_name == "tool_agent_tags":
+                ta = data.get("tool_agent_tags", data) if isinstance(data.get("tool_agent_tags"), dict) else data
+                tool = ta.get("tool_assignment", {})
+                agent = ta.get("agent_assignment", {})
+                routing = ta.get("routing_hints", {})
+                parts = []
+                if tool.get("tool_candidate"):
+                    parts.append(f"Tool: {tool['tool_candidate']}")
+                if tool.get("read_write_type"):
+                    parts.append(f"Type: {tool['read_write_type']}")
+                if tool.get("risk_level"):
+                    parts.append(f"Risk: {tool['risk_level']}")
+                if agent.get("owner"):
+                    parts.append(f"Agent: {agent['owner']}")
+                if routing.get("prefer_when"):
+                    parts.append(f"Use when: {'; '.join(routing['prefer_when'][:3])}")
+                if routing.get("avoid_when"):
+                    parts.append(f"Avoid when: {'; '.join(routing['avoid_when'][:3])}")
+                neg = ta.get("negative_routing_examples", [])
+                for n in neg[:2]:
+                    if isinstance(n, dict):
+                        parts.append(f"NOT for: {n.get('user_query', '')}")
+                return " | ".join(parts) if parts else str(data)[:3600]
+
+            elif chunk_name == "request_schema":
+                rs = data.get("request_schema", data) if isinstance(data.get("request_schema"), dict) else data
+                parts = [f"{rs.get('method', '?')} {rs.get('path', '')}"]
+                contract = rs.get("contract", {})
+                req = contract.get("required", [])
+                if req:
+                    fields = [f.get("name", "") for f in req[:8] if isinstance(f, dict)]
+                    parts.append(f"Required: {', '.join(fields)}")
+                opt = contract.get("optional", [])
+                if opt:
+                    fields = [f.get("name", "") for f in opt[:5] if isinstance(f, dict)]
+                    parts.append(f"Optional: {', '.join(fields)}")
+                if rs.get("source_table"):
+                    parts.append(f"Table: {rs['source_table']}")
+                resp = rs.get("response_fields", {})
+                if resp.get("fields"):
+                    parts.append(f"Response: {', '.join(str(f) for f in resp['fields'][:8])}")
+                se = rs.get("side_effects", {})
+                if se.get("jobs"):
+                    parts.append(f"Jobs: {', '.join(se['jobs'][:3])}")
+                return " | ".join(parts) if parts else str(data)[:3600]
+
+            elif chunk_name in ("identity", "states", "rules"):
+                # Schema chunks — extract table-level semantic info
+                parts = [f"Section: {chunk_name}"]
+                if isinstance(data, dict):
+                    for key in ("table_name", "purpose", "description", "columns", "status_values",
+                                "validation_rules", "business_rules", "relationships"):
+                        val = data.get(key)
+                        if val:
+                            if isinstance(val, list):
+                                parts.append(f"{key}: {', '.join(str(v) for v in val[:10])}")
+                            elif isinstance(val, str):
+                                parts.append(f"{key}: {val[:200]}")
+                            elif isinstance(val, dict):
+                                parts.append(f"{key}: {', '.join(f'{k}={v}' for k, v in list(val.items())[:8])}")
+                return " | ".join(parts) if parts else str(data)[:3600]
+
+            else:
+                # Generic fallback — extract top-level keys as structured text
+                parts = []
+                for key, val in list(data.items())[:15]:
+                    if key.startswith("_"):
+                        continue
+                    if isinstance(val, str) and len(val) < 200:
+                        parts.append(f"{key}: {val}")
+                    elif isinstance(val, list) and len(val) <= 10:
+                        parts.append(f"{key}: {', '.join(str(v)[:50] for v in val[:5])}")
+                    elif isinstance(val, (int, float, bool)):
+                        parts.append(f"{key}: {val}")
+                return " | ".join(parts) if parts else str(data)[:3600]
+
+        except Exception:
+            return str(data)[:3600]

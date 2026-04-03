@@ -113,10 +113,16 @@ class CanonicalIngestor:
                 result.skipped += 1
                 continue
 
-            # Skip empty content
-            if not doc.content or len(doc.content.strip()) < 10:
-                result.skipped += 1
-                continue
+            # Skip empty content — but create fallback for P6/P7 docs
+            content = doc.content or ""
+            if len(content.strip()) < 10:
+                # For action/workflow docs, create a minimal fallback instead of skipping
+                if doc.capability in ("action", "workflow"):
+                    content = f"{doc.entity_type}:{doc.entity_id} — {doc.capability} document"
+                else:
+                    result.skipped += 1
+                    continue
+            doc.content = content
 
             meta = {
                 **doc.metadata,

@@ -29,14 +29,14 @@ class ReportAgentService:
             try:
                 await session.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS {REPORTS_TABLE} (
-                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        id CHAR(36) PRIMARY KEY,
                         repo_id VARCHAR(255),
                         report_type VARCHAR(50) NOT NULL,
-                        period_start TIMESTAMPTZ NOT NULL,
-                        period_end TIMESTAMPTZ NOT NULL,
-                        sections JSONB DEFAULT '{{}}'::jsonb,
+                        period_start TIMESTAMP NOT NULL,
+                        period_end TIMESTAMP NOT NULL,
+                        sections JSON DEFAULT '{{}}',
                         summary TEXT,
-                        created_at TIMESTAMPTZ DEFAULT now()
+                        created_at TIMESTAMP DEFAULT now()
                     )
                 """))
                 await session.execute(text(f"""
@@ -426,7 +426,7 @@ class ReportAgentService:
                         INSERT INTO {REPORTS_TABLE}
                             (id, repo_id, report_type, period_start, period_end, sections, summary)
                         VALUES
-                            (:id, :repo_id, :report_type, :period_start, :period_end, :sections::jsonb, :summary)
+                            (:id, :repo_id, :report_type, :period_start, :period_end, :sections, :summary)
                     """),
                     {
                         "id": report_id,

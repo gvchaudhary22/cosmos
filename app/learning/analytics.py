@@ -15,7 +15,7 @@ import structlog
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cosmos.app.db.models import QueryAnalytics as QueryAnalyticsModel
+from app.db.models import QueryAnalytics as QueryAnalyticsModel
 
 logger = structlog.get_logger()
 

@@ -108,7 +108,7 @@ class EmbeddingBenchmark:
             try:
                 await session.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS {SHADOW_TABLE} (
-                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        id CHAR(36) PRIMARY KEY,
                         repo_id VARCHAR(255) NOT NULL DEFAULT '',
                         entity_type VARCHAR(255) NOT NULL,
                         entity_id VARCHAR(500) NOT NULL,
@@ -116,8 +116,8 @@ class EmbeddingBenchmark:
                         embedding vector({SHADOW_DIM}),
                         trust_score FLOAT DEFAULT 0.5,
                         embedding_model VARCHAR(100) DEFAULT '{SHADOW_MODEL}',
-                        metadata JSONB DEFAULT '{{}}'::jsonb,
-                        embedded_at TIMESTAMPTZ DEFAULT now()
+                        metadata JSON DEFAULT '{{}}',
+                        embedded_at TIMESTAMP DEFAULT now()
                     )
                 """))
                 await session.execute(text(f"""
@@ -128,18 +128,18 @@ class EmbeddingBenchmark:
                 # Benchmark results table
                 await session.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS {BENCHMARK_TABLE} (
-                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        id CHAR(36) PRIMARY KEY,
                         query_hash VARCHAR(32) NOT NULL,
                         query_preview VARCHAR(200),
                         entity_type VARCHAR(255),
-                        primary_top5 JSONB,
-                        shadow_top5 JSONB,
+                        primary_top5 JSON,
+                        shadow_top5 JSON,
                         primary_latency_ms FLOAT,
                         shadow_latency_ms FLOAT,
                         overlap_count INT,
                         primary_top_score FLOAT,
                         shadow_top_score FLOAT,
-                        created_at TIMESTAMPTZ DEFAULT now()
+                        created_at TIMESTAMP DEFAULT now()
                     )
                 """))
 
@@ -182,7 +182,7 @@ class EmbeddingBenchmark:
                              trust_score, embedding_model, metadata, embedded_at)
                         VALUES
                             (:repo_id, :entity_type, :entity_id, :content_hash, :embedding,
-                             :trust_score, :embedding_model, :metadata::jsonb, now())
+                             :trust_score, :embedding_model, :metadata, now())
                         ON CONFLICT (repo_id, entity_type, entity_id)
                         DO UPDATE SET
                             embedding = EXCLUDED.embedding,
@@ -243,10 +243,10 @@ class EmbeddingBenchmark:
                 shadow_result = await session.execute(
                     text(f"""
                         SELECT entity_id,
-                               1 - (embedding <=> :embedding::vector) AS similarity
+                               1 - (embedding <=> :embedding) AS similarity
                         FROM {SHADOW_TABLE}
                         {filters}
-                        ORDER BY embedding <=> :embedding::vector
+                        ORDER BY embedding <=> :embedding
                         LIMIT :limit
                     """),
                     params,

@@ -51,7 +51,7 @@ class KBFileIndexService:
             try:
                 await session.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS {self.TABLE} (
-                        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        id          CHAR(36) PRIMARY KEY,
                         repo_id     VARCHAR(255) NOT NULL DEFAULT '',
                         file_path   VARCHAR(1000) NOT NULL,
                         file_hash   VARCHAR(64)  NOT NULL DEFAULT '',
@@ -60,10 +60,10 @@ class KBFileIndexService:
                         status      SMALLINT NOT NULL DEFAULT 0,
                         s3_key      VARCHAR(1000),
                         s3_etag     VARCHAR(64),
-                        last_indexed_at TIMESTAMPTZ,
+                        last_indexed_at TIMESTAMP,
                         error_msg   TEXT,
-                        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-                        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        created_at  TIMESTAMP NOT NULL DEFAULT now(),
+                        updated_at  TIMESTAMP NOT NULL DEFAULT now(),
                         CONSTRAINT uq_kb_file_repo_path UNIQUE (repo_id, file_path)
                     )
                 """))
@@ -188,13 +188,12 @@ class KBFileIndexService:
                     else:
                         await session.execute(text(f"""
                             INSERT INTO {self.TABLE}
-                                (repo_id, file_path, file_hash, entity_id, entity_type, status, updated_at)
+                                (id, repo_id, file_path, file_hash, entity_id, entity_type, status, updated_at, created_at)
                             VALUES
-                                (:repo, :path, :hash, :entity_id, :entity_type, :status, now())
-                            ON CONFLICT (repo_id, file_path)
-                            DO UPDATE SET
-                                file_hash = EXCLUDED.file_hash,
-                                status = :status,
+                                (UUID(), :repo, :path, :hash, :entity_id, :entity_type, :status, now(), now())
+                            ON DUPLICATE KEY UPDATE
+                                file_hash = VALUES(file_hash),
+                                status = VALUES(status),
                                 error_msg = NULL,
                                 updated_at = now()
                         """), {
@@ -331,10 +330,10 @@ class KBFileIndexService:
                         entity_id, entity_type = _infer_entity(path)
                         await session.execute(text(f"""
                             INSERT INTO {self.TABLE}
-                                (repo_id, file_path, entity_id, entity_type, status)
-                            VALUES (:repo, :path, :eid, :etype, 0)
-                            ON CONFLICT (repo_id, file_path) DO UPDATE
-                            SET status = 0, updated_at = now()
+                                (id, repo_id, file_path, entity_id, entity_type, status, created_at, updated_at)
+                            VALUES (UUID(), :repo, :path, :eid, :etype, 0, now(), now())
+                            ON DUPLICATE KEY UPDATE
+                                status = 0, updated_at = now()
                         """), {
                             "repo": repo_id,
                             "path": path,

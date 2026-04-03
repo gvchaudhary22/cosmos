@@ -12,7 +12,7 @@ import structlog
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cosmos.app.db.models import Feedback as FeedbackModel
+from app.db.models import Feedback as FeedbackModel
 
 logger = structlog.get_logger()
 

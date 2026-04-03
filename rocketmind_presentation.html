@@ -968,12 +968,859 @@
   </div>
 </div>
 
+<!-- SLIDE 14: 5-Wave Architecture -->
+<div class="slide" id="s14">
+  <h2>5-Wave Architecture — How Every Query Is Resolved</h2>
+  <p class="subtitle">Sequential waves, parallel tasks within each wave. Later waves only fire when earlier ones aren't enough.</p>
+
+  <div style="margin-top:20px;">
+    <div class="flow" style="justify-content:center; gap:8px; flex-wrap:wrap;">
+      <div class="flow-box fb-blue" style="text-align:center; min-width:130px;"><strong>Wave 1</strong><br><span style="font-size:11px;">Scope Detection<br>&lt;200ms</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box fb-green" style="text-align:center; min-width:130px;"><strong>Wave 2</strong><br><span style="font-size:11px;">Deep Retrieval<br>&lt;2s (default)</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box fb-purple" style="text-align:center; min-width:130px;"><strong>Wave 3</strong><br><span style="font-size:11px;">Neo4j Shadow<br>&lt;3s extra</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box fb-orange" style="text-align:center; min-width:130px;"><strong>Wave 4</strong><br><span style="font-size:11px;">LangGraph Shadow<br>&lt;5s extra</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box" style="background:rgba(20,184,166,0.15); border:1px solid rgba(20,184,166,0.3); color:#5eead4; text-align:center; min-width:130px;"><strong>Wave 5</strong><br><span style="font-size:11px;">Page + Field Trace<br>Domain-triggered</span></div>
+    </div>
+  </div>
+
+  <div class="cols" style="margin-top:20px;">
+    <div>
+      <table>
+        <tr><th>Wave</th><th>Runs By Default</th><th>Trigger Condition</th><th>Skip Condition</th></tr>
+        <tr><td><span class="badge badge-blue">W1</span> Scope Detection</td><td>Always</td><td>Every request</td><td>Never</td></tr>
+        <tr><td><span class="badge badge-green">W2</span> Deep Retrieval</td><td>Always (non-fast-path)</td><td>vector score &gt; 0.2</td><td>Pattern cache hit (Tier 0)</td></tr>
+        <tr><td><span class="badge badge-purple">W3</span> Neo4j BFS</td><td>Shadow (off by default)</td><td>W2 graph confidence &lt;0.5</td><td>wave3_shadow_mode=True → logs only</td></tr>
+        <tr><td><span class="badge badge-orange">W4</span> LangGraph</td><td>Shadow (off by default)</td><td>W2+W3 confidence &lt;0.6 + ≥2 intents</td><td>wave4_shadow_mode=True → logs only</td></tr>
+        <tr><td><span class="badge" style="background:rgba(20,184,166,0.2);color:#5eead4;">W5</span> Page Index</td><td>Domain-triggered</td><td>page_signal=True in W1 (keywords: page/role/field/access)</td><td>No page_signal keyword detected</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Shadow Lane Promotion</h3>
+      <p style="font-size:14px; margin-bottom:12px;">W3 and W4 run in parallel but their results are only LOGGED — not shown to the LLM — until the promotion gate passes.</p>
+      <div class="code" style="font-size:12px;">
+        <span class="keyword">wave3_shadow_mode = True</span> <span class="comment">← default (Phase 3)</span><br>
+        <span class="comment">// W3 runs, results logged for MRR comparison</span><br>
+        <span class="comment">// NOT injected into LLM context</span><br>
+        <br>
+        <span class="keyword">Promotion gate (W3 → primary path):</span><br>
+        &nbsp;&nbsp;MRR lift ≥ +0.05 on graph-heavy queries<br>
+        &nbsp;&nbsp;p95 latency W2+W3 ≤ 5s<br>
+        &nbsp;&nbsp;Zero regressions on tool_accuracy<br>
+        <br>
+        <span class="highlight">Once gate passes: wave3_shadow_mode = False</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 15: Wave 1 Deep Dive -->
+<div class="slide" id="s15">
+  <h2>Wave 1 — Scope Detection Deep Dive</h2>
+  <p class="subtitle">5 probes, all parallel, all &lt;200ms total. The receptionist that preps the file before the specialist picks up.</p>
+
+  <div class="cols">
+    <div>
+      <h3>Training — How W1 Gets Its Knowledge</h3>
+      <div class="code" style="font-size:12px; line-height:1.7;">
+        <span class="comment">// STEP 1: KB YAML on disk (written once, offline)</span><br>
+        apis/wallet.credit/high/examples.yaml<br>
+        &nbsp;&nbsp;param_extraction_pairs:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;- input: <span class="string">"credit 500 to seller 9876"</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;entity_type: seller_id<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;entity_value: <span class="string">"9876"</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;expected_tool: credit_wallet<br>
+        <br>
+        <span class="comment">// STEP 2: Training pipeline writes to entity_lookup</span><br>
+        <span class="keyword">entity_lookup</span> table:<br>
+        &nbsp;&nbsp;entity_type=<span class="string">"seller_id"</span><br>
+        &nbsp;&nbsp;entity_value=<span class="string">"9876"</span><br>
+        &nbsp;&nbsp;node_id=<span class="string">"api:wallet.credit"</span><br>
+        <br>
+        <span class="comment">// STEP 3: Intent classifier trained on tool_agent_tags</span><br>
+        apis/wallet.credit/high/tool_agent_tags.yaml<br>
+        &nbsp;&nbsp;primary_intent: <span class="string">"billing"</span><br>
+        &nbsp;&nbsp;retrieval_keywords: [wallet, credit, balance]
+      </div>
+
+      <h3 style="margin-top:16px;">5 Probes — What Each Searches</h3>
+      <table style="font-size:13px;">
+        <tr><th>Probe</th><th>Store Hit</th><th>Speed</th></tr>
+        <tr><td>Intent Classifier</td><td>In-memory ML model</td><td>~5ms</td></tr>
+        <tr><td>Entity Extractor</td><td>entity_lookup table (exact)</td><td>~10ms</td></tr>
+        <tr><td>Vector Search</td><td>cosmos_embeddings (pgvector)</td><td>~80ms</td></tr>
+        <tr><td>Page/Role Probe</td><td>In-memory TF-IDF index</td><td>~10ms</td></tr>
+        <tr><td>Cross-Repo Probe</td><td>entity_lookup + page_intel</td><td>~15ms</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Live Example: "which API updates wallet balance?"</h3>
+      <div class="example" style="font-size:13px;">
+        <div class="q">Query: "which API updates wallet balance?"</div>
+        <div class="a" style="margin-top:8px; line-height:1.9;">
+          <span style="color:#93c5fd;">W1 Probe 1 — Intent:</span> "billing" (conf=0.88)<br>
+          <span style="color:#93c5fd;">W1 Probe 2 — Entity:</span> no entity_id found (no seller ID in query)<br>
+          <span style="color:#93c5fd;">W1 Probe 3 — Vector:</span> top-5 chunks returned:<br>
+          &nbsp;&nbsp;rank1: api:wallet.credit (sim=0.91, chunk_type=api_overview)<br>
+          &nbsp;&nbsp;rank2: api:wallet.debit &nbsp;(sim=0.84)<br>
+          &nbsp;&nbsp;rank3: page:billing_summary (sim=0.71, chunk_type=page_field_trace)<br>
+          <span style="color:#93c5fd;">W1 Probe 4 — Page:</span> "wallet" → no page_signal, but "balance" → field_trace lookup<br>
+          &nbsp;&nbsp;field_trace: wallet_balance → api:wallet.credit → wallet.balance col<br>
+          <span style="color:#93c5fd;">W1 Probe 5 — Cross-repo:</span> no signal<br>
+          <br>
+          <span style="color:#fbbf24;">Decision: top_relevance=0.91 &gt; 0.2 → fire Wave 2</span><br>
+          <span style="color:#86efac;">Output: intent=billing, field_trace found, pre_vector_hits=5 chunks</span>
+        </div>
+        <div class="tool">W1 total: ~95ms | Wave 2 receives: intent + field_traces + pre_vector_hits</div>
+      </div>
+      <div class="code" style="font-size:12px; margin-top:12px;">
+        <span class="comment">// page_signal keyword detection (zero-cost regex)</span><br>
+        <span class="keyword">_PAGE_SIGNAL_KEYWORDS</span> = {<br>
+        &nbsp;&nbsp;<span class="string">"page", "tab", "field", "column", "role",</span><br>
+        &nbsp;&nbsp;<span class="string">"access", "permission", "who can", "visible",</span><br>
+        &nbsp;&nbsp;<span class="string">"seller", "admin", "icrm", "portal", ...</span><br>
+        }<br>
+        <span class="comment">// If matched → Wave 5 added to execution plan</span><br>
+        <span class="comment">// Role unknown does NOT skip Wave 5 —</span><br>
+        <span class="comment">// only role_permission_check degrades gracefully</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 16: Wave 2 Deep Dive -->
+<div class="slide" id="s16">
+  <h2>Wave 2 — Deep Retrieval Deep Dive</h2>
+  <p class="subtitle">4 parallel legs + Neighbor Expansion + Module Doc Unification. Phase 2 addition: W1 and W2 Legs 3+4 will run in parallel (prefetch).</p>
+
+  <div class="cols">
+    <div>
+      <h3>4-Leg Retrieval — Same Query, 4 Angles</h3>
+      <div class="code" style="font-size:12px; line-height:1.7;">
+        <span class="comment">// Query: "which API updates wallet balance?"</span><br>
+        <br>
+        <span class="keyword">Leg 1: Exact Entity Lookup</span> (weight 2.0)<br>
+        &nbsp;&nbsp;entity_lookup(seller_id=? ) → nothing (no ID in query)<br>
+        &nbsp;&nbsp;<span class="string">→ 0 results (skipped, no entity from W1)</span><br>
+        <br>
+        <span class="keyword">Leg 2: Graph Neighborhood</span> (weight 1.5)<br>
+        &nbsp;&nbsp;intent=billing → domain:billing node<br>
+        &nbsp;&nbsp;BFS 2-hop: api:wallet.credit, api:wallet.debit,<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;table:wallet_transactions, tool:credit_wallet<br>
+        &nbsp;&nbsp;<span class="string">→ 12 related nodes</span><br>
+        <br>
+        <span class="keyword">Leg 3: Vector Similarity</span> (weight 1.0)<br>
+        &nbsp;&nbsp;reuses pre_vector_hits from W1 (no re-embedding!)<br>
+        &nbsp;&nbsp;<span class="string">→ api:wallet.credit (sim=0.91), rank 1</span><br>
+        <br>
+        <span class="keyword">Leg 4: Lexical Search</span> (weight 0.8)<br>
+        &nbsp;&nbsp;GIN index: "wallet" AND "balance" AND "update"<br>
+        &nbsp;&nbsp;<span class="string">→ api:wallet.credit (GIN rank 1)</span><br>
+        <br>
+        <span class="highlight">RRF Fusion: wallet.credit = 0.0246+0.0164+0.0129 = 0.054</span><br>
+        <span class="comment">// Appears in 3/4 legs → wins decisively</span>
+      </div>
+    </div>
+    <div>
+      <h3>Phase 2 Additions</h3>
+      <div class="code" style="font-size:12px; line-height:1.7;">
+        <span class="keyword">NEIGHBOR EXPANDER</span> (sibling chunks)<br>
+        <span class="comment">// Top result: wallet.credit, chunk_index=0 (api_overview)</span><br>
+        <span class="comment">// Fetches chunks at index -1 and +1:</span><br>
+        &nbsp;&nbsp;SELECT * FROM cosmos_embeddings<br>
+        &nbsp;&nbsp;WHERE metadata→'parent_doc_id'<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= 'api_endpoint:MultiChannel_API:wallet.credit'<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;AND chunk_index BETWEEN -1 AND 1<br>
+        &nbsp;&nbsp;<span class="string">→ chunk_index=1: api_example</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;"example: credit 500 to seller 9876 → wallet_balance=1500"<br>
+        <br>
+        <span class="comment">// Source priority: raw vector hits first (full metadata)</span><br>
+        <span class="comment">// then vector proxy nodes (_source="vector_proxy")</span><br>
+        <span class="comment">// graph nodes (api_endpoint, module) SKIPPED — no chunk metadata</span><br>
+        <br>
+        <span class="keyword">MODULE DOC UNIFIER</span><br>
+        <span class="comment">// module_doc hit: entity_type="module_doc", module="payments"</span><br>
+        &nbsp;&nbsp;vector section: <span class="string">"routes: /v1/wallet/*, /v1/invoice/*"</span><br>
+        &nbsp;&nbsp;graph lookup: module:payments edges:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;has_api → api:wallet.credit<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;reads_table → wallet_transactions<br>
+        &nbsp;&nbsp;<span class="string">→ unified module_context dict for LLM</span>
+      </div>
+
+      <h3 style="margin-top:12px;">Phase 4 (Upcoming): W1+W2 Parallel Prefetch</h3>
+      <div class="code" style="font-size:12px;">
+        <span class="comment">// TODAY: W1 finishes → W2 starts (~900ms total)</span><br>
+        <span class="highlight">// PHASE 4: W2 Legs 3+4 start immediately with raw query</span><br>
+        <br>
+        request arrives<br>
+        &nbsp;&nbsp;├──► W1 probes (intent, entity, vector) ~100ms<br>
+        &nbsp;&nbsp;└──► W2 Leg 3+4 prefetch (vector+lexical) ~80ms<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↕ both run in parallel<br>
+        W1 done → pass intent+entity_id to W2 Leg 1+2<br>
+        RRF fusion with all 4 legs (Legs 3+4 already done)<br>
+        <span class="string">→ saves ~100ms on every non-cached request</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 17: Wave 5 — Page Intelligence -->
+<div class="slide" id="s17">
+  <h2>Wave 5 — Page Intelligence &amp; Field Traces</h2>
+  <p class="subtitle">Triggered only when query mentions page/role/field keywords. Most valuable for ICRM admin queries. Runs in parallel with Wave 2.</p>
+
+  <div class="cols">
+    <div>
+      <h3>Training — How Pillar 4 Is Built</h3>
+      <div class="code" style="font-size:12px; line-height:1.7;">
+        <span class="comment">// Pillar 4 pages/ structure (10 pages × 2 repos = 20 pages)</span><br>
+        SR_Web/pages/icrm.sellers.list/<br>
+        &nbsp;&nbsp;page_meta.yaml<br>
+        &nbsp;&nbsp;fields.yaml<br>
+        &nbsp;&nbsp;api_bindings.yaml<br>
+        &nbsp;&nbsp;field_trace_chain.yaml &nbsp;<span class="highlight">← highest value</span><br>
+        &nbsp;&nbsp;role_permissions.yaml<br>
+        &nbsp;&nbsp;eval_cases.yaml<br>
+        <br>
+        <span class="keyword">read_pillar4_pages()</span> (kb_ingestor.py:774) produces<br>
+        <span class="comment">// 4 typed chunks per page → cosmos_embeddings</span><br>
+        chunk 0: <span class="string">page_summary</span> → route, domain, roles_required<br>
+        chunk 1: <span class="string">page_fields</span>&nbsp;&nbsp;&nbsp;→ seller_id: "Shiprocket seller ID"<br>
+        chunk 2: <span class="string">page_api_bindings</span> → GET /icrm/sellers (method, params)<br>
+        chunk 3: <span class="string">page_field_trace</span> → <span class="highlight">field → API → DB column</span><br>
+        <br>
+        <span class="comment">// chunk 3 example:</span><br>
+        wallet_balance → api:wallet.get → wallet.balance col<br>
+        company_name &nbsp;→ api:seller.get → companies.name col<br>
+        <br>
+        <span class="comment">// All 4 chunks: entity_type="page_intel"</span><br>
+        <span class="comment">// parent_doc_id="page:SR_Web:icrm.sellers.list"</span><br>
+        <span class="comment">// trust_score += 0.05 for field_trace chunk</span>
+      </div>
+    </div>
+    <div>
+      <h3>Wave 5 Live Example: Role + Field Query</h3>
+      <div class="example" style="font-size:13px;">
+        <div class="q">"Can billing agent see the wallet balance field on seller list page?"</div>
+        <div class="a" style="margin-top:8px; line-height:1.9;">
+          <span style="color:#93c5fd;">W1 detects page_signal:</span> "field" + "page" + "billing agent" → True<br>
+          <span style="color:#93c5fd;">W1 field_trace extraction:</span> "wallet_balance" found in query<br>
+          <br>
+          <span style="color:#5eead4;">Wave 5 fires (parallel with W2):</span><br>
+          <span style="color:#5eead4;">Task 1 — page_search:</span><br>
+          &nbsp;&nbsp;PageIntelligenceService.search_pages("wallet balance seller")<br>
+          &nbsp;&nbsp;→ icrm.sellers.list (score=0.91)<br>
+          <span style="color:#5eead4;">Task 2 — field_trace:</span><br>
+          &nbsp;&nbsp;get_field_trace("wallet_balance")<br>
+          &nbsp;&nbsp;→ wallet_balance → api:wallet.get → wallet.balance<br>
+          <span style="color:#5eead4;">Task 3 — role_permission_check:</span><br>
+          &nbsp;&nbsp;role="billing_agent" → icrm.sellers.list roles_required: [admin, super_admin, billing_agent]<br>
+          &nbsp;&nbsp;→ <span style="color:#86efac;">billing_agent IN roles_required → ACCESS GRANTED</span><br>
+          <br>
+          <span style="color:#fbbf24;">ContextAssembler priority:</span> field_trace first → page_summary → api_overview
+        </div>
+        <div class="tool">Answer: "Yes. Billing agents can see wallet_balance on icrm.sellers.list. It reads from wallet.balance column via api:wallet.get."</div>
+      </div>
+
+      <h3 style="margin-top:12px;">Phase 3: Pillar 4 Graph Edges</h3>
+      <div class="code" style="font-size:12px;">
+        <span class="comment">// Added in Phase 3 (ingest.py _ingest_page())</span><br>
+        <span class="keyword">page</span>:icrm.sellers.list<br>
+        &nbsp;&nbsp;→ <span class="keyword">requires_role</span> → role:billing_agent<br>
+        &nbsp;&nbsp;→ <span class="keyword">requires_role</span> → role:admin<br>
+        &nbsp;&nbsp;→ <span class="keyword">has_action</span>&nbsp;&nbsp;&nbsp;→ api:icrm.sellers.get<br>
+        &nbsp;&nbsp;→ <span class="keyword">has_action</span>&nbsp;&nbsp;&nbsp;→ api:wallet.get<br>
+        <span class="comment">// Enables Leg 2 graph traversal to find pages from role node</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 18: Tools → Agents → Skills → Actions -->
+<div class="slide" id="s18">
+  <h2>Tools &rarr; Agents &rarr; Skills &rarr; Actions — Full Chain</h2>
+  <p class="subtitle">How a query becomes a tool call becomes an action becomes a response</p>
+
+  <div class="cols">
+    <div>
+      <h3>The 4-Layer Stack</h3>
+      <div class="code" style="font-size:12px; line-height:1.8;">
+        <span class="keyword">TOOL</span> = an API wrapper with a schema<br>
+        &nbsp;&nbsp;wallet_balance(seller_id: int) → {balance: float}<br>
+        &nbsp;&nbsp;cancel_order(order_id: int) → {status: str}<br>
+        <br>
+        <span class="keyword">AGENT</span> = a domain specialist with a tool subset<br>
+        &nbsp;&nbsp;billing_wallet agent → [billing_query, wallet_balance,<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;initiate_refund, cancel_order]<br>
+        &nbsp;&nbsp;KB scope: ["billing", "wallet"] → 2K chunks only<br>
+        <br>
+        <span class="keyword">SKILL</span> = a named workflow bound to an agent<br>
+        &nbsp;&nbsp;cancel_and_refund.skill:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;triggers: ["cancel order", "cancel karo", "refund"]<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;agent: billing_wallet<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;actions: [step1, step2, step3]<br>
+        <br>
+        <span class="keyword">ACTION</span> = one step within a skill (7 types)<br>
+        &nbsp;&nbsp;<span class="string">api_call</span> → execute a tool<br>
+        &nbsp;&nbsp;<span class="string">prompt</span>&nbsp;&nbsp; → ask LLM to reason<br>
+        &nbsp;&nbsp;<span class="string">handoff</span>&nbsp; → pass context to another agent<br>
+        &nbsp;&nbsp;<span class="string">notification</span> → send webhook/event<br>
+        &nbsp;&nbsp;<span class="string">workflow</span>&nbsp;→ trigger external workflow (N8N)<br>
+        &nbsp;&nbsp;<span class="string">respond</span>&nbsp; → format and return answer<br>
+        &nbsp;&nbsp;<span class="string">internal</span> → local logic (check, compute, validate)
+      </div>
+    </div>
+    <div>
+      <h3>Full Wave Execution: "Cancel order 12345 and refund"</h3>
+      <div class="code" style="font-size:11px; line-height:1.7;">
+        <span class="keyword">WAVE 1 — Scope Detection (~100ms)</span><br>
+        &nbsp;&nbsp;Intent: [cancel, refund] (multi-intent)<br>
+        &nbsp;&nbsp;Entity: order_id=12345<br>
+        &nbsp;&nbsp;Vector: cancel_order chunk (sim=0.93)<br>
+        &nbsp;&nbsp;No page_signal → Wave 5 skipped<br>
+        <br>
+        <span class="keyword">WAVE 2 — Deep Retrieval (~300ms)</span><br>
+        &nbsp;&nbsp;Leg 1: entity_lookup(order_id=12345) → node:api:orders.cancel<br>
+        &nbsp;&nbsp;Leg 2: intent:cancel → domain:orders → tool:cancel_order<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;intent:refund → domain:billing → tool:initiate_refund<br>
+        &nbsp;&nbsp;Leg 3: vector hits reused from W1<br>
+        &nbsp;&nbsp;Leg 4: lexical "cancel order 12345" → rank 1: cancel_order<br>
+        &nbsp;&nbsp;RRF: cancel_order (0.061) → refund (0.042) → order_lookup (0.031)<br>
+        &nbsp;&nbsp;<span class="string">Neighbor expander: finds api_example chunk for cancel_order</span><br>
+        <br>
+        <span class="keyword">SKILL MATCH — cancel_and_refund.skill</span><br>
+        &nbsp;&nbsp;Trigger match: "cancel" + "refund" → confidence 0.96<br>
+        &nbsp;&nbsp;Agent: billing_wallet<br>
+        <br>
+        <span class="keyword">ACTION EXECUTION (sequential — refund depends on cancel)</span><br>
+        &nbsp;&nbsp;Action 1: <span class="string">api_call</span>(order_lookup, id=12345) → status=NEW ✓<br>
+        &nbsp;&nbsp;Action 2: <span class="string">internal</span>(check status &lt; SHIPPED → eligible ✓)<br>
+        &nbsp;&nbsp;Action 3: <span class="string">api_call</span>(cancel_order, id=12345) → success<br>
+        &nbsp;&nbsp;Action 4: <span class="highlight">handoff</span>(billing_wallet, ctx={order=12345, amount=1249})<br>
+        &nbsp;&nbsp;Action 5: <span class="string">api_call</span>(initiate_refund, order=12345, amount=1249)<br>
+        &nbsp;&nbsp;Action 6: <span class="string">respond</span>("Cancelled. Rs 1,249 refund in 5-7 days.")<br>
+        <br>
+        <span class="highlight">Total: ~850ms | 2 agents | 1 handoff | risk=Medium → approval queued</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 19: KB Training Pipeline -->
+<div class="slide" id="s19">
+  <h2>Knowledge Base Training Pipeline — Every File, Every Tier</h2>
+  <p class="subtitle">Not just high.yaml. Every semantically important file → typed chunk or graph edge. Merged offline. Never read at request time.</p>
+
+  <div class="cols">
+    <div>
+      <h3>Tier System — 3 Files Per Entity</h3>
+      <div class="code" style="font-size:12px; line-height:1.7;">
+        apis/wallet.credit/<br>
+        &nbsp;&nbsp;<span class="highlight">high.yaml</span> &nbsp;&nbsp;&nbsp;<span class="comment">← AI reads this (or high/ folder)</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;overview + tool_agent_tags + examples<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;request_schema + db_mapping<br>
+        &nbsp;&nbsp;<span class="keyword">medium.yaml</span> <span class="comment">← partially ingested (Phase 4)</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;guardrails + auth_permissions<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;errors_retries + response_schema<br>
+        &nbsp;&nbsp;<span class="string">low.yaml</span> &nbsp;&nbsp;&nbsp;<span class="comment">← eval cases only (Phase 4)</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;eval_cases + evidence.confidence<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;changelog (skip) + panel_usage
+      </div>
+
+      <h3 style="margin-top:16px;">File → What Gets Produced</h3>
+      <table style="font-size:12px;">
+        <tr><th>File</th><th>Vector Chunk</th><th>Graph Edge</th><th>Done?</th></tr>
+        <tr><td>overview.yaml</td><td>api_overview</td><td>belongs_to_domain</td><td><span class="badge badge-green">Yes</span></td></tr>
+        <tr><td>tool_agent_tags.yaml</td><td>api_tool_tags</td><td>implements_tool, has_intent</td><td><span class="badge badge-green">Yes</span></td></tr>
+        <tr><td>examples.yaml</td><td>api_example (1 blob)</td><td>entity_lookup rows</td><td><span class="badge badge-orange">Partial</span></td></tr>
+        <tr><td>request_schema / params.yaml</td><td>api_schema</td><td>None yet</td><td><span class="badge badge-green">Yes</span></td></tr>
+        <tr><td>db_mapping.yaml</td><td>api_db_mapping</td><td>reads/writes_table</td><td><span class="badge badge-green">Yes</span></td></tr>
+        <tr><td>guardrails.yaml</td><td>None needed</td><td>neg_routing_keywords on node</td><td><span class="badge badge-orange">Phase 4</span></td></tr>
+        <tr><td>auth_permissions.yaml</td><td>None needed</td><td>requires_role edges</td><td><span class="badge badge-orange">Phase 4</span></td></tr>
+        <tr><td>eval_cases.yaml</td><td>None needed</td><td>→ dev_set.jsonl (CI)</td><td><span class="badge badge-orange">Phase 4</span></td></tr>
+        <tr><td>field_trace_chain.yaml</td><td>page_field_trace (+trust)</td><td>traces_to edge</td><td><span class="badge badge-green">Yes</span></td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Training Run — M1 to M7</h3>
+      <div class="code" style="font-size:12px; line-height:1.7;">
+        <span class="keyword">M1</span> read_pillar1_tables()<br>
+        &nbsp;&nbsp;identity + states + dataflow → table_identity, table_states chunks<br>
+        &nbsp;&nbsp;trust_score from evidence.confidence<br>
+        <br>
+        <span class="keyword">M2</span> read_pillar3_apis()<br>
+        &nbsp;&nbsp;high/ folder → 5 typed chunks per API<br>
+        &nbsp;&nbsp;retrieval_keywords + aliases → metadata JSONB<br>
+        &nbsp;&nbsp;quality_score → trust_score (Phase 4)<br>
+        &nbsp;&nbsp;<span class="highlight">1 chunk per example (not 1 blob) → Phase 4</span><br>
+        &nbsp;&nbsp;guardrails → negative_routing_keywords → Phase 4<br>
+        &nbsp;&nbsp;eval_cases → dev_set.jsonl → Phase 4<br>
+        <br>
+        <span class="keyword">M3</span> build_graph (ingest.py)<br>
+        &nbsp;&nbsp;All API nodes + edges (domain, tool, intent, table)<br>
+        &nbsp;&nbsp;Module nodes + has_api edges (Phase 1 fix)<br>
+        &nbsp;&nbsp;Page nodes + requires_role + has_action edges (Phase 3)<br>
+        <br>
+        <span class="keyword">M4</span> read_pillar4_pages() ← already correct<br>
+        &nbsp;&nbsp;4 typed chunks per page (summary, fields, api_bindings, field_trace)<br>
+        &nbsp;&nbsp;eval_cases → dev_set.jsonl → Phase 4<br>
+        <br>
+        <span class="keyword">M5</span> read_pillar5_modules()<br>
+        &nbsp;&nbsp;module_summary + module_routes + module_cross_links chunks<br>
+        &nbsp;&nbsp;embedding_text on graph module nodes (Phase 1 fix)<br>
+        <br>
+        <span class="keyword">M6</span> write dev_set.jsonl (aggregated eval cases)<br>
+        <span class="keyword">M7</span> run_kb_drift_check() ← row count guard (Phase 3)
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 20: Phase Roadmap -->
+<div class="slide" id="s20">
+  <h2>Quality Roadmap — 6.5 &rarr; 9.5 / 10</h2>
+  <p class="subtitle">3 phases complete. Phase 4 is the KB completeness phase.</p>
+
+  <div class="cols">
+    <div>
+      <h3>Phase Delivery Summary</h3>
+      <table style="font-size:13px;">
+        <tr><th>Phase</th><th>Key Changes</th><th>Quality</th></tr>
+        <tr>
+          <td><span class="badge badge-green">Phase 1 ✓</span></td>
+          <td>Wired HybridRetriever. Added embedding_text on module nodes. module→api edges from cross_links. Pillar 3/5 typed chunk metadata. Page/field probe.</td>
+          <td><span class="badge badge-green">~7.5/10</span></td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">Phase 2 ✓</span></td>
+          <td>NeighborExpander (sibling chunks). module_doc_unify (vector+graph merge). ContextAssembler boosts (5 multipliers). CI Stage 2 soft gate.</td>
+          <td><span class="badge badge-blue">~8.5/10</span></td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-purple">Phase 3 ✓</span></td>
+          <td>Pillar 4 graph edges (page→role, page→api). KB drift checker. W3/W4 shadow modes. Stage 3 hard gate (COSMOS_HARD_GATE=1).</td>
+          <td><span class="badge badge-purple">~9.0/10</span></td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-orange">Phase 4 ↗</span></td>
+          <td>1 chunk per example. Guardrails → RRF penalty. auth_permissions → role edges. eval_cases → dev_set.jsonl. W1+W2 parallel prefetch.</td>
+          <td><span class="badge badge-orange">~9.5/10</span></td>
+        </tr>
+      </table>
+
+      <h3 style="margin-top:16px;">CI Gate Evolution</h3>
+      <table style="font-size:13px;">
+        <tr><th>Stage</th><th>Behavior</th><th>Activate With</th></tr>
+        <tr><td>Stage 1</td><td>Report only — logs metrics, never fails</td><td>COSMOS_EVAL=1</td></tr>
+        <tr><td>Stage 2 ✓</td><td>Soft warn — pytest.warns per violation</td><td>COSMOS_EVAL=1</td></tr>
+        <tr><td>Stage 3 ✓</td><td>Hard fail — CI blocks on threshold breach</td><td>COSMOS_HARD_GATE=1</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Phase 4 — What Changes (and Why)</h3>
+      <div class="code" style="font-size:12px; line-height:1.8;">
+        <span class="highlight">4a: 1 chunk per example</span><br>
+        &nbsp;&nbsp;Before: 1 blob per API (~0.70 similarity)<br>
+        &nbsp;&nbsp;After: 1 chunk per extraction pair (~0.95)<br>
+        &nbsp;&nbsp;<span class="string">→ +0.10 tool_accuracy@1</span><br>
+        <br>
+        <span class="highlight">4b: Guardrails → RRF penalty</span><br>
+        &nbsp;&nbsp;guardrails.do_not_use_for keywords stored on API node<br>
+        &nbsp;&nbsp;At RRF time: query matches guardrail → score ×0.3<br>
+        &nbsp;&nbsp;<span class="string">→ prevents wrong tool being ranked #1</span><br>
+        <br>
+        <span class="highlight">4c: auth_permissions → requires_role edges</span><br>
+        &nbsp;&nbsp;API node: required_roles=[admin, billing_agent]<br>
+        &nbsp;&nbsp;At context assembly: user_role not in required_roles → ×0.5<br>
+        &nbsp;&nbsp;<span class="string">→ +0.08 role-aware routing accuracy</span><br>
+        <br>
+        <span class="highlight">4d: eval_cases → dev_set.jsonl (CI)</span><br>
+        &nbsp;&nbsp;5000+ APIs × avg 2 eval cases = ~10K test pairs<br>
+        &nbsp;&nbsp;20 pages × avg 3 role-awareness cases = 60 pairs<br>
+        &nbsp;&nbsp;<span class="string">→ CI gate becomes real, not manually maintained</span><br>
+        <br>
+        <span class="highlight">4e: W1+W2 Legs 3+4 run in parallel</span><br>
+        &nbsp;&nbsp;Overlap vector+lexical search with W1 probes<br>
+        &nbsp;&nbsp;<span class="string">→ −100ms latency on every non-cached request</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 21: Pillar 1 — Schema -->
+<div class="slide" id="s21">
+  <h2>&#128202; Pillar 1 — Database Schema</h2>
+  <p class="subtitle">676 tables · 3,508 embedding chunks · State machines, constants, column-level meaning</p>
+
+  <div class="cols">
+    <div>
+      <h3>What Is Stored</h3>
+      <p style="font-size:14px; margin-bottom:16px;">Every database table in Shiprocket's PHP backend is documented at column level. Not just names — <strong>human meanings, valid constants, state machine transitions</strong>, and which APIs read/write each table.</p>
+      <div class="code" style="font-size:12px; line-height:1.7;">
+        tables/orders/high/<br>
+        &nbsp;&nbsp;<span class="keyword">identity.yaml</span> &nbsp;&rarr; table name, domain, canonical alias<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;canonical_table: orders<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;domain: orders<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;description: "Master order table driving all fulfillment"<br>
+        <br>
+        &nbsp;&nbsp;<span class="keyword">states.yaml</span> &nbsp;&nbsp;&rarr; order status constants<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;status_constants:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1: NEW, 2: PENDING, 6: SHIPPED,<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;18: CANCELLATION_REQUESTED,<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;20: CANCELLED, 23: RTO_DELIVERED<br>
+        <br>
+        &nbsp;&nbsp;<span class="keyword">dataflow.yaml</span> &rarr; which APIs read/write this table<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;read_by: [orders.get, orders.list, tracking.get]<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;written_by: [orders.create, orders.cancel, orders.update]
+      </div>
+      <h3 style="margin-top:16px;">Graph Edges Created</h3>
+      <div class="flow">
+        <div class="flow-box fb-blue">table:orders</div>
+        <div class="flow-arrow">&larr;reads_table&mdash;</div>
+        <div class="flow-box fb-green">api:orders.get</div>
+      </div>
+      <div class="flow">
+        <div class="flow-box fb-blue">table:orders</div>
+        <div class="flow-arrow">&larr;writes_table&mdash;</div>
+        <div class="flow-box fb-orange">api:orders.cancel</div>
+      </div>
+    </div>
+    <div>
+      <h3>Real Example: Status Code Query</h3>
+      <div class="example">
+        <div class="q">"Order status 18 ka matlab kya hai?"</div>
+        <div class="a" style="margin-top:8px; font-size:13px; line-height:1.8;">
+          <strong>W1 Vector:</strong> "status 18" → top hit: orders/states chunk (sim=0.94)<br>
+          chunk_type=<span style="color:#86efac;">table_states</span>, pillar=pillar_1<br><br>
+          <strong>W1 Exact Lookup:</strong> entity_type="order_status", value="18"<br>
+          → node: table:orders (resolved ✓)<br><br>
+          <strong>W2 Graph:</strong> table:orders → reads_table ← apis that explain status<br>
+          → api:orders.get, api:orders.cancel<br><br>
+          <strong>Context chunk (table_states):</strong><br>
+          "status 18 = CANCELLATION_REQUESTED: order cancel request submitted by seller, awaiting warehouse confirmation. Next: 20 (CANCELLED) or revert to 6 (SHIPPED)."<br><br>
+          <strong>Answer:</strong> "Status 18 matlab order ke cancel ki request di gayi hai. Warehouse confirm karne ke baad status 20 (Cancelled) ho jayega."
+        </div>
+        <div class="tool">Source: Pillar 1 table_states chunk | Leg 1 exact match | 380ms</div>
+      </div>
+      <div class="stat-grid" style="grid-template-columns: repeat(3,1fr); margin-top:12px;">
+        <div class="stat"><div class="num">676</div><div class="label">Tables</div></div>
+        <div class="stat"><div class="num">3,508</div><div class="label">Chunks</div></div>
+        <div class="stat"><div class="num">5</div><div class="label">Chunk Types</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 22: Pillar 3 — API Tools -->
+<div class="slide" id="s22">
+  <h2>&#128279; Pillar 3 — API MCP Tools</h2>
+  <p class="subtitle">5,483 endpoints · 21,172 embedding chunks · 5 typed chunk types per API · Complete tool &amp; agent graph</p>
+
+  <div class="cols">
+    <div>
+      <h3>5 Typed Chunks Per API (from high/ folder)</h3>
+      <table style="font-size:12px;">
+        <tr><th>Chunk Type</th><th>Source File</th><th>Contains</th></tr>
+        <tr><td><span class="badge badge-blue">api_overview</span></td><td>overview.yaml / identity</td><td>path, method, domain, blast_radius, keywords, aliases</td></tr>
+        <tr><td><span class="badge badge-green">api_tool_tags</span></td><td>tool_agent_tags.yaml</td><td>tool name, owner_agent, intents, retrieval_keywords</td></tr>
+        <tr><td><span class="badge badge-purple">api_example</span></td><td>examples.yaml</td><td>param extraction pairs (query → entity_type + expected_tool)</td></tr>
+        <tr><td><span class="badge badge-orange">api_schema</span></td><td>request_schema / params</td><td>discovered params, controller, method, validation</td></tr>
+        <tr><td><span class="badge" style="background:rgba(239,68,68,0.2);color:#fca5a5;">api_db_mapping</span></td><td>db_mapping.yaml</td><td>tables read/written, role (read vs write)</td></tr>
+      </table>
+
+      <h3 style="margin-top:16px;">Graph Nodes + Edges Per API</h3>
+      <div class="code" style="font-size:12px; line-height:1.7;">
+        <span class="keyword">api:</span>wallet.credit<br>
+        &nbsp;&nbsp;&rarr; <span class="string">belongs_to_domain</span> &rarr; domain:billing<br>
+        &nbsp;&nbsp;&rarr; <span class="string">implements_tool</span> &nbsp;&rarr; tool:credit_wallet<br>
+        &nbsp;&nbsp;&rarr; <span class="string">assigned_to_agent</span> &rarr; agent:billing_wallet (owner)<br>
+        &nbsp;&nbsp;&rarr; <span class="string">has_intent</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&rarr; intent:billing (primary)<br>
+        &nbsp;&nbsp;&rarr; <span class="string">reads_table</span> &nbsp;&nbsp;&nbsp;&rarr; table:wallet_transactions<br>
+        &nbsp;&nbsp;&rarr; <span class="string">writes_table</span> &nbsp;&nbsp;&rarr; table:wallet_transactions<br>
+        <span class="comment">// + entity_lookup rows from examples.yaml param pairs</span>
+      </div>
+    </div>
+    <div>
+      <h3>Real Example: Tool Selection</h3>
+      <div class="example">
+        <div class="q">"Seller 9876 ka wallet credit karo Rs 500"</div>
+        <div class="a" style="margin-top:8px; font-size:13px; line-height:1.8;">
+          <strong>W1 Entity:</strong> entity_lookup(seller_id=9876) → api:wallet.credit (from examples.yaml)<br>
+          <strong>W1 Intent:</strong> "billing" (conf=0.91)<br>
+          <strong>W2 Leg 1:</strong> exact match → api:wallet.credit (weight 2.0) ← highest score<br>
+          <strong>W2 Leg 2:</strong> intent:billing → domain:billing → tool:credit_wallet<br>
+          <strong>Chunk api_overview:</strong> POST /v1/wallet/credit, params: seller_id, amount<br>
+          <strong>Chunk api_example:</strong> "credit 500 to seller 9876 → tool: credit_wallet"<br>
+          <strong>Chunk api_db_mapping:</strong> writes_table: wallet_transactions<br><br>
+          <strong>Skill match:</strong> wallet_credit.skill → action: api_call(credit_wallet, seller_id=9876, amount=500)<br>
+          <strong>Risk:</strong> Medium → <span style="color:#fdba74;">supervisor approval required</span>
+        </div>
+        <div class="tool">Tool: credit_wallet | Agent: billing_wallet | Approval: queued | 620ms</div>
+      </div>
+      <div class="stat-grid" style="grid-template-columns: repeat(3,1fr); margin-top:12px;">
+        <div class="stat"><div class="num">5,483</div><div class="label">Endpoints</div></div>
+        <div class="stat"><div class="num">21,172</div><div class="label">Chunks</div></div>
+        <div class="stat"><div class="num">100%</div><div class="label">Tool Coverage</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 23: Pillar 4 + Pillar 5 -->
+<div class="slide" id="s23">
+  <h2>&#128196; Pillar 4 — Page Intel &nbsp;&nbsp; &#128214; Pillar 5 — Module Docs</h2>
+  <p class="subtitle">Page 4: 20 pages · 4 typed chunks each · Role-aware. Pillar 5: 63 modules · Section-by-section vector + graph unification.</p>
+
+  <div class="cols">
+    <div>
+      <h3>Pillar 4 — Page Role Intelligence</h3>
+      <p style="font-size:13px; margin-bottom:12px;">Every ICRM and seller-portal page is documented: what fields it shows, which APIs it calls, who can access it, and the exact DB column each field reads from.</p>
+      <div class="code" style="font-size:12px; line-height:1.7;">
+        SR_Web/pages/icrm.sellers.list/<br>
+        &nbsp;&nbsp;<span class="keyword">page_meta.yaml</span> &rarr; chunk: <span class="string">page_summary</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;route: /icrm/sellers, domain: seller_management<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;roles_required: [admin, super_admin, billing_agent]<br>
+        <br>
+        &nbsp;&nbsp;<span class="keyword">fields.yaml</span> &rarr; chunk: <span class="string">page_fields</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;wallet_balance: "Current wallet credit of seller"<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;company_name: "Registered company of seller"<br>
+        <br>
+        &nbsp;&nbsp;<span class="keyword">api_bindings.yaml</span> &rarr; chunk: <span class="string">page_api_bindings</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;list: GET /icrm/sellers (paginated)<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;suspend: POST /icrm/sellers/{id}/suspend<br>
+        <br>
+        &nbsp;&nbsp;<span class="keyword">field_trace_chain.yaml</span> &rarr; chunk: <span class="highlight">page_field_trace</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;wallet_balance → api:wallet.get → wallet.balance<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;company_name → api:seller.get → companies.name
+      </div>
+
+      <div class="example" style="margin-top:12px;">
+        <div class="q">"Who can suspend a seller from ICRM?"</div>
+        <div class="a" style="font-size:12px;">
+          W1: page_signal=True ("ICRM" + "suspend")<br>
+          W5: page_search → icrm.sellers.list, role_permissions → suspend action requires admin/super_admin<br>
+          <strong>Answer:</strong> "Only admin and super_admin roles can suspend sellers. Billing agents cannot — they can only view and change plans."
+        </div>
+        <div class="tool">Wave 5 field_trace | 190ms</div>
+      </div>
+    </div>
+    <div>
+      <h3>Pillar 5 — Module Documentation</h3>
+      <p style="font-size:13px; margin-bottom:12px;">63 backend modules documented section-by-section. Each module's vector chunks are unified with its graph node edges at retrieval time (Phase 2 module_doc_unify).</p>
+      <div class="code" style="font-size:12px; line-height:1.7;">
+        modules/payments/<br>
+        &nbsp;&nbsp;<span class="keyword">index.yaml</span> → chunk: <span class="string">module_summary</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;controllers: [WalletController, InvoiceController]<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;quality_score: 0.88, training_ready: true<br>
+        <br>
+        &nbsp;&nbsp;<span class="keyword">api_routes section</span> → chunk: <span class="string">module_routes</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;routes: /v1/wallet/*, /v1/invoice/*<br>
+        <br>
+        &nbsp;&nbsp;<span class="keyword">cross_links section</span> → chunk: <span class="string">module_cross_links</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;pillar_3_api: [wallet.credit, invoice.get]<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;→ graph: module:payments <span class="highlight">has_api</span> → api:wallet.credit<br>
+        <br>
+        <span class="comment">// At retrieval time (module_doc_unify):</span><br>
+        module_doc vector hit: section="routes"<br>
+        + graph lookup: module:payments edges<br>
+        = <span class="string">unified module_context</span> for LLM
+      </div>
+
+      <div class="example" style="margin-top:12px;">
+        <div class="q">"Payments module mein kaunse APIs aur tables hain?"</div>
+        <div class="a" style="font-size:12px;">
+          W2 Vector: module_doc hit (section=routes, sim=0.87)<br>
+          Module Unifier: module:payments → has_api → wallet.credit, invoice.get → reads_table → wallet_transactions<br>
+          <strong>Answer:</strong> "Payments module has 2 controllers. APIs: /v1/wallet/* (credit, debit, balance), /v1/invoice/*. Tables: wallet_transactions, invoices."
+        </div>
+        <div class="tool">Phase 2 module_doc_unify | Wave 2 | 490ms</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 24: Eval Seeds + Full Training Picture -->
+<div class="slide" id="s24">
+  <h2>&#129520; Eval Seeds — Training Data &amp; CI Gate</h2>
+  <p class="subtitle">5,716 query&rarr;tool pairs today · Phase 4 adds ~10K+ auto-generated pairs from eval_cases.yaml across all pillars</p>
+
+  <div class="cols">
+    <div>
+      <h3>Where Eval Seeds Come From</h3>
+      <div class="code" style="font-size:12px; line-height:1.8;">
+        <span class="comment">// TODAY — manually curated intent taxonomy</span><br>
+        intent_taxonomy.yaml (per repo)<br>
+        &nbsp;&nbsp;{query: "track order 123", tool: order_lookup}<br>
+        &nbsp;&nbsp;{query: "AWB kahan hai", tool: shipment_track}<br>
+        &nbsp;&nbsp;<span class="string">→ 5,716 pairs across all repos</span><br>
+        <br>
+        <span class="comment">// PHASE 4 — auto-generated from KB eval_cases.yaml</span><br>
+        apis/wallet.credit/low.yaml &rarr; eval_cases:<br>
+        &nbsp;&nbsp;- query: <span class="string">"credit 500 to seller 9876"</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;expected_tool: credit_wallet<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;expected_params: {seller_id: 9876, amount: 500}<br>
+        <br>
+        pages/icrm.sellers.list/eval_cases.yaml:<br>
+        &nbsp;&nbsp;- type: role_awareness<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;query: <span class="string">"Can billing agent suspend a seller?"</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;expected_output: <span class="string">"No — requires admin or super_admin"</span><br>
+        <br>
+        <span class="highlight">5,483 APIs × avg 2 pairs + 20 pages × 3 = ~11,026 new pairs</span>
+      </div>
+
+      <h3 style="margin-top:16px;">CI Gate Thresholds (Stage 3)</h3>
+      <table style="font-size:12px;">
+        <tr><th>Metric</th><th>Soft Gate (warn)</th><th>Hard Gate (fail)</th></tr>
+        <tr><td>tool_accuracy@1</td><td>&lt;0.70</td><td>&lt;0.80</td></tr>
+        <tr><td>recall@5</td><td>&lt;0.80</td><td>&lt;0.90</td></tr>
+        <tr><td>MRR</td><td>&lt;0.65</td><td>&lt;0.75</td></tr>
+        <tr><td>entity_match</td><td>&lt;0.70</td><td>&lt;0.85</td></tr>
+        <tr><td>page/field accuracy</td><td>&lt;0.50</td><td>&lt;0.70</td></tr>
+        <tr><td>grounded answer rate</td><td>&lt;0.65</td><td>&lt;0.80</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Full Training → Retrieval Journey (One Example)</h3>
+      <div class="example" style="font-size:12px; line-height:1.9;">
+        <div class="q">Query: "Seller 9876 ka wallet credit karna hai 500 rupay"</div>
+        <div class="a" style="margin-top:8px;">
+          <span style="color:#475569; font-size:11px; font-weight:600;">— TRAINING TIME (happens once offline) —</span><br>
+          examples.yaml: input="credit 500 to seller 9876" → entity_lookup row written<br>
+          overview.yaml: domain=billing, path=/v1/wallet/credit → api_overview chunk embedded<br>
+          tool_agent_tags.yaml: tool=credit_wallet → api_tool_tags chunk embedded + graph edges<br>
+          db_mapping.yaml: writes wallet_transactions → writes_table edge in graph<br>
+          <span style="color:#475569; font-size:11px;">eval_cases (Phase 4): query written to dev_set.jsonl for CI</span><br>
+          <br>
+          <span style="color:#475569; font-size:11px; font-weight:600;">— QUERY TIME (~620ms total) —</span><br>
+          W1 Probe 2: entity_lookup(seller_id=9876) → api:wallet.credit ← exact match (10ms)<br>
+          W1 Probe 3: vector search → api_overview chunk (sim=0.91) (80ms)<br>
+          W2 Leg 1: exact entity → api:wallet.credit (weight 2.0, score=0.033) (20ms)<br>
+          W2 Leg 2: intent:billing → tool:credit_wallet (weight 1.5) (40ms)<br>
+          W2 Neighbor: chunk_index=1 (api_example) fetched as sibling (15ms)<br>
+          Context: api_overview + api_example + api_db_mapping assembled<br>
+          Skill: wallet_credit.skill matched → Action: api_call(credit_wallet, seller_id=9876, amount=500)<br>
+          Risk: Medium → <span style="color:#fdba74;">Supervisor approval queued</span><br>
+          Answer: "Seller 9876 ko Rs 500 wallet credit ki request submit ho gayi. Supervisor approval ke baad credit hoga."
+        </div>
+        <div class="tool">W1: 95ms | W2: 330ms | Action: 90ms | RALPH: 50ms | Total: 620ms</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 25: End-to-End Examples Gallery -->
+<div class="slide" id="s25">
+  <h2>End-to-End Examples — Every Wave Type</h2>
+  <p class="subtitle">One example per query category showing which waves fired and why</p>
+
+  <div class="cols-3" style="margin-top:16px; gap:16px;">
+    <div>
+      <h3 style="font-size:16px;">&#128269; Simple Lookup (W1+W2)</h3>
+      <div class="example" style="font-size:12px;">
+        <div class="q">"Order 98765 ka AWB number kya hai?"</div>
+        <div class="a" style="line-height:1.7;">
+          W1: entity_id=98765, intent=lookup (95ms)<br>
+          W2 Leg 1: order_id=98765 → api:orders.get (exact)<br>
+          W2 Leg 2: domain:orders → shipment graph<br>
+          W5: skipped (no page_signal)<br>
+          Tool: order_lookup(id=98765)<br>
+          <strong>Answer:</strong> "AWB 9876543210 via Delhivery. Status: IN_TRANSIT."
+        </div>
+        <div class="tool">W1+W2 | Pattern cache after 30× | 450ms</div>
+      </div>
+
+      <h3 style="font-size:16px; margin-top:12px;">&#128196; Page + Field (W1+W2+W5)</h3>
+      <div class="example" style="font-size:12px;">
+        <div class="q">"Wallet balance field ICRM pe kahan se aata hai?"</div>
+        <div class="a" style="line-height:1.7;">
+          W1: page_signal=True ("wallet balance" + "ICRM")<br>
+          W1: field_trace → wallet_balance extracted<br>
+          W2+W5 run in parallel:<br>
+          W5 field_trace: wallet_balance → api:wallet.get → wallet.balance col<br>
+          W5 page_search: icrm.sellers.list (score=0.91)<br>
+          <strong>Answer:</strong> "wallet_balance reads from wallet.balance column via GET /v1/wallet/get."
+        </div>
+        <div class="tool">W1+W2+W5 | field_trace deterministic | 320ms</div>
+      </div>
+    </div>
+
+    <div>
+      <h3 style="font-size:16px;">&#129302; Multi-Intent + Handoff (W1+W2+Skill)</h3>
+      <div class="example" style="font-size:12px;">
+        <div class="q">"Order 12345 cancel karo aur refund bhi karo"</div>
+        <div class="a" style="line-height:1.7;">
+          W1: 2 intents [cancel, refund], entity=12345<br>
+          W2: cancel_order (RRF=0.061) + initiate_refund (RRF=0.042)<br>
+          Skill: cancel_and_refund.skill matched (conf=0.96)<br>
+          Action 1: order_lookup → status=NEW ✓<br>
+          Action 2: cancel_order(12345) → success<br>
+          Action 3: handoff → billing_wallet<br>
+          Action 4: initiate_refund(12345, 1249) → queued<br>
+          <strong>Answer:</strong> "Cancel ho gaya. Rs 1,249 refund 5-7 din mein."
+        </div>
+        <div class="tool">2 agents | 1 handoff | risk=Medium | 850ms</div>
+      </div>
+
+      <h3 style="font-size:16px; margin-top:12px;">&#128680; NDR Diagnosis (W1+W2+Forged Agent)</h3>
+      <div class="example" style="font-size:12px;">
+        <div class="q">"AWB 5544332211 pe 3 baar NDR aaya, kya karna chahiye?"</div>
+        <div class="a" style="line-height:1.7;">
+          W1: entity_type=awb (5544332211), intent=explain<br>
+          W2: NDR + shipment graph 2-hop traversal<br>
+          W2 confidence=0.55 → Forged Agent: NDR_DIAGNOSIS<br>
+          Tools (parallel): ndr_details + shipment_track + order_lookup<br>
+          Finding: 3 attempts, reason=Customer Unavailable, COD=2499<br>
+          <strong>Answer:</strong> "3 NDR attempts, sabka reason 'Customer Unavailable'. Phone update karein, nahi toh 4th fail pe auto-RTO."
+        </div>
+        <div class="tool">W1+W2+Forged | 3 tools parallel | 1.8s</div>
+      </div>
+    </div>
+
+    <div>
+      <h3 style="font-size:16px;">&#128176; RIPER Complex (5 phases)</h3>
+      <div class="example" style="font-size:12px;">
+        <div class="q">"Company 54321 ka last month delivery conversion rate aur best courier kaunsa hai?"</div>
+        <div class="a" style="line-height:1.7;">
+          W1: multi-intent [report, courier_compare]<br>
+          W2: orders+shipments+couriers graph (3 domains)<br>
+          RIPER activated (COMPLEX classification)<br>
+          R: orders+shipments table schema loaded<br>
+          I: 3 strategies generated<br>
+          P: Strategy A (direct query) selected<br>
+          E: 847 orders → 789 delivered (93.2%)<br>
+          &nbsp;&nbsp;Delhivery: 2.1d, BlueDart: 1.8d, Ecom: 3.4d<br>
+          R: verified vs billing ✓<br>
+          <strong>Answer:</strong> "93.2% delivery rate. Fastest: BlueDart (1.8 days avg)."
+        </div>
+        <div class="tool">RIPER Full | 5 phases | conf=0.92 | 3.2s</div>
+      </div>
+
+      <h3 style="font-size:16px; margin-top:12px;">&#9889; Pattern Cache (Tier 0)</h3>
+      <div class="example" style="font-size:12px;">
+        <div class="q">"Track order 77777" (31st time this pattern is asked)</div>
+        <div class="a" style="line-height:1.7;">
+          Pattern: "track_order_{id}" → conf=0.96 (built over 30 successes)<br>
+          <span style="color:#86efac;">Tier 0 fast path activated</span><br>
+          Skip: W1 probes, W2 retrieval, skill matching, RIPER<br>
+          Execute: shipment_track(id=77777) directly<br>
+          Post-check: PII mask + hallucination guard<br>
+          <strong>Answer:</strong> "Order 77777: IN_TRANSIT at Delhi Hub. EDD: April 3."
+        </div>
+        <div class="tool">Tier 0 | Pattern cache hit | 400ms (vs 900ms normal)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Navigation -->
 <div class="nav">
   <button onclick="prev()">&#8592; Prev</button>
   <button onclick="next()">Next &#8594;</button>
 </div>
-<div class="slide-counter" id="counter">1 / 13</div>
+<div class="slide-counter" id="counter">1 / 28</div>
 
 <script>
 let current = 0;

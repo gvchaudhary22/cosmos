@@ -1,22 +1,32 @@
 """
-Tournament A/B — Blind comparison of two retrieval lanes for ICRM users.
+Tournament A/B — Blind 5-wave comparison framework for ICRM users.
 
 Design rules (from review):
-  1. BLIND: No model names, no confidence shown. Only "Answer 1" and "Answer 2".
+  1. BLIND: No model names, no wave labels shown. Only "Answer 1" and "Answer 2".
   2. RANDOMIZED: Left/right order shuffled every time (prevent position bias).
-  3. ONE VARIABLE: Same corpus, same prompt, same LLM, same chunking.
-     Only the retrieval embedding lane differs (OpenAI vs Voyage).
+  3. ONE VARIABLE: Same corpus, same prompt, same LLM — only ONE wave configuration
+     differs between lane A and lane B (see WAVE_COMPARISON_PRESETS).
   4. STRUCTURED FEEDBACK: Reason tags (more_accurate, more_complete, etc.)
-     plus optional free text. Tags are better for training than free text alone.
+     plus optional free text.
   5. NO AUTO-FINETUNE: 500+ preferences = ready for CURATION, not auto-training.
-     Use for: eval sets, routing decisions, reranker training, confidence calibration.
-     Only fine-tune after: dedup, quality filter, safety review, offline eval.
-  6. SIGNIFICANCE GATES: Don't switch routing because one lane wins 58% once.
-     Require: min sample per domain, stable win rate, confidence interval, no regressions.
+  6. SIGNIFICANCE GATES: Require min sample per domain + stable win rate + no regressions.
   7. ADOPTED ANSWER: Only the chosen answer goes into case/thread history.
   8. INTER-ANNOTATOR AGREEMENT: Same pair shown to 2-3 users; agreement gates truth.
   9. TEMPORAL DECAY: Older preferences carry less weight in stats and training.
  10. NEGATIVE SIGNAL MINING: "both_bad" votes surface failure domains.
+
+5-Wave Comparison support (v2):
+  The framework now runs the full 5-wave QueryOrchestrator pipeline for each lane,
+  with different WorkflowSettings per lane.  This lets us compare:
+
+  Preset               | Lane A (control)              | Lane B (treatment)
+  ---------------------|-------------------------------|-------------------------------
+  wave3_neo4j          | wave3_shadow_mode=True         | wave3_shadow_mode=False
+  wave4_langgraph      | wave4_shadow_mode=True         | wave4_shadow_mode=False
+  wave5_page_intel     | page_signal_detect=False       | page_signal_detect=True
+  w2_hyde              | enable_hyde=False              | enable_hyde=True
+  embedding_model      | OpenAI text-embedding-3-small  | Voyage voyage-3-large
+  w2_reranker          | reranker disabled              | reranker enabled
 
 Who sees it:
   - ICRM users only (company_id=1)
@@ -25,6 +35,7 @@ Who sees it:
   - Lime frontend controls the toggle
 """
 
+import asyncio
 import hashlib
 import json
 import math
@@ -42,6 +53,114 @@ logger = structlog.get_logger()
 
 PREFERENCES_TABLE = "cosmos_ab_preferences"
 FAILURE_CASES_TABLE = "cosmos_failure_cases"
+
+
+# ---------------------------------------------------------------------------
+# Wave Lane Configuration (v2: 5-wave A/B support)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class WaveLaneConfig:
+    """Describes one A/B lane's wave configuration.
+
+    wave_overrides: partial WorkflowSettings fields to override for this lane.
+    All other fields remain at the default (balanced) preset.
+    """
+    lane_id: str           # "A" or "B"
+    label: str             # human-readable e.g. "W3 Neo4j primary"
+    wave_overrides: Dict[str, Any] = field(default_factory=dict)
+    embedding_model: str = "text-embedding-3-small"
+    # Which wave is the variable under test
+    test_dimension: str = "embedding_model"  # wave1|wave2|wave3|wave4|wave5|embedding_model
+
+
+# Standard comparison presets — change ONE variable at a time.
+# Use these by name when calling TournamentAB.generate_pair(preset=...).
+WAVE_COMPARISON_PRESETS: Dict[str, Dict[str, WaveLaneConfig]] = {
+    # ── Wave 3: Neo4j shadow → primary promotion test ───────────────────────
+    "wave3_neo4j": {
+        "A": WaveLaneConfig(
+            lane_id="A", label="W3 Neo4j shadow (baseline)",
+            wave_overrides={"wave3_shadow_mode": True},
+            test_dimension="wave3",
+        ),
+        "B": WaveLaneConfig(
+            lane_id="B", label="W3 Neo4j primary (treatment)",
+            wave_overrides={"wave3_shadow_mode": False, "wave3_langgraph_enabled": True},
+            test_dimension="wave3",
+        ),
+    },
+
+    # ── Wave 4: LangGraph shadow → primary promotion test ───────────────────
+    "wave4_langgraph": {
+        "A": WaveLaneConfig(
+            lane_id="A", label="W4 LangGraph shadow (baseline)",
+            wave_overrides={"wave4_shadow_mode": True},
+            test_dimension="wave4",
+        ),
+        "B": WaveLaneConfig(
+            lane_id="B", label="W4 LangGraph primary (treatment)",
+            wave_overrides={"wave4_shadow_mode": False, "wave4_neo4j_enabled": True},
+            test_dimension="wave4",
+        ),
+    },
+
+    # ── Wave 5: Page intelligence disabled vs enabled ───────────────────────
+    "wave5_page_intel": {
+        "A": WaveLaneConfig(
+            lane_id="A", label="W5 page intel disabled (baseline)",
+            wave_overrides={"pipeline2_enabled": False},  # disables TF-IDF page probe
+            test_dimension="wave5",
+        ),
+        "B": WaveLaneConfig(
+            lane_id="B", label="W5 page intel enabled (treatment)",
+            wave_overrides={"pipeline2_enabled": True},
+            test_dimension="wave5",
+        ),
+    },
+
+    # ── Wave 2: HyDE disabled vs enabled ────────────────────────────────────
+    "w2_hyde": {
+        "A": WaveLaneConfig(
+            lane_id="A", label="W2 without HyDE (baseline)",
+            wave_overrides={"enable_hyde": False},
+            test_dimension="wave2",
+        ),
+        "B": WaveLaneConfig(
+            lane_id="B", label="W2 with HyDE (treatment)",
+            wave_overrides={"enable_hyde": True},
+            test_dimension="wave2",
+        ),
+    },
+
+    # ── Wave 2: Reranker disabled vs enabled ────────────────────────────────
+    "w2_reranker": {
+        "A": WaveLaneConfig(
+            lane_id="A", label="W2 without cross-encoder reranker (baseline)",
+            wave_overrides={},  # reranker off (controlled via RERANKER_MODE env)
+            test_dimension="wave2",
+        ),
+        "B": WaveLaneConfig(
+            lane_id="B", label="W2 with cross-encoder reranker (treatment)",
+            wave_overrides={},  # reranker on
+            test_dimension="wave2",
+        ),
+    },
+
+    # ── Embedding model: OpenAI vs Voyage ────────────────────────────────────
+    "embedding_model": {
+        "A": WaveLaneConfig(
+            lane_id="A", label="OpenAI text-embedding-3-small",
+            embedding_model="text-embedding-3-small",
+            test_dimension="embedding_model",
+        ),
+        "B": WaveLaneConfig(
+            lane_id="B", label="Voyage voyage-3-large",
+            embedding_model="voyage-3-large",
+            test_dimension="embedding_model",
+        ),
+    },
+}
 
 # --- Temporal decay thresholds (days -> weight) ---
 TEMPORAL_DECAY_TIERS = [
@@ -63,18 +182,22 @@ BOTH_BAD_ALERT_THRESHOLD = 0.20  # flag domain if >20% both_bad
 
 @dataclass
 class ABResponse:
-    """One lane's response."""
-    lane: str                   # "A" (primary/OpenAI) or "B" (shadow/Voyage)
+    """One lane's response (v2: wave-aware)."""
+    lane: str                   # "A" or "B"
     content: str                # generated answer text
-    retrieval_model: str        # "text-embedding-3-small" or "voyage-3-large"
+    retrieval_model: str        # embedding model used, e.g. "text-embedding-3-small"
     context_chunks: List[Dict]  # top-5 retrieved chunks with scores
     confidence: float = 0.0
     latency_ms: float = 0.0
+    # v2: which waves fired for this lane
+    waves_used: List[str] = field(default_factory=list)   # ["W1","W2","W3","W4","W5"]
+    wave_config_label: str = ""                           # human label e.g. "W3 Neo4j primary"
+    test_dimension: str = "embedding_model"               # what's being tested
 
 
 @dataclass
 class ABPair:
-    """A pair of responses shown to the user for comparison."""
+    """A pair of responses shown to the user for comparison (v2: wave-aware)."""
     pair_id: str
     query: str
     response_a: ABResponse
@@ -82,6 +205,9 @@ class ABPair:
     shown_at: float = 0.0
     # Randomize order so user doesn't always prefer A
     display_order: List[str] = field(default_factory=lambda: ["A", "B"])
+    # v2: which preset was used
+    preset: str = "embedding_model"    # key in WAVE_COMPARISON_PRESETS
+    test_dimension: str = "embedding_model"
 
 
 @dataclass
@@ -126,25 +252,35 @@ class TournamentAB:
     For ICRM users only. Creates DPO training triples.
     """
 
-    def __init__(self, vectorstore=None, benchmark=None, llm_client=None):
+    def __init__(
+        self,
+        vectorstore=None,
+        benchmark=None,
+        llm_client=None,
+        orchestrator=None,  # v2: QueryOrchestrator for 5-wave lane execution
+    ):
         """
         Args:
             vectorstore: Primary VectorStoreService (OpenAI embeddings)
-            benchmark: EmbeddingBenchmark (Voyage shadow lane)
-            llm_client: LLMClient for generating answers
+            benchmark:   EmbeddingBenchmark (Voyage shadow lane)
+            llm_client:  LLMClient for generating answers
+            orchestrator: QueryOrchestrator — used for wave-config lane comparisons.
+                          When provided, generate_pair() runs the full 5-wave pipeline
+                          for each lane with different WorkflowSettings overrides.
         """
         self.vectorstore = vectorstore
         self.benchmark = benchmark
         self.llm_client = llm_client
+        self.orchestrator = orchestrator  # v2
 
     async def ensure_schema(self) -> None:
         """Create preferences table and failure cases table."""
         async with AsyncSessionLocal() as session:
             try:
-                # --- Main preferences table (with new IAA columns) ---
+                # --- Main preferences table (v2: wave-config columns added) ---
                 await session.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS {PREFERENCES_TABLE} (
-                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        id CHAR(36) PRIMARY KEY,
                         pair_id VARCHAR(36) NOT NULL,
                         query TEXT NOT NULL,
                         query_hash VARCHAR(32),
@@ -153,8 +289,8 @@ class TournamentAB:
                         response_b TEXT,
                         retrieval_model_a VARCHAR(100),
                         retrieval_model_b VARCHAR(100),
-                        context_a JSONB,
-                        context_b JSONB,
+                        context_a JSON,
+                        context_b JSON,
                         confidence_a FLOAT,
                         confidence_b FLOAT,
                         latency_a_ms FLOAT,
@@ -164,9 +300,32 @@ class TournamentAB:
                         time_to_decide_ms FLOAT,
                         annotator_count INT DEFAULT 1,
                         agreement_score FLOAT DEFAULT 0.0,
-                        created_at TIMESTAMPTZ DEFAULT now()
+                        -- v2: wave-config fields
+                        preset VARCHAR(50) DEFAULT 'embedding_model',
+                        test_dimension VARCHAR(30) DEFAULT 'embedding_model',
+                        wave_config_a JSON DEFAULT '{{}}',
+                        wave_config_b JSON DEFAULT '{{}}',
+                        waves_used_a JSON DEFAULT '[]',
+                        waves_used_b JSON DEFAULT '[]',
+                        created_at TIMESTAMP DEFAULT now()
                     )
                 """))
+                # Add columns if table existed before v2 (safe to run repeatedly)
+                for col_def in [
+                    ("preset", "VARCHAR(50) DEFAULT 'embedding_model'"),
+                    ("test_dimension", "VARCHAR(30) DEFAULT 'embedding_model'"),
+                    ("wave_config_a", "JSON DEFAULT '{}'"),
+                    ("wave_config_b", "JSON DEFAULT '{}'"),
+                    ("waves_used_a", "JSON DEFAULT '[]'"),
+                    ("waves_used_b", "JSON DEFAULT '[]'"),
+                ]:
+                    try:
+                        await session.execute(text(
+                            f"ALTER TABLE {PREFERENCES_TABLE} ADD COLUMN IF NOT EXISTS "
+                            f"{col_def[0]} {col_def[1]}"
+                        ))
+                    except Exception:
+                        pass  # column may already exist
                 await session.execute(text(f"""
                     CREATE INDEX IF NOT EXISTS idx_ab_user
                     ON {PREFERENCES_TABLE} (user_id)
@@ -187,7 +346,7 @@ class TournamentAB:
                 # --- Failure cases table (negative signal mining) ---
                 await session.execute(text(f"""
                     CREATE TABLE IF NOT EXISTS {FAILURE_CASES_TABLE} (
-                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        id CHAR(36) PRIMARY KEY,
                         pair_id VARCHAR(36) NOT NULL,
                         query TEXT NOT NULL,
                         query_hash VARCHAR(32),
@@ -196,7 +355,7 @@ class TournamentAB:
                         response_a TEXT,
                         response_b TEXT,
                         reason TEXT,
-                        created_at TIMESTAMPTZ DEFAULT now()
+                        created_at TIMESTAMP DEFAULT now()
                     )
                 """))
                 await session.execute(text(f"""
@@ -223,18 +382,58 @@ class TournamentAB:
         entity_type: Optional[str] = None,
         user_id: str = "",
         session_context: Optional[Dict] = None,
+        preset: str = "embedding_model",
+        repo_id: Optional[str] = None,
+        role: Optional[str] = None,
     ) -> Optional[ABPair]:
         """
-        Generate two responses using different retrieval lanes.
+        Generate two responses using different lane configurations.
 
-        Lane A: Primary (OpenAI text-embedding-3-small)
-        Lane B: Shadow (Voyage voyage-3-large)
+        v2: Supports all 5-wave presets via WAVE_COMPARISON_PRESETS.
+        Preset "embedding_model" uses the legacy OpenAI vs Voyage comparison.
+        All other presets run the full QueryOrchestrator with different
+        WorkflowSettings overrides.
+
+        Args:
+            preset: Key in WAVE_COMPARISON_PRESETS (default "embedding_model")
         """
+        import random
+
+        lane_configs = WAVE_COMPARISON_PRESETS.get(preset, WAVE_COMPARISON_PRESETS["embedding_model"])
+        cfg_a: WaveLaneConfig = lane_configs["A"]
+        cfg_b: WaveLaneConfig = lane_configs["B"]
+        pair_id = str(uuid.uuid4())[:8]
+
+        # ── Route to wave-config comparison (W2/W3/W4/W5 presets) ──────────
+        if preset != "embedding_model" and self.orchestrator is not None:
+            resp_a, resp_b = await self._run_wave_lane_pair(
+                query=query,
+                cfg_a=cfg_a,
+                cfg_b=cfg_b,
+                user_id=user_id,
+                repo_id=repo_id,
+                role=role,
+                session_context=session_context,
+            )
+            if resp_a is None or resp_b is None:
+                return None
+
+            display_order = ["A", "B"]
+            random.shuffle(display_order)
+            return ABPair(
+                pair_id=pair_id,
+                query=query,
+                response_a=resp_a,
+                response_b=resp_b,
+                shown_at=time.time(),
+                display_order=display_order,
+                preset=preset,
+                test_dimension=cfg_a.test_dimension,
+            )
+
+        # ── Legacy: embedding model comparison (OpenAI vs Voyage) ──────────
         if not self.vectorstore or not self.benchmark or not self.benchmark.is_enabled:
             return None
-
-        pair_id = str(uuid.uuid4())[:8]
-        t_start = time.monotonic()
 
         # Lane A: Primary retrieval (OpenAI)
         t0 = time.monotonic()
@@ -254,7 +453,6 @@ class TournamentAB:
             )
             shadow_chunks = []
             if shadow_result and shadow_result.shadow_top5:
-                # Fetch actual content for shadow results
                 for eid, score in zip(shadow_result.shadow_top5, shadow_result.shadow_scores):
                     shadow_chunks.append({
                         "entity_id": eid,
@@ -265,12 +463,9 @@ class TournamentAB:
             shadow_chunks = []
         shadow_ms = (time.monotonic() - t0) * 1000
 
-        # Generate answers from each context
-        response_a = await self._generate_answer(query, primary_chunks, session_context)
-        response_b = await self._generate_answer(query, shadow_chunks, session_context)
+        response_a_text = await self._generate_answer(query, primary_chunks, session_context)
+        response_b_text = await self._generate_answer(query, shadow_chunks, session_context)
 
-        # Randomize display order (prevent position bias)
-        import random
         display_order = ["A", "B"]
         random.shuffle(display_order)
 
@@ -279,23 +474,129 @@ class TournamentAB:
             query=query,
             response_a=ABResponse(
                 lane="A",
-                content=response_a,
-                retrieval_model="text-embedding-3-small",
+                content=response_a_text,
+                retrieval_model=cfg_a.embedding_model,
                 context_chunks=primary_chunks[:5],
                 confidence=primary_chunks[0]["similarity"] if primary_chunks else 0,
                 latency_ms=primary_ms,
+                wave_config_label=cfg_a.label,
+                test_dimension=cfg_a.test_dimension,
             ),
             response_b=ABResponse(
                 lane="B",
-                content=response_b,
-                retrieval_model="voyage-3-large",
+                content=response_b_text,
+                retrieval_model=cfg_b.embedding_model,
                 context_chunks=shadow_chunks[:5],
                 confidence=shadow_chunks[0]["similarity"] if shadow_chunks else 0,
                 latency_ms=shadow_ms,
+                wave_config_label=cfg_b.label,
+                test_dimension=cfg_b.test_dimension,
             ),
             shown_at=time.time(),
             display_order=display_order,
+            preset=preset,
+            test_dimension="embedding_model",
         )
+
+    # ------------------------------------------------------------------
+    # v2: Wave-config lane execution
+    # ------------------------------------------------------------------
+
+    async def _run_wave_lane_pair(
+        self,
+        query: str,
+        cfg_a: WaveLaneConfig,
+        cfg_b: WaveLaneConfig,
+        user_id: str,
+        repo_id: Optional[str],
+        role: Optional[str],
+        session_context: Optional[Dict],
+    ):
+        """Run the full orchestrator pipeline for both lanes in parallel.
+
+        Returns (ABResponse_A, ABResponse_B).
+        The only difference between the two runs is WorkflowSettings overrides
+        from WaveLaneConfig.wave_overrides — keeping ONE variable constant.
+        """
+        from app.services.workflow_settings import WorkflowSettings
+
+        async def _run_lane(cfg: WaveLaneConfig):
+            base = WorkflowSettings.balanced()
+            ws_dict = base.to_dict()
+            ws_dict.update(cfg.wave_overrides)
+            ws = WorkflowSettings.from_dict(ws_dict)
+
+            t0 = time.monotonic()
+            try:
+                orch_result = await self.orchestrator.execute(
+                    query=query,
+                    user_id=user_id,
+                    repo_id=repo_id,
+                    role=role,
+                    session_context=session_context or {},
+                    workflow_settings=ws,
+                )
+            except Exception as exc:
+                logger.warning("tournament_ab.lane_error",
+                               lane=cfg.lane_id, error=str(exc))
+                return None
+            lane_ms = (time.monotonic() - t0) * 1000
+
+            # Extract answer text and context chunks from orchestrator result
+            ctx = orch_result.context or {}
+            answer_text = (
+                ctx.get("fast_path_response")
+                or ctx.get("multi_agent_response")
+                or self._summarise_context(ctx)
+            )
+
+            # Determine which waves fired
+            waves_used = ["W1", "W2"]
+            if ctx.get("wave3_reasoning"):
+                waves_used.append("W3")
+            if ctx.get("wave4_graph"):
+                waves_used.append("W4")
+            if ctx.get("page_intelligence"):
+                waves_used.append("W5")
+
+            # Top-5 chunks from context for display
+            chunks = (
+                ctx.get("graphrag_deep", {}).get("nodes", [])[:5]
+                if isinstance(ctx.get("graphrag_deep"), dict) else []
+            )
+
+            confidence = orch_result.request_classification.get("confidence", 0.0) \
+                if orch_result.request_classification else 0.0
+
+            return ABResponse(
+                lane=cfg.lane_id,
+                content=answer_text,
+                retrieval_model=cfg.embedding_model,
+                context_chunks=chunks,
+                confidence=confidence,
+                latency_ms=lane_ms,
+                waves_used=waves_used,
+                wave_config_label=cfg.label,
+                test_dimension=cfg.test_dimension,
+            )
+
+        # Run both lanes in parallel — same query, different settings
+        resp_a, resp_b = await asyncio.gather(_run_lane(cfg_a), _run_lane(cfg_b))
+        return resp_a, resp_b
+
+    @staticmethod
+    def _summarise_context(ctx: Dict) -> str:
+        """Build a brief summary string from raw orchestrator context dict."""
+        parts = []
+        for key in ("graphrag_deep", "vector_search", "entity_lookup"):
+            val = ctx.get(key)
+            if isinstance(val, dict):
+                nodes = val.get("nodes", [])
+                if nodes:
+                    for n in nodes[:3]:
+                        label = n.get("label", "") if isinstance(n, dict) else str(n)
+                        parts.append(label[:120])
+        return "\n".join(parts) if parts else "[Context available — LLM assembly pending]"
 
     # ------------------------------------------------------------------
     # Preference recording (with IAA + negative signal mining)
@@ -477,7 +778,10 @@ class TournamentAB:
                              context_a, context_b,
                              confidence_a, confidence_b,
                              latency_a_ms, latency_b_ms,
-                             annotator_count, agreement_score)
+                             annotator_count, agreement_score,
+                             preset, test_dimension,
+                             wave_config_a, wave_config_b,
+                             waves_used_a, waves_used_b)
                         VALUES
                             (:pair_id, :query, :qhash, :user_id,
                              :resp_a, :resp_b,
@@ -485,7 +789,10 @@ class TournamentAB:
                              :ctx_a, :ctx_b,
                              :conf_a, :conf_b,
                              :lat_a, :lat_b,
-                             0, 0.0)
+                             0, 0.0,
+                             :preset, :test_dim,
+                             :wcfg_a, :wcfg_b,
+                             :wused_a, :wused_b)
                     """),
                     {
                         "pair_id": pair.pair_id,
@@ -496,12 +803,23 @@ class TournamentAB:
                         "resp_b": pair.response_b.content,
                         "model_a": pair.response_a.retrieval_model,
                         "model_b": pair.response_b.retrieval_model,
-                        "ctx_a": json.dumps([c.get("entity_id", "") for c in pair.response_a.context_chunks]),
-                        "ctx_b": json.dumps([c.get("entity_id", "") for c in pair.response_b.context_chunks]),
+                        "ctx_a": json.dumps([c.get("entity_id", "") if isinstance(c, dict) else str(c)
+                                             for c in pair.response_a.context_chunks]),
+                        "ctx_b": json.dumps([c.get("entity_id", "") if isinstance(c, dict) else str(c)
+                                             for c in pair.response_b.context_chunks]),
                         "conf_a": pair.response_a.confidence,
                         "conf_b": pair.response_b.confidence,
                         "lat_a": pair.response_a.latency_ms,
                         "lat_b": pair.response_b.latency_ms,
+                        # v2 wave fields
+                        "preset": pair.preset,
+                        "test_dim": pair.test_dimension,
+                        "wcfg_a": json.dumps({"label": pair.response_a.wave_config_label,
+                                              "model": pair.response_a.retrieval_model}),
+                        "wcfg_b": json.dumps({"label": pair.response_b.wave_config_label,
+                                              "model": pair.response_b.retrieval_model}),
+                        "wused_a": json.dumps(pair.response_a.waves_used),
+                        "wused_b": json.dumps(pair.response_b.waves_used),
                     },
                 )
                 await session.commit()
@@ -680,6 +998,38 @@ class TournamentAB:
                 both_bad_count = row.both_bad or 0
                 both_bad_rate = round(both_bad_count / total, 3) if total > 0 else 0
 
+                # --- Per-wave-dimension breakdown (v2) ---
+                dim_result = await session.execute(
+                    text(f"""
+                        SELECT
+                            test_dimension,
+                            preset,
+                            COUNT(*) as total,
+                            COUNT(CASE WHEN preference = 'A' THEN 1 END) as a_wins,
+                            COUNT(CASE WHEN preference = 'B' THEN 1 END) as b_wins,
+                            COUNT(CASE WHEN preference = 'both_bad' THEN 1 END) as both_bad
+                        FROM {PREFERENCES_TABLE}
+                        WHERE preference IS NOT NULL
+                        GROUP BY test_dimension, preset
+                        ORDER BY test_dimension, preset
+                    """)
+                )
+                by_wave: Dict[str, Any] = {}
+                for dr in dim_result.fetchall():
+                    dt = dr.total or 0
+                    by_wave[dr.preset] = {
+                        "test_dimension": dr.test_dimension,
+                        "preset": dr.preset,
+                        "total": dt,
+                        "a_wins": dr.a_wins or 0,
+                        "b_wins": dr.b_wins or 0,
+                        "both_bad": dr.both_bad or 0,
+                        "a_win_rate": round((dr.a_wins or 0) / dt, 3) if dt > 0 else 0,
+                        "b_win_rate": round((dr.b_wins or 0) / dt, 3) if dt > 0 else 0,
+                        "treatment_wins": (dr.b_wins or 0) > (dr.a_wins or 0),
+                        "sample_sufficient": dt >= 50,
+                    }
+
                 return {
                     "total_pairs": row.total_pairs or 0,
                     "rated": total,
@@ -694,11 +1044,14 @@ class TournamentAB:
                     "weighted_a_win_rate": round(weighted_a / total_weight, 3) if total_weight > 0 else 0,
                     "weighted_b_win_rate": round(weighted_b / total_weight, 3) if total_weight > 0 else 0,
                     "avg_decide_ms": round(float(row.avg_decide_ms or 0), 0),
-                    "lane_a": "OpenAI text-embedding-3-small",
-                    "lane_b": "Voyage voyage-3-large",
+                    "lane_a": "control (A)",
+                    "lane_b": "treatment (B)",
                     "ready_for_training": total >= 50,
                     "dpo_triples_available": a_wins + b_wins,
                     "temporal_note": "weighted_*_win_rate uses decay: 7d=1.0, 30d=0.8, 90d=0.5, older=0.2",
+                    # v2: per-wave-dimension results
+                    "by_wave_preset": by_wave,
+                    "available_presets": list(WAVE_COMPARISON_PRESETS.keys()),
                 }
             except Exception as e:
                 return {"error": str(e)}

@@ -1,10 +1,12 @@
 """
-Vector store service using pgvector for COSMOS embeddings.
+Vector store service using Qdrant vector database for COSMOS embeddings.
 
 Embedding provider:
   Production: Shiprocket AI Gateway → text-embedding-3-small (1536 dims)
   Dev-only:   Local all-MiniLM-L6-v2 (384 dims) — ONLY if ENV=development
   Test-only:  Deterministic hash — ONLY if ENV=test
+
+Storage backend: Qdrant (exclusive) — fast ANN search with payload filtering
 
 Rules:
   - One active table = one embedding dimension (no mixed 384 + 1536)
@@ -20,18 +22,12 @@ Model selection policy:
 """
 
 import hashlib
-import json
 import os
 import struct
 import time
-import uuid
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import structlog
-from sqlalchemy import text
-
-from app.db.session import AsyncSessionLocal
 
 logger = structlog.get_logger(__name__)
 
@@ -59,46 +55,29 @@ _MODEL_DIMS = {
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_API_URL = "https://api.openai.com/v1/embeddings"
 
-EMBEDDING_TABLE = "cosmos_embeddings"
-
-# Determine backend and dimension based on environment
-if ENV == "test":
-    _BACKEND = "hash"
-    _EMBEDDING_MODEL = "hash-fallback"
-    _EMBEDDING_DIM = 384
-    logger.info("vectorstore.test_mode", backend="hash", dim=384)
-elif ENV == "development" and not AIGATEWAY_API_KEY:
-    # Dev-only: allow local MiniLM if no gateway key
-    try:
-        from sentence_transformers import SentenceTransformer
-        _BACKEND = "local"
-        _EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-        _EMBEDDING_DIM = 384
-        logger.info("vectorstore.dev_mode", backend="local", dim=384)
-    except ImportError:
-        _BACKEND = "hash"
-        _EMBEDDING_MODEL = "hash-fallback"
-        _EMBEDDING_DIM = 384
-        logger.warning("vectorstore.dev_mode_hash_fallback")
-else:
-    # Production + any env with gateway key: use AI Gateway ONLY
-    if not AIGATEWAY_API_KEY:
-        raise RuntimeError(
-            "AIGATEWAY_API_KEY is required in production. "
-            "Set ENV=development for local fallback."
-        )
+# Production: Use OpenAI direct if OPENAI_API_KEY is set, else AI Gateway
+# OpenAI direct avoids CloudFront POST blocking on AI Gateway
+if OPENAI_API_KEY:
+    _BACKEND = "openai_direct"
+    _EMBEDDING_MODEL = AIGATEWAY_MODEL  # same model name
+    _EMBEDDING_DIM = _MODEL_DIMS.get(AIGATEWAY_MODEL, 1536)
+    logger.info("vectorstore.production_mode", backend="openai_direct", model=AIGATEWAY_MODEL, dim=_EMBEDDING_DIM)
+elif AIGATEWAY_API_KEY:
     _BACKEND = "aigateway"
     _EMBEDDING_MODEL = AIGATEWAY_MODEL
     _EMBEDDING_DIM = _MODEL_DIMS.get(AIGATEWAY_MODEL, 1536)
     logger.info("vectorstore.production_mode", backend="aigateway", model=AIGATEWAY_MODEL, dim=_EMBEDDING_DIM)
+else:
+    raise RuntimeError(
+        "Either OPENAI_API_KEY or AIGATEWAY_API_KEY is required. "
+        "Set in .env or environment."
+    )
 
 EMBEDDING_DIM = _EMBEDDING_DIM
 
-# Lazy-loaded local model (dev only)
-_local_model = None
-
 
 def _get_local_model():
+    """Not used in production. Kept for backward compatibility."""
     global _local_model
     if _local_model is None:
         from sentence_transformers import SentenceTransformer
@@ -131,70 +110,64 @@ def _compute_content_hash(content: str) -> str:
 # ---------------------------------------------------------------------------
 
 class VectorStoreService:
-    """Async vector store backed by pgvector in PostgreSQL."""
+    """Async vector store — uses Qdrant vector database exclusively.
+
+    Storage backend: Qdrant — fast ANN search with payload filtering
+    Embedding backend: AI Gateway → OpenAI → local → hash
+    """
 
     def __init__(self, session_factory=None):
         self._session_factory = session_factory
+        self._qdrant = None
+        self._qdrant_ready = False
 
     async def ensure_schema(self) -> None:
-        """Create pgvector extension and converged embeddings table."""
-        async with AsyncSessionLocal() as session:
-            try:
-                await session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-                await session.execute(text(f"""
-                    CREATE TABLE IF NOT EXISTS {EMBEDDING_TABLE} (
-                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                        repo_id VARCHAR(255) NOT NULL DEFAULT '',
-                        entity_type VARCHAR(255) NOT NULL,
-                        entity_id VARCHAR(500) NOT NULL,
-                        capability VARCHAR(50) NOT NULL DEFAULT 'retrieval',
-                        content TEXT NOT NULL,
-                        content_hash VARCHAR(32) NOT NULL DEFAULT '',
-                        embedding vector({EMBEDDING_DIM}),
-                        trust_score FLOAT NOT NULL DEFAULT 0.5,
-                        freshness TIMESTAMPTZ,
-                        embedding_model VARCHAR(100) NOT NULL DEFAULT '{_EMBEDDING_MODEL}',
-                        embedding_version VARCHAR(50) NOT NULL DEFAULT 'v1',
-                        embedded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                        metadata JSONB DEFAULT '{{}}'::jsonb,
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                    )
-                """))
-
-                # Canonical unique key for upsert
-                await session.execute(text(f"""
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_identity
-                    ON {EMBEDDING_TABLE} (repo_id, entity_type, entity_id)
-                """))
-
-                # Search + filter indexes
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_embeddings_entity_type
-                    ON {EMBEDDING_TABLE} (entity_type)
-                """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_embeddings_repo
-                    ON {EMBEDDING_TABLE} (repo_id)
-                """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_embeddings_trust
-                    ON {EMBEDDING_TABLE} (trust_score)
-                """))
-                await session.execute(text(f"""
-                    CREATE INDEX IF NOT EXISTS idx_embeddings_capability
-                    ON {EMBEDDING_TABLE} (capability)
-                """))
-
-                await session.commit()
-                logger.info("schema_ensured", dim=EMBEDDING_DIM, model=_EMBEDDING_MODEL, env=ENV)
-            except Exception as exc:
-                await session.rollback()
-                logger.error("schema_ensure_failed", error=str(exc))
-                raise
+        """Initialize Qdrant vector storage backend."""
+        try:
+            from app.services.qdrant_client import qdrant_store
+            self._qdrant_ready = await qdrant_store.ensure_collection()
+            if self._qdrant_ready:
+                self._qdrant = qdrant_store
+                logger.info("vectorstore.qdrant_ready", status="ready",
+                            dim=EMBEDDING_DIM, model=_EMBEDDING_MODEL, env=ENV)
+            else:
+                raise RuntimeError("Qdrant collection creation returned False")
+        except Exception as e:
+            logger.error("vectorstore.qdrant_init_failed", error=str(e))
+            raise
 
     # ------------------------------------------------------------------
     # Embedding
     # ------------------------------------------------------------------
+
+    # Content quality patterns that indicate stubs/junk
+    _STUB_PATTERNS = {"todo", "placeholder", "unknown", "tbd", "n/a", "none", "null", "empty"}
+
+    def _validate_content_quality(self, content: str, entity_id: str = "") -> bool:
+        """Quality gate: reject content that would pollute vector search.
+        Returns True if content is good enough to embed."""
+        if not content or len(content.strip()) < 50:
+            logger.debug("vectorstore.quality_gate_rejected", reason="too_short",
+                         entity_id=entity_id, length=len(content.strip()) if content else 0)
+            return False
+
+        stripped = content.strip()
+
+        # Reject if >80% non-alphanumeric (punctuation/whitespace)
+        alpha_count = sum(1 for c in stripped if c.isalnum())
+        if len(stripped) > 0 and alpha_count / len(stripped) < 0.2:
+            logger.debug("vectorstore.quality_gate_rejected", reason="low_alpha_ratio",
+                         entity_id=entity_id)
+            return False
+
+        # Reject stub patterns
+        lower = stripped.lower()
+        if lower in self._STUB_PATTERNS or all(w in self._STUB_PATTERNS for w in lower.split()):
+            logger.debug("vectorstore.quality_gate_rejected", reason="stub_content",
+                         entity_id=entity_id)
+            return False
+
+        return True
 
     def embed_text(self, content: str) -> List[float]:
         """
@@ -401,10 +374,47 @@ class VectorStoreService:
             return None
 
     async def embed_text_async(self, content: str) -> List[float]:
-        """Async version for AI Gateway calls."""
+        """Async version — uses OpenAI direct or AI Gateway based on config."""
+        if _BACKEND == "openai_direct":
+            return await self._embed_via_openai_direct_async(content)
         if _BACKEND == "aigateway":
             return await self._embed_via_gateway_async(content)
         return self.embed_text(content)
+
+    async def _embed_via_openai_direct_async(self, content: str) -> List[float]:
+        """Async OpenAI direct API call (bypasses AI Gateway CloudFront)."""
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    OPENAI_API_URL,
+                    json={
+                        "model": _EMBEDDING_MODEL,
+                        "input": content[:8000],
+                    },
+                    headers={
+                        "Authorization": f"Bearer {OPENAI_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                )
+
+            if response.status_code == 200:
+                data = response.json()
+                embedding = data["data"][0]["embedding"]
+                if len(embedding) == EMBEDDING_DIM:
+                    return embedding
+                logger.warning("openai_direct.dim_mismatch", expected=EMBEDDING_DIM, got=len(embedding))
+            elif response.status_code == 429:
+                logger.warning("openai_direct.rate_limited")
+            else:
+                logger.warning("openai_direct.error", status=response.status_code)
+
+            return self.embed_text(content)  # sync fallback
+
+        except Exception as e:
+            logger.warning("openai_direct.async_failed", error=str(e))
+            return self.embed_text(content)
 
     async def _embed_via_gateway_async(self, content: str) -> List[float]:
         """Async AI Gateway call with same strict production rules."""
@@ -462,7 +472,12 @@ class VectorStoreService:
         - If (repo_id, entity_type, entity_id) doesn't exist → INSERT
         - If exists AND content_hash changed → UPDATE embedding + content
         - If exists AND content_hash same → SKIP (no re-embed needed)
+        - Content is validated before embedding (quality gate)
         """
+        # Quality gate: reject junk content that would pollute vector search
+        if not self._validate_content_quality(content, entity_id):
+            return
+
         meta = dict(metadata or {})
         trust_score = meta.pop("trust_score", 0.5)
         capability = meta.pop("capability", "retrieval")
@@ -470,93 +485,37 @@ class VectorStoreService:
         content_hash = _compute_content_hash(content)
         effective_repo = repo_id or ""
 
-        # Check if content changed (skip expensive re-embed if not)
-        async with AsyncSessionLocal() as session:
-            try:
-                existing = await session.execute(
-                    text(f"""
-                        SELECT content_hash FROM {EMBEDDING_TABLE}
-                        WHERE repo_id = :repo_id AND entity_type = :entity_type AND entity_id = :entity_id
-                        LIMIT 1
-                    """),
-                    {"repo_id": effective_repo, "entity_type": entity_type, "entity_id": entity_id},
-                )
-                row = existing.fetchone()
+        if not self._qdrant_ready or not self._qdrant:
+            raise RuntimeError("Qdrant is not initialized. Call ensure_schema() first.")
 
-                if row and row.content_hash == content_hash:
-                    # Content unchanged — update trust/meta only, skip re-embed
-                    await session.execute(
-                        text(f"""
-                            UPDATE {EMBEDDING_TABLE}
-                            SET trust_score = :trust_score,
-                                capability = :capability,
-                                metadata = CAST(:metadata AS jsonb)
-                            WHERE repo_id = :repo_id AND entity_type = :entity_type AND entity_id = :entity_id
-                        """),
-                        {
-                            "repo_id": effective_repo,
-                            "entity_type": entity_type,
-                            "entity_id": entity_id,
-                            "trust_score": trust_score,
-                            "capability": capability,
-                            "metadata": json.dumps(meta),
-                        },
-                    )
-                    await session.commit()
-                    return "skipped_unchanged"
+        # Content-hash skip: check Qdrant BEFORE expensive embed_text() call
+        # If the point exists with same content_hash → skip entirely (saves API cost)
+        point_id = self._qdrant._point_id(effective_repo, entity_type, entity_id)
+        try:
+            existing = self._qdrant._client.retrieve(
+                collection_name=self._qdrant._collection,
+                ids=[point_id],
+                with_payload=["content_hash"],
+            )
+            if existing and existing[0].payload.get("content_hash") == content_hash:
+                return entity_id  # Skip — content unchanged, save embed_text() cost
+        except Exception:
+            pass  # Point doesn't exist yet, continue
 
-                # Content changed or new — embed and upsert
-                embedding = self.embed_text(content)
-                row_id = str(uuid.uuid4())
-
-                await session.execute(
-                    text(f"""
-                        INSERT INTO {EMBEDDING_TABLE}
-                            (id, repo_id, entity_type, entity_id, capability, content,
-                             content_hash, embedding, trust_score, freshness,
-                             embedding_model, embedding_version, embedded_at, metadata)
-                        VALUES
-                            (:id, :repo_id, :entity_type, :entity_id, :capability, :content,
-                             :content_hash, :embedding, :trust_score, :freshness,
-                             :embedding_model, :embedding_version, now(), CAST(:metadata AS jsonb))
-                        ON CONFLICT (repo_id, entity_type, entity_id)
-                        DO UPDATE SET
-                            content = EXCLUDED.content,
-                            content_hash = EXCLUDED.content_hash,
-                            embedding = EXCLUDED.embedding,
-                            trust_score = EXCLUDED.trust_score,
-                            capability = EXCLUDED.capability,
-                            freshness = EXCLUDED.freshness,
-                            embedding_model = EXCLUDED.embedding_model,
-                            embedded_at = now(),
-                            metadata = EXCLUDED.metadata
-                    """),
-                    {
-                        "id": row_id,
-                        "repo_id": effective_repo,
-                        "entity_type": entity_type,
-                        "entity_id": entity_id,
-                        "capability": capability,
-                        "content": content,
-                        "content_hash": content_hash,
-                        "embedding": str(embedding),
-                        "trust_score": trust_score,
-                        "freshness": freshness,
-                        "embedding_model": _EMBEDDING_MODEL,
-                        "embedding_version": "v1",
-                        "metadata": json.dumps(meta),
-                    },
-                )
-                await session.commit()
-                return row_id
-
-            except EmbeddingError:
-                await session.rollback()
-                raise
-            except Exception as exc:
-                await session.rollback()
-                logger.error("store_embedding_failed", entity_id=entity_id[:60], error=str(exc))
-                raise
+        # Content changed or new → embed and store
+        embedding = self.embed_text(content)
+        await self._qdrant.upsert(
+            repo_id=effective_repo,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            content=content,
+            vector=embedding,
+            metadata=meta,
+            trust_score=trust_score,
+            capability=capability,
+            content_hash=content_hash,
+        )
+        return entity_id
 
     # ------------------------------------------------------------------
     # Search (trust-weighted + freshness + capability ranking)
@@ -569,92 +528,35 @@ class VectorStoreService:
         entity_type: Optional[str] = None,
         repo_id: Optional[str] = None,
         capability: Optional[str] = None,
-        threshold: float = 0.0,
+        threshold: float = 0.25,
+        pillar: Optional[str] = None,
+        domain: Optional[str] = None,
+        source_type: Optional[str] = None,
+        query_mode: Optional[str] = None,
+        module: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Search with multi-signal ranking:
-          relevance = similarity × trust_score × freshness_weight × capability_weight
+        Search with multi-signal ranking via Qdrant.
 
-        freshness_weight: 1.0 if embedded in last 7 days, decays to 0.7 over 90 days
-        capability_weight: 1.0 if matches requested capability, 0.8 otherwise
+        relevance = similarity × trust_score × freshness_weight × capability_weight
         """
+        if not self._qdrant_ready or not self._qdrant:
+            raise RuntimeError("Qdrant is not initialized. Call ensure_schema() first.")
+
         query_embedding = self.embed_text(query)
 
-        filters = []
-        params: Dict[str, Any] = {
-            "embedding": str(query_embedding),
-            "limit": limit,
-        }
-
-        if entity_type:
-            filters.append("entity_type = :entity_type")
-            params["entity_type"] = entity_type
-        if repo_id:
-            filters.append("repo_id = :repo_id")
-            params["repo_id"] = repo_id
-        if capability:
-            filters.append("capability = :capability")
-            params["capability"] = capability
-
-        where_clause = "WHERE " + " AND ".join(filters) if filters else ""
-
-        async with AsyncSessionLocal() as session:
-            try:
-                # M4 fix: full multi-signal ranking with freshness + capability weight
-                cap_clause = ""
-                if capability:
-                    cap_clause = f"""
-                              * CASE WHEN capability = '{capability}' THEN 1.0 ELSE 0.8 END"""
-
-                # Use CAST syntax instead of :: to avoid asyncpg parameter conflict
-                emb_str = params.pop("embedding")
-                result = await session.execute(
-                    text(f"""
-                        SELECT
-                            id, repo_id, entity_type, entity_id, capability, content, metadata,
-                            trust_score, embedding_model, embedded_at, freshness,
-                            1 - (embedding <=> CAST(:emb AS vector)) AS similarity,
-                            (1 - (embedding <=> CAST(:emb AS vector)))
-                              * COALESCE(trust_score, 0.5)
-                              * CASE
-                                  WHEN COALESCE(freshness, embedded_at) > now() - interval '7 days' THEN 1.0
-                                  WHEN COALESCE(freshness, embedded_at) > now() - interval '30 days' THEN 0.9
-                                  WHEN COALESCE(freshness, embedded_at) > now() - interval '90 days' THEN 0.8
-                                  ELSE 0.7
-                                END
-                              {cap_clause}
-                            AS relevance
-                        FROM {EMBEDDING_TABLE}
-                        {where_clause}
-                        ORDER BY relevance DESC
-                        LIMIT :limit
-                    """),
-                    {**params, "emb": emb_str},
-                )
-                rows = result.fetchall()
-                results = []
-                for row in rows:
-                    sim = float(row.similarity)
-                    if sim < threshold:
-                        continue
-                    results.append({
-                        "id": str(row.id),
-                        "repo_id": row.repo_id,
-                        "entity_type": row.entity_type,
-                        "entity_id": row.entity_id,
-                        "capability": row.capability,
-                        "content": row.content,
-                        "metadata": row.metadata or {},
-                        "similarity": round(sim, 4),
-                        "trust_score": float(row.trust_score) if row.trust_score else 0.5,
-                        "relevance": round(float(row.relevance), 4),
-                        "embedding_model": row.embedding_model,
-                        "embedded_at": row.embedded_at.isoformat() if row.embedded_at else None,
-                    })
-                return results
-            except Exception as exc:
-                logger.error("search_similar_failed", error=str(exc))
-                raise
+        results = await self._qdrant.search(
+            query_vector=query_embedding,
+            limit=limit,
+            threshold=threshold,
+            entity_type=entity_type,
+            repo_id=repo_id,
+            capability=capability,
+            pillar=pillar,
+            domain=domain,
+            query_mode=query_mode,
+        )
+        return results
 
     # ------------------------------------------------------------------
     # Batch Operations
@@ -664,125 +566,87 @@ class VectorStoreService:
         self,
         items: List[Dict[str, Any]],
         repo_id: Optional[str] = None,
+        concurrency: int = 20,
     ) -> List[str]:
-        """Batch embed and store with upsert + content_hash."""
+        """Batch embed and store with upsert + content_hash.
+
+        Runs up to `concurrency` embeddings in parallel for faster throughput.
+        """
+        import asyncio
+
+        semaphore = asyncio.Semaphore(concurrency)
         row_ids: List[str] = []
+        errors = 0
 
-        for item in items:
-            try:
-                rid = await self.store_embedding(
-                    entity_type=item["entity_type"],
-                    entity_id=item["entity_id"],
-                    content=item["content"],
-                    repo_id=repo_id or item.get("repo_id"),
-                    metadata=item.get("metadata"),
-                )
-                row_ids.append(rid)
-            except Exception as e:
-                logger.warning("batch_embed_item_failed", entity_id=item.get("entity_id", "?"), error=str(e))
+        async def _embed_one(item):
+            nonlocal errors
+            async with semaphore:
+                try:
+                    rid = await self.store_embedding(
+                        entity_type=item["entity_type"],
+                        entity_id=item["entity_id"],
+                        content=item["content"],
+                        repo_id=repo_id or item.get("repo_id"),
+                        metadata=item.get("metadata"),
+                    )
+                    return rid
+                except Exception as e:
+                    errors += 1
+                    logger.warning("batch_embed_item_failed", entity_id=item.get("entity_id", "?"), error=str(e))
+                    return None
 
-        logger.info("batch_embed_complete", total=len(items), stored=len(row_ids))
+        # Process in chunks of concurrency*5 to avoid overwhelming memory
+        chunk_size = concurrency * 5
+        for i in range(0, len(items), chunk_size):
+            chunk = items[i:i + chunk_size]
+            results = await asyncio.gather(*[_embed_one(item) for item in chunk])
+            row_ids.extend([r for r in results if r is not None])
+
+        logger.info("batch_embed_complete", total=len(items), stored=len(row_ids), errors=errors, concurrency=concurrency)
         return row_ids
 
     async def delete_by_entity(self, entity_type: str, entity_id: str) -> int:
-        """Delete all embeddings for a given entity."""
-        async with AsyncSessionLocal() as session:
-            try:
-                result = await session.execute(
-                    text(f"""
-                        DELETE FROM {EMBEDDING_TABLE}
-                        WHERE entity_type = :entity_type AND entity_id = :entity_id
-                    """),
-                    {"entity_type": entity_type, "entity_id": entity_id},
-                )
-                await session.commit()
-                return result.rowcount
-            except Exception as exc:
-                await session.rollback()
-                raise
+        """Delete all embeddings for a given entity via Qdrant."""
+        if not self._qdrant_ready or not self._qdrant:
+            raise RuntimeError("Qdrant is not initialized. Call ensure_schema() first.")
+
+        return await self._qdrant.delete_by_entity(entity_type=entity_type, entity_id=entity_id)
 
     # ------------------------------------------------------------------
     # Stats
     # ------------------------------------------------------------------
 
     async def get_stats(self) -> Dict[str, Any]:
-        """Comprehensive embedding statistics including trust tier distribution."""
-        async with AsyncSessionLocal() as session:
-            try:
-                total_result = await session.execute(
-                    text(f"SELECT COUNT(*) AS cnt FROM {EMBEDDING_TABLE}")
-                )
-                total = total_result.scalar() or 0
+        """Comprehensive embedding statistics from Qdrant."""
+        if not self._qdrant_ready or not self._qdrant:
+            return {
+                "total_embeddings": 0,
+                "active_embedding_dim": EMBEDDING_DIM,
+                "active_embedding_model": _EMBEDDING_MODEL,
+                "backend": _BACKEND,
+                "storage": "qdrant",
+                "env": ENV,
+                "status": "not_initialized",
+            }
 
-                by_type_result = await session.execute(
-                    text(f"""
-                        SELECT entity_type, COUNT(*) AS cnt
-                        FROM {EMBEDDING_TABLE}
-                        GROUP BY entity_type ORDER BY cnt DESC
-                    """)
-                )
-                by_type = {row.entity_type: row.cnt for row in by_type_result.fetchall()}
-
-                by_repo_result = await session.execute(
-                    text(f"""
-                        SELECT repo_id, COUNT(*) AS cnt
-                        FROM {EMBEDDING_TABLE}
-                        WHERE repo_id IS NOT NULL AND repo_id != ''
-                        GROUP BY repo_id ORDER BY cnt DESC LIMIT 20
-                    """)
-                )
-                by_repo = {row.repo_id: row.cnt for row in by_repo_result.fetchall()}
-
-                trust_result = await session.execute(
-                    text(f"""
-                        SELECT
-                            CASE
-                                WHEN trust_score >= 0.85 THEN 'tier_A'
-                                WHEN trust_score >= 0.7 THEN 'tier_B'
-                                WHEN trust_score >= 0.5 THEN 'tier_C'
-                                ELSE 'tier_D'
-                            END as tier,
-                            COUNT(*) as cnt
-                        FROM {EMBEDDING_TABLE}
-                        GROUP BY tier ORDER BY tier
-                    """)
-                )
-                by_trust = {row.tier: row.cnt for row in trust_result.fetchall()}
-
-                by_model_result = await session.execute(
-                    text(f"""
-                        SELECT embedding_model, COUNT(*) AS cnt
-                        FROM {EMBEDDING_TABLE}
-                        GROUP BY embedding_model ORDER BY cnt DESC
-                    """)
-                )
-                by_model = {row.embedding_model: row.cnt for row in by_model_result.fetchall()}
-
-                latest_result = await session.execute(
-                    text(f"SELECT MAX(embedded_at) AS latest FROM {EMBEDDING_TABLE}")
-                )
-                latest = latest_result.scalar()
-
-                return {
-                    "total_embeddings": total,
-                    "by_entity_type": by_type,
-                    "by_repo": by_repo,
-                    "by_trust_tier": by_trust,
-                    "by_embedding_model": by_model,
-                    "active_embedding_dim": EMBEDDING_DIM,
-                    "active_embedding_model": _EMBEDDING_MODEL,
-                    "backend": _BACKEND,
-                    "env": ENV,
-                    "latest_embedding_at": latest.isoformat() if latest else None,
-                    "model_selection_policy": {
-                        "default": "text-embedding-3-small",
-                        "upgrade_condition": "only if holdout retrieval@5 improves >5%",
-                        "rule": "never switch without full re-embed + benchmark",
-                    },
-                }
-            except Exception as exc:
-                logger.error("get_stats_failed", error=str(exc))
-                raise
+        try:
+            qdrant_stats = await self._qdrant.get_stats()
+            return {
+                **qdrant_stats,
+                "active_embedding_dim": EMBEDDING_DIM,
+                "active_embedding_model": _EMBEDDING_MODEL,
+                "backend": _BACKEND,
+                "storage": "qdrant",
+                "env": ENV,
+                "model_selection_policy": {
+                    "default": "text-embedding-3-small",
+                    "upgrade_condition": "only if holdout retrieval@5 improves >5%",
+                    "rule": "never switch without full re-embed + benchmark",
+                },
+            }
+        except Exception as exc:
+            logger.error("get_stats_failed", error=str(exc))
+            raise
 
 
 class EmbeddingError(Exception):

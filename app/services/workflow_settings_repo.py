@@ -1,7 +1,7 @@
 """
 Cosmos Workflow Settings Repo — Layer 2 (Postgres write-through cache).
 
-Single-row table `cosmos_settings_cache` with a CHECK (id = 1) constraint.
+Single-row table `cosmos_settings_cache` with a  constraint.
 On first call the row is created from balanced defaults.
 """
 
@@ -19,9 +19,9 @@ logger = structlog.get_logger()
 # The CREATE TABLE DDL — idempotent via IF NOT EXISTS.
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS cosmos_settings_cache (
-    id         INTEGER PRIMARY KEY CHECK (id = 1),
-    settings   JSONB   NOT NULL DEFAULT '{}',
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id         INTEGER PRIMARY KEY ,
+    settings   JSON   NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 """
 

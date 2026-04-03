@@ -85,6 +85,7 @@ class ApprovalEngine:
         risk_level: str,
         user_id: str,
         user_role: str = "agent",
+        dry_run: bool = False,
     ) -> ActionRequest:
         """
         Create an approval request.
@@ -123,6 +124,12 @@ class ApprovalEngine:
             )
         else:
             req.status = "pending"
+
+        # Dry-run: mark request as dry_run, don't store for real approval
+        if dry_run:
+            req.status = f"dry_run:{req.status}"  # e.g., "dry_run:approved" or "dry_run:pending"
+            logger.info("approval.dry_run", request_id=request_id, tool=tool_name,
+                         risk=risk_level, would_be=req.status.replace("dry_run:", ""))
 
         self._requests[request_id] = req
 
@@ -213,9 +220,18 @@ class ApprovalEngine:
     # Execute
     # ------------------------------------------------------------------ #
 
-    async def execute_action(self, request: ActionRequest) -> dict:
-        """Execute the approved action via the tool registry."""
-        if request.status not in ("approved",):
+    async def execute_action(self, request: ActionRequest, dry_run: bool = False) -> dict:
+        """Execute the approved action via the tool registry.
+
+        When dry_run=True: validates the full approval chain and tool lookup
+        but returns a mock success response WITHOUT calling the external API.
+        """
+        # Dry-run accepts dry_run: prefixed statuses
+        valid_statuses = ("approved",)
+        if dry_run:
+            valid_statuses = ("approved", "dry_run:approved")
+
+        if request.status not in valid_statuses and not request.status.startswith("dry_run:"):
             raise ValueError(
                 f"Cannot execute request in status '{request.status}'"
             )
@@ -224,6 +240,19 @@ class ApprovalEngine:
             tool = self.tool_registry.get(request.tool_name) if self.tool_registry else None
             if tool is None:
                 raise ValueError(f"Tool '{request.tool_name}' not found in registry")
+
+            if dry_run:
+                # Mock execution: validate everything but don't call external API
+                request.status = "dry_run:executed"
+                request.execution_result = {
+                    "success": True,
+                    "dry_run": True,
+                    "data": {"mock": True, "tool": request.tool_name, "params": request.params},
+                    "message": f"Dry-run: {request.tool_name} would execute with params {list(request.params.keys())}",
+                }
+                logger.info("approval.dry_run_executed", request_id=request.id,
+                             tool=request.tool_name)
+                return request.execution_result
 
             context = {"approved": True}
             result = await tool.execute(request.params, context=context)

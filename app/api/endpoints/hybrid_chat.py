@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.services.query_orchestrator import QueryOrchestrator, OrchestratorResult
+from app.events.kafka_bus import QueryCompletedEvent
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -37,6 +38,12 @@ class HybridChatRequest(BaseModel):
     channel: str = "web"
     debug: bool = False  # Include pipeline_breakdown in response
     metadata: dict = Field(default_factory=dict)
+    # Pre-fetched by MARS from SSO — skips COSMOS internal SSO login.
+    # MARS simulation flow: MARS fetches seller token → passes here →
+    # COSMOS uses it directly for live Shiprocket API calls (act mode).
+    seller_token: Optional[str] = None
+    sso_token: Optional[str] = None   # alias, same token different name
+    tournament_mode: bool = False     # A/B strategy testing via TournamentEngine
 
 
 class PipelineBreakdown(BaseModel):
@@ -60,6 +67,7 @@ class HybridChatResponse(BaseModel):
     pipeline_breakdown: Optional[Dict[str, Any]] = None
     timing: Optional[Dict[str, float]] = None
     signal: Optional[Dict[str, Any]] = None
+    wave_trace: Optional[Dict[str, Any]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +80,14 @@ def _get_orchestrator(request: Request) -> Optional[QueryOrchestrator]:
 
 def _get_react_engine(request: Request):
     return getattr(request.app.state, "react_engine", None)
+
+
+def _get_tournament_engine(request: Request):
+    return getattr(request.app.state, "tournament_engine", None)
+
+
+def _get_event_bus(request: Request):
+    return getattr(request.app.state, "event_bus", None)
 
 
 def _build_llm_context(orch_result: OrchestratorResult) -> str:
@@ -275,15 +291,29 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
         except Exception as guard_err:
             logger.warning("hybrid_chat.pre_guardrail_error", error=str(guard_err))
 
+    # Tournament mode: A/B test retrieval strategies via TournamentEngine,
+    # then publish winner to Kafka so MARS quality dashboard captures it.
+    if chat_req.tournament_mode:
+        tournament = _get_tournament_engine(request)
+        react_engine = _get_react_engine(request)
+        if tournament is not None and react_engine is not None:
+            return await _handle_hybrid_tournament(request, chat_req, session_id, react_engine, tournament)
+
+    # Resolve seller token: prefer pre-fetched token from MARS (avoids duplicate SSO login),
+    # fall back to sso_token alias, then let orchestrator fetch its own via SSO client.
+    effective_seller_token = chat_req.seller_token or chat_req.sso_token or None
+
     # Run two-stage pipeline
     orch_result = await orchestrator.execute(
         query=chat_req.message,
         user_id=chat_req.user_id,
         repo_id=chat_req.repo_id,
         role=chat_req.role,
+        company_id=chat_req.company_id or "25149",
         session_context=chat_req.metadata,
         session_id=str(session_id),
         workflow_settings=_workflow_settings,
+        seller_token=effective_seller_token,
     )
 
     # If we need clarification, return early
@@ -491,6 +521,24 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
             logger.warning("hybrid_chat.post_guardrail_error", error=str(guard_err))
 
     # ---------------------------------------------------------------
+    # Confidence-based response quality control
+    # ---------------------------------------------------------------
+    needs_clarification = False
+    if confidence < 0.3 and content:
+        # Very low confidence — system doesn't have reliable information
+        content = (
+            "I don't have enough reliable information to answer this question accurately. "
+            "Please provide more details (like order ID, AWB number, or specific page name), "
+            "or contact the support team for assistance."
+        )
+        needs_clarification = True
+        logger.info("hybrid_chat.low_confidence_idk", query=chat_req.message[:80],
+                     confidence=confidence)
+    elif 0.3 <= confidence < 0.6 and content:
+        # Medium confidence — prefix with uncertainty marker
+        content = f"Based on available information (confidence: {confidence:.0%}): {content}"
+
+    # ---------------------------------------------------------------
     # Build response
     # ---------------------------------------------------------------
     resp = HybridChatResponse(
@@ -499,6 +547,7 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
         content=content,
         intents=orch_result.intents,
         confidence=confidence,
+        needs_clarification=needs_clarification,
         tools_used=tools_used,
     )
 
@@ -524,7 +573,265 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
         if orch_result.wave4_context:
             resp.pipeline_breakdown["_wave4_neo4j"] = orch_result.wave4_context
 
+        # Canonical Wave Trace — stable schema for MARS proxy / LIME frontend.
+        # Pass `attribution` explicitly so wave_trace can read the real
+        # pipeline_breakdown and signal dicts instead of reading non-existent
+        # attributes from OrchestratorResult (which caused pb/signal to be always {}).
+        try:
+            from app.services.wave_trace import build_wave_trace
+            resp.wave_trace = build_wave_trace(
+                orch_result=orch_result,
+                query=chat_req.message,
+                content=content,
+                confidence=confidence,
+                tools_used=tools_used,
+                timing=resp.timing,
+                user_id=chat_req.user_id or "",
+                company_id=chat_req.company_id or "",
+                role=chat_req.role or "",
+                source=chat_req.metadata.get("source", "simulation") if isinstance(chat_req.metadata, dict) else "simulation",
+                attribution=attribution,  # Phase A fix: pass real attribution dict
+            )
+        except Exception as trace_err:
+            logger.warning("hybrid_chat.wave_trace_error", error=str(trace_err))
+
+    # Low-confidence feedback loop: persist traces for auto-learning
+    try:
+        from app.services.feedback_loop import FeedbackLoop
+        cls_domain = (orch_result.request_classification or {}).get("domain", "")
+        await FeedbackLoop.maybe_persist(
+            orch_result=orch_result,
+            query=chat_req.message,
+            confidence=confidence,
+            tools_used=tools_used,
+            query_mode=getattr(orch_result, '_query_mode', 'lookup'),
+            domain=cls_domain,
+        )
+    except Exception:
+        pass  # feedback loop is best-effort
+
+    # Publish execution event to RabbitMQ for MARS analytics
+    try:
+        from app.events.rabbitmq_producer import cosmos_event_producer
+        wave_trace_data = resp.wave_trace if hasattr(resp, 'wave_trace') else None
+        await cosmos_event_producer.publish_query_trace(
+            trace_id=str(resp.message_id),
+            query=chat_req.message,
+            user_id=chat_req.user_id,
+            company_id=chat_req.company_id or "",
+            agent_name=(orch_result.response_metadata or {}).get("agent", ""),
+            query_mode=getattr(orch_result, '_query_mode', 'lookup'),
+            confidence=confidence,
+            tools_used=tools_used,
+            wave_trace=wave_trace_data,
+            classification=orch_result.request_classification,
+            latency_ms=orch_result.total_latency_ms,
+            source=chat_req.metadata.get("source", "icrm") if isinstance(chat_req.metadata, dict) else "icrm",
+        )
+    except Exception:
+        pass  # event publishing is best-effort
+
+    # Publish to Kafka (stage-cosmos-query-trace) — wave-level detail for MARS
+    # quality dashboard, internal tooling, and tournament eval.
+    # wave_trace.waves[] contains all 5 waves with full per-wave diagnostics.
+    try:
+        bus = _get_event_bus(request)
+        if bus is not None:
+            wave_trace_list = None
+            if resp.wave_trace and isinstance(resp.wave_trace, dict):
+                wave_trace_list = resp.wave_trace.get("waves")
+            classification = orch_result.request_classification or {}
+            kafka_event = QueryCompletedEvent(
+                session_id=str(session_id),
+                user_id=chat_req.user_id or "",
+                company_id=chat_req.company_id or "",
+                query=chat_req.message,
+                intent=classification.get("domain", "unknown"),
+                entity=classification.get("entity", "unknown"),
+                confidence=confidence,
+                tools_used=tools_used,
+                response=content,
+                escalated=confidence < 0.3,
+                latency_ms=orch_result.total_latency_ms,
+                model="claude-opus-4-6",
+                tokens_in=0,
+                tokens_out=0,
+                cost_usd=0.0,
+                wave_trace=wave_trace_list,
+            )
+            await bus.produce_query_completed(kafka_event)
+    except Exception:
+        pass  # kafka publish is best-effort
+
     return resp
+
+
+async def _handle_hybrid_tournament(
+    request: Request,
+    chat_req: "HybridChatRequest",
+    session_id,
+    react_engine,
+    tournament_engine,
+) -> "HybridChatResponse":
+    """Run query through TournamentEngine and publish winner to Kafka.
+
+    Uses react_engine.classifier for intent/entity resolution, runs the
+    tournament, then emits a QueryCompletedEvent so the MARS quality
+    dashboard and internal eval tooling capture the result — same as
+    the standard /chat tournament path.
+    """
+    classification = react_engine.classifier.classify(chat_req.message)
+    tournament_result = await tournament_engine.run(
+        query=chat_req.message,
+        intent=classification.intent.value,
+        entity=classification.entity.value,
+        entity_id=classification.entity_id,
+    )
+
+    if tournament_result.winner:
+        content = tournament_result.winner.answer
+        confidence = tournament_result.winner.confidence
+        tools_used = [tournament_result.winner.strategy.value]
+    else:
+        content = "[COSMOS] Tournament produced no winning strategy."
+        confidence = 0.0
+        tools_used = []
+
+    # Publish to Kafka so quality dashboard captures tournament runs
+    try:
+        bus = _get_event_bus(request)
+        if bus is not None:
+            kafka_event = QueryCompletedEvent(
+                session_id=str(session_id),
+                user_id=chat_req.user_id or "",
+                company_id=chat_req.company_id or "",
+                query=chat_req.message,
+                intent=classification.intent.value,
+                entity=classification.entity.value,
+                confidence=confidence,
+                tools_used=tools_used,
+                response=content,
+                escalated=confidence < 0.3,
+                latency_ms=0.0,
+                model="tournament",
+                tokens_in=0,
+                tokens_out=0,
+                cost_usd=0.0,
+                wave_trace=None,
+            )
+            await bus.produce_query_completed(kafka_event)
+    except Exception:
+        pass
+
+    return HybridChatResponse(
+        session_id=session_id,
+        message_id=uuid4(),
+        content=content,
+        confidence=confidence,
+        tools_used=tools_used,
+    )
+
+
+@router.get("/chat/trace_schema")
+async def get_trace_schema():
+    """
+    GET /cosmos/api/v1/hybrid/chat/trace_schema
+
+    Returns the canonical wave_trace JSON schema with an annotated example.
+    Use this as a reference for frontend parsing — the schema is stable across
+    COSMOS versions.  Debug responses return wave_trace at the same shape.
+    """
+    example_wave = {
+        "wave": 1,
+        "name": "string — wave display name",
+        "status": "done | skipped | error | running",
+        "latency_ms": 0.0,
+        "skipped_reason": "null or string explaining why this wave was skipped",
+        "summary": "string — human-readable one-line summary",
+        "key_findings": {
+            "__comment": "Wave-specific structured data. Always a dict.",
+            "domain": "string — detected intent domain",
+            "complexity": "quick | standard | complex",
+            "confidence": 0.0,
+            "entity_resolved": False,
+            "evidence_count": 0,
+            "pipelines": {"pipeline_name": {"found": True, "items": 0, "latency_ms": 0.0}},
+        },
+        "vector_trace": {
+            "__comment": "Retrieval evidence. Always present; searched=False means no retrieval ran.",
+            "searched": True,
+            "top_score": 0.0,
+            "top_results": [
+                {
+                    "doc_id": "string",
+                    "content": "string (truncated to 200 chars)",
+                    "similarity": 0.0,
+                    "chunk_type": "api_overview | page_summary | module_summary | ...",
+                    "parent_doc_id": "string — e.g. api_endpoint:MultiChannel_API:mcapi.v1.orders.get",
+                    "entity_type": "string",
+                    "trust_score": 0.0,
+                }
+            ],
+            "total_chunks": 0,
+            "threshold": 0.6,
+            "chunk_types": ["list of distinct chunk_types in results"],
+            "parent_doc_ids": ["list of distinct parent_doc_ids in results"],
+        },
+        "raw": "null or dict — full raw debug data for this wave",
+    }
+    schema = {
+        "schema_version": "1.0",
+        "description": "Canonical COSMOS 5-wave trace schema. Returned in debug responses as wave_trace.",
+        "top_level_keys": {
+            "trace_id": "UUID string",
+            "query": "The original user query",
+            "source": "simulation | icrm_live",
+            "user_id": "string",
+            "company_id": "string or null",
+            "role": "string",
+            "timestamp": "ISO 8601 UTC",
+            "classification": {
+                "domain": "string",
+                "complexity": "quick | standard | complex",
+                "mode": "string",
+                "confidence": 0.0,
+                "sub_domains": [],
+            },
+            "waves": [f"Array of 5 wave objects (see wave_schema below). wave.wave = 1..5"],
+            "response": {
+                "content": "Final LLM response text",
+                "confidence": 0.0,
+                "tools_used": [],
+                "agent_chain": [],
+                "guardrails_pre": {"passed": 15, "blocked": 0},
+                "guardrails_post": {"passed": 10, "masked": 0},
+                "pattern_hit": False,
+                "total_latency_ms": 0.0,
+            },
+            "metadata": {
+                "fast_path": False,
+                "multi_agent": False,
+                "tiers_visited": [1],
+                "wave3_enabled": False,
+                "wave4_enabled": False,
+            },
+            "tenant_resolution": "dict or null",
+        },
+        "wave_schema": example_wave,
+        "wave_names": {
+            1: "Probe — intent, entity, vector, page, session",
+            2: "Deep GraphRAG — 4-leg RRF, neighbor expand, module unify",
+            3: "LangGraph — stateful reasoning, entity refinement",
+            4: "Neo4j — targeted graph traversal from refined entities",
+            5: "RIPER + ReAct — LLM execution, tools, RALPH verification",
+        },
+        "backward_compat": [
+            "pipeline_breakdown — per-pipeline attribution (probe/deep stages)",
+            "timing — {probe_ms, deep_ms, llm_ms, total_ms}",
+            "signal — {total_items, relevant_items, signal_to_noise_pct}",
+        ],
+    }
+    return schema
 
 
 @router.post("/chat/stream")
@@ -555,6 +862,26 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                 yield _sse("error", {"message": "Hybrid orchestrator not initialized"})
                 return
 
+            # Phase 5f: Wave progress queue — bridge between orchestrator callback
+            # and SSE generator. The callback enqueues events; we drain them at
+            # natural yield points so the client sees per-wave progress in real time.
+            import asyncio as _asyncio
+            _wave_queue: _asyncio.Queue = _asyncio.Queue()
+
+            async def _on_wave_progress(wave_id, task_id, status, data):
+                await _wave_queue.put({
+                    "wave_id": wave_id,
+                    "task_id": task_id,
+                    "status": status,
+                    **data,
+                })
+
+            async def _drain_wave_queue():
+                """Yield all pending wave progress events from the queue."""
+                while not _wave_queue.empty():
+                    event = _wave_queue.get_nowait()
+                    yield _sse(f"wave:{event['wave_id']}:{event['status']}", event)
+
             # --- Stage 1: Parallel Probe ---
             yield _sse("stage:probe_start", {"pipelines": [
                 "intent_classifier", "entity_lookup", "vector_search",
@@ -562,6 +889,8 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
             ]})
 
             probe_start = time.monotonic()
+            # Phase 5f: inject wave progress callback so WaveExecutor emits events
+            orchestrator._wave_progress_cb = _on_wave_progress
             probe_results = await orchestrator._stage1_parallel_probe(
                 query=chat_req.message,
                 user_id=chat_req.user_id,
@@ -570,6 +899,10 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                 session_context=chat_req.metadata,
             )
             probe_ms = (time.monotonic() - probe_start) * 1000
+
+            # Drain wave progress events from W1
+            async for wave_event in _drain_wave_queue():
+                yield wave_event
 
             # Emit individual probe results
             for pipeline, pr in probe_results.items():
@@ -605,6 +938,10 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                 deep_decisions, probe_results, chat_req.message, chat_req.repo_id,
             )
             deep_ms = (time.monotonic() - deep_start) * 1000
+
+            # Drain wave progress events from W2
+            async for wave_event in _drain_wave_queue():
+                yield wave_event
 
             for pipeline, dr in deep_results.items():
                 yield _sse(f"deep:{pipeline.value}", {
@@ -642,23 +979,41 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                 }
                 augmented_context.update(chat_req.metadata)
 
+                # Phase 6a: Use RIPER.stream_final_response() for true token-level
+                # streaming instead of fake 60-char chunking.
                 t0 = time.monotonic()
-                result = await engine.process(chat_req.message, augmented_context)
+                riper = getattr(orchestrator, "riper_engine", None)
+
+                if riper is not None and hasattr(riper, "stream_final_response"):
+                    # True streaming: yields {"event":"phase"|"chunk"|"done", ...}
+                    async for item in riper.stream_final_response(
+                        query=chat_req.message,
+                        context=orch_result.context,
+                        intents=orch_result.intents,
+                        complexity=classification.get("complexity", "standard"),
+                    ):
+                        ev = item.get("event", "chunk")
+                        if ev == "chunk":
+                            yield _sse("chunk", {"text": item.get("text", "")})
+                        elif ev == "phase":
+                            yield _sse(f"riper_phase:{item.get('phase', '')}", item)
+                        elif ev == "done":
+                            confidence = item.get("confidence", 0.5)
+                            tools_used = item.get("tools_used", [])
+                else:
+                    # Fallback: non-streaming ReAct process + chunked emit
+                    result = await engine.process(chat_req.message, augmented_context)
+                    response_text = result.response
+                    for i in range(0, len(response_text), 40):
+                        yield _sse("chunk", {"text": response_text[i:i + 40]})
+                    confidence = result.confidence
+                    tools_used = result.tools_used
+
                 llm_ms = (time.monotonic() - t0) * 1000
-
-                # Stream response in chunks
-                response_text = result.response
-                chunk_size = 60
-                for i in range(0, len(response_text), chunk_size):
-                    yield _sse("chunk", {"text": response_text[i:i + chunk_size]})
-
-                confidence = result.confidence
-                tools_used = result.tools_used
             else:
                 content = f"Based on pipeline analysis:\n\n{llm_context}"
-                chunk_size = 60
-                for i in range(0, len(content), chunk_size):
-                    yield _sse("chunk", {"text": content[i:i + chunk_size]})
+                for i in range(0, len(content), 40):
+                    yield _sse("chunk", {"text": content[i:i + 40]})
                 confidence = 0.5
                 tools_used = []
                 llm_ms = 0.0

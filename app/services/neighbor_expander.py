@@ -88,7 +88,7 @@ class NeighborExpander:
         This method therefore sources parent_doc_id/chunk_index from two places
         in priority order:
           1. vector_hits — raw cosmos_embeddings rows passed from the probe stage
-             (these always have full metadata JSONB, including parent_doc_id and
+             (these always have full metadata JSON, including parent_doc_id and
              chunk_index for any chunk written with Phase 1/2 metadata).
           2. ranked_nodes where _source == "vector_proxy" — proxy graph nodes
              created from unresolved vector hits (metadata is spread into properties).

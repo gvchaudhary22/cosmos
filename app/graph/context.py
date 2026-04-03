@@ -27,11 +27,11 @@ from app.services.graphrag_models import GraphEdge, GraphNode
 # 1 token ≈ 4 characters (conservative estimate for English text)
 CHARS_PER_TOKEN = 4
 
-# Budget allocation percentages
-BUDGET_RELATIONSHIPS = 0.35
-BUDGET_API_TOOL = 0.30
-BUDGET_TABLE_SCHEMA = 0.20
-BUDGET_DOCUMENT_EVIDENCE = 0.15
+# Budget allocation percentages (G6 fix: expanded evidence budget for P6/P7)
+BUDGET_RELATIONSHIPS = 0.30     # 30% — relationship chains
+BUDGET_API_TOOL = 0.25          # 25% — API/tool descriptions
+BUDGET_TABLE_SCHEMA = 0.20      # 20% — table schemas
+BUDGET_DOCUMENT_EVIDENCE = 0.25 # 25% — document evidence (includes P6 actions, P7 workflows, entity hubs)
 
 # Post-RRF boost multipliers (applied after retrieval score is set)
 BOOST_ENTITY_EXACT = 2.0    # node.entity_value == wave1.entity_id
@@ -39,7 +39,11 @@ BOOST_ROLE_MATCH = 1.5      # page hit and page roles ∩ user role ≠ ∅
 BOOST_SAME_DOMAIN = 1.3     # chunk domain == query domain
 BOOST_TRAINING_READY = 1.1  # trust_score >= 0.8
 BOOST_FIELD_TRACE = 2.0     # chunk_type == page_field_trace AND field in query
-BOOST_MAX_CAP = 3.0         # global cap so no single signal dominates
+BOOST_ACTION_CONTRACT = 1.8 # pillar_6 action contracts (execution graphs, preconditions)
+BOOST_WORKFLOW_RUNBOOK = 1.6 # pillar_7 workflow runbooks (state machines, decision matrices)
+BOOST_NEGATIVE_ROUTING = 1.4 # pillar_8 negative routing examples (prevent hallucination)
+BOOST_ENTITY_HUB = 1.7      # cross-pillar entity hub summaries (P1+P3+P6+P7 merged)
+BOOST_MAX_CAP = 3.5         # global cap so no single signal dominates
 
 
 @dataclass
@@ -97,7 +101,7 @@ class ContextAssembler:
             result.ranked_nodes, budget_doc
         )
 
-        # Combine with header
+        # Combine with header + citation markers
         parts = [f"# Context for: {result.query}"]
         if result.intent:
             parts.append(f"Intent: {result.intent}")
@@ -105,14 +109,25 @@ class ContextAssembler:
             parts.append(f"Entity: {result.entity}={result.entity_id}")
         parts.append("")
 
+        # Lost-in-middle prevention: sandwich pattern
+        # Most relevant sections at BEGINNING and END (LLMs attend most to edges)
+        # Order: relationships (most structured) → docs → tables → APIs (second-most relevant last)
+        sections = []
         if rel_section:
-            parts.append(rel_section)
-        if api_section:
-            parts.append(api_section)
-        if tbl_section:
-            parts.append(tbl_section)
+            sections.append(("Relationships", rel_section))
         if doc_section:
-            parts.append(doc_section)
+            sections.append(("Evidence", doc_section))
+        if tbl_section:
+            sections.append(("Schema", tbl_section))
+        if api_section:
+            sections.append(("APIs", api_section))
+
+        # Add citation markers [1], [2], etc.
+        citation_idx = 1
+        for label, section in sections:
+            cited_section = f"[{citation_idx}] {section}"
+            parts.append(cited_section)
+            citation_idx += 1
 
         full_text = "\n".join(parts)
         token_est = len(full_text) // CHARS_PER_TOKEN
@@ -198,6 +213,25 @@ class ContextAssembler:
                 chunk_type = props.get("chunk_type") or meta.get("chunk_type", "")
                 if chunk_type == "page_field_trace":
                     multiplier *= BOOST_FIELD_TRACE
+
+            # Action contract boost (pillar 6)
+            pillar = props.get("pillar") or meta.get("pillar", "")
+            capability = props.get("capability") or meta.get("capability", "")
+            if pillar == "pillar_6" or capability == "action":
+                multiplier *= BOOST_ACTION_CONTRACT
+
+            # Workflow runbook boost (pillar 7)
+            if pillar == "pillar_7" or capability == "workflow":
+                multiplier *= BOOST_WORKFLOW_RUNBOOK
+
+            # Negative routing boost (pillar 8)
+            if pillar == "pillar_8" or capability == "routing":
+                multiplier *= BOOST_NEGATIVE_ROUTING
+
+            # Entity hub boost (cross-pillar summary)
+            chunk_type_val = props.get("chunk_type") or meta.get("chunk_type", "")
+            if chunk_type_val == "entity_hub_summary" or pillar == "entity_hub":
+                multiplier *= BOOST_ENTITY_HUB
 
             # Apply cap and store
             raw_score = rn.score

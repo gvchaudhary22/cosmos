@@ -80,7 +80,7 @@ class PatternCache:
                         role VARCHAR(100) NOT NULL DEFAULT '',
                         intent VARCHAR(100) NOT NULL DEFAULT '',
                         entity_type VARCHAR(100) NOT NULL DEFAULT '',
-                        tool_sequence JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        tool_sequence JSON NOT NULL DEFAULT '[]',
                         agent_name VARCHAR(200),
                         confidence FLOAT NOT NULL DEFAULT 0.0,
                         success_count INT NOT NULL DEFAULT 0,
@@ -88,8 +88,8 @@ class PatternCache:
                         avg_latency_ms FLOAT DEFAULT 0.0,
                         kb_version VARCHAR(64) DEFAULT '',
                         tool_version VARCHAR(64) DEFAULT '',
-                        created_at TIMESTAMPTZ DEFAULT now(),
-                        last_used_at TIMESTAMPTZ DEFAULT now(),
+                        created_at TIMESTAMP DEFAULT now(),
+                        last_used_at TIMESTAMP DEFAULT now(),
                         PRIMARY KEY (pattern_key, repo_id, role)
                     )
                 """))
@@ -187,7 +187,7 @@ class PatternCache:
                         (pattern_key, intent, entity_type, tool_sequence, agent_name,
                          success_count, total_count, confidence, avg_latency_ms)
                     VALUES
-                        (:key, :intent, :entity, :tools::jsonb, :agent,
+                        (:key, :intent, :entity, :tools, :agent,
                          1, 1, 1.0, :latency)
                     ON CONFLICT (pattern_key) DO UPDATE SET
                         success_count = {PATTERN_TABLE}.success_count + 1,
@@ -195,7 +195,7 @@ class PatternCache:
                         confidence = ({PATTERN_TABLE}.success_count + 1.0) / ({PATTERN_TABLE}.total_count + 1.0),
                         avg_latency_ms = ({PATTERN_TABLE}.avg_latency_ms * {PATTERN_TABLE}.total_count + :latency) / ({PATTERN_TABLE}.total_count + 1),
                         last_used_at = now(),
-                        tool_sequence = :tools::jsonb
+                        tool_sequence = :tools
                 """), {
                     "key": pattern_key,
                     "intent": intent,

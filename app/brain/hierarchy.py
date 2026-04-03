@@ -16,7 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
-from cosmos.app.brain.indexer import KBDocument, KnowledgeIndexer
+from app.brain.indexer import KBDocument, KnowledgeIndexer
 
 
 @dataclass

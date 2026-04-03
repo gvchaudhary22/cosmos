@@ -7,9 +7,9 @@ class Settings(BaseSettings):
     ENV: str = "development"
     LOG_LEVEL: str = "info"
 
-    # Database (PostgreSQL + pgvector) — COSMOS AI database
-    DATABASE_URL: str = "postgresql+asyncpg://cosmos:cosmos@localhost:5433/cosmos"
-    DATABASE_POOL_SIZE: int = 10           # Max 10 connections to COSMOS PostgreSQL
+    # Database (MySQL — MARS DB for relational data)
+    DATABASE_URL: str = "mysql+aiomysql://root:@127.0.0.1:3309/mars"
+    DATABASE_POOL_SIZE: int = 10           # Max 10 connections to MARS MySQL
     DATABASE_MAX_OVERFLOW: int = 5         # Allow 5 extra under burst (total max: 15)
     DATABASE_POOL_RECYCLE: int = 1800      # Recycle connections after 30 min
     DATABASE_POOL_PRE_PING: bool = True    # Health check before using connection
@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # LLM / AI
     ANTHROPIC_API_KEY: Optional[str] = None
+    LLM_MODE: str = "cli"  # "api" | "cli" | "hybrid" — cli uses Max plan claude binary
     LLM_MODEL_HAIKU: str = "claude-haiku-4-5-20251001"
     LLM_MODEL_SONNET: str = "claude-sonnet-4-6"
     LLM_MODEL_OPUS: str = "claude-opus-4-6"
@@ -48,6 +49,20 @@ class Settings(BaseSettings):
     NEO4J_URI: str = "bolt://127.0.0.1:7687"
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = "cosmospass123"
+
+    # Qdrant (vector database — replaces pgvector)
+    QDRANT_URL: str = "http://127.0.0.1:6333"
+    QDRANT_COLLECTION: str = "cosmos_embeddings"
+
+    # MARS MySQL (direct connection for relational data)
+    MARS_DB_HOST: str = "127.0.0.1"
+    MARS_DB_PORT: str = "3309"
+    MARS_DB_USER: str = "root"
+    MARS_DB_PASSWORD: str = ""
+    MARS_DB_NAME: str = "mars"
+
+    # Knowledge Base path
+    KB_PATH: str = ""
 
     # Elasticsearch
     ELASTICSEARCH_HOSTS: str = "http://localhost:9200"

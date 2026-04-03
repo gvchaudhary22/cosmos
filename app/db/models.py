@@ -1,11 +1,13 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 from sqlalchemy import (
     Column, String, Integer, SmallInteger, Float, Boolean, Text, DateTime,
     Enum, ForeignKey, Index, UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.types import JSON as JSONB  # MySQL-compatible (was PostgreSQL JSONB)
+from sqlalchemy import String as _Str
+from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
 import enum
 
 
@@ -56,12 +58,12 @@ class ApprovalMode(str, enum.Enum):
 class ICRMSession(Base):
     __tablename__ = "icrm_sessions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
     user_id = Column(String(255), nullable=False, index=True)
     company_id = Column(String(255), nullable=True, index=True)
     channel = Column(String(50), nullable=False, default="web")
     status = Column(String(50), nullable=False, default="active")
-    metadata_ = Column("metadata", JSONB, server_default="{}")
+    metadata_ = Column("metadata", JSONB, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -76,13 +78,13 @@ class ICRMSession(Base):
 class ICRMMessage(Base):
     __tablename__ = "icrm_messages"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("icrm_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(36), ForeignKey("icrm_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(Enum(MessageRole), nullable=False)
     content = Column(Text, nullable=False)
     token_count = Column(Integer, nullable=True)
     model = Column(String(100), nullable=True)
-    metadata_ = Column("metadata", JSONB, server_default="{}")
+    metadata_ = Column("metadata", JSONB, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     session = relationship("ICRMSession", back_populates="messages")
@@ -95,12 +97,12 @@ class ICRMMessage(Base):
 class ConversationContext(Base):
     __tablename__ = "icrm_conversation_context"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("icrm_sessions.id", ondelete="CASCADE"), nullable=False, unique=True)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(36), ForeignKey("icrm_sessions.id", ondelete="CASCADE"), nullable=False, unique=True)
     intent = Column(String(255), nullable=True)
-    entities = Column(JSONB, server_default="{}")
-    tool_state = Column(JSONB, server_default="{}")
-    user_profile = Column(JSONB, server_default="{}")
+    entities = Column(JSONB, nullable=True)
+    tool_state = Column(JSONB, nullable=True)
+    user_profile = Column(JSONB, nullable=True)
     conversation_summary = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -110,13 +112,13 @@ class ConversationContext(Base):
 class ReasoningTrace(Base):
     __tablename__ = "icrm_reasoning_traces"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("icrm_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
-    message_id = Column(UUID(as_uuid=True), ForeignKey("icrm_messages.id", ondelete="SET NULL"), nullable=True)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(36), ForeignKey("icrm_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    message_id = Column(String(36), ForeignKey("icrm_messages.id", ondelete="SET NULL"), nullable=True)
     phase = Column(Enum(ReasoningPhase), nullable=False)
     content = Column(Text, nullable=False)
     duration_ms = Column(Integer, nullable=True)
-    metadata_ = Column("metadata", JSONB, server_default="{}")
+    metadata_ = Column("metadata", JSONB, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     __table_args__ = (
@@ -127,11 +129,11 @@ class ReasoningTrace(Base):
 class ToolExecution(Base):
     __tablename__ = "icrm_tool_executions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("icrm_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(36), ForeignKey("icrm_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     tool_name = Column(String(255), nullable=False, index=True)
-    input_params = Column(JSONB, server_default="{}")
-    output_result = Column(JSONB, server_default="{}")
+    input_params = Column(JSONB, nullable=True)
+    output_result = Column(JSONB, nullable=True)
     status = Column(Enum(ExecutionStatus), nullable=False, default=ExecutionStatus.pending)
     duration_ms = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
@@ -145,16 +147,16 @@ class ToolExecution(Base):
 class ActionApproval(Base):
     __tablename__ = "icrm_action_approvals"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("icrm_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
-    tool_execution_id = Column(UUID(as_uuid=True), ForeignKey("icrm_tool_executions.id", ondelete="SET NULL"), nullable=True)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(36), ForeignKey("icrm_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    tool_execution_id = Column(String(36), ForeignKey("icrm_tool_executions.id", ondelete="SET NULL"), nullable=True)
     action_type = Column(String(255), nullable=False)
     risk_level = Column(Enum(RiskLevel), nullable=False, default=RiskLevel.low)
     approval_mode = Column(Enum(ApprovalMode), nullable=False, default=ApprovalMode.auto)
     approved = Column(Boolean, nullable=True)
     approved_by = Column(String(255), nullable=True)
     reason = Column(Text, nullable=True)
-    metadata_ = Column("metadata", JSONB, server_default="{}")
+    metadata_ = Column("metadata", JSONB, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     resolved_at = Column(DateTime, nullable=True)
 
@@ -167,13 +169,13 @@ class AuditLog(Base):
     """Immutable audit log — no updates or deletes."""
     __tablename__ = "icrm_audit_log"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(36), nullable=True, index=True)
     user_id = Column(String(255), nullable=True, index=True)
     action = Column(String(255), nullable=False)
     resource_type = Column(String(255), nullable=True)
     resource_id = Column(String(255), nullable=True)
-    details = Column(JSONB, server_default="{}")
+    details = Column(JSONB, nullable=True)
     ip_address = Column(String(45), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -185,10 +187,10 @@ class AuditLog(Base):
 class Analytics(Base):
     __tablename__ = "icrm_analytics"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("icrm_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(36), ForeignKey("icrm_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
     event_type = Column(String(255), nullable=False, index=True)
-    event_data = Column(JSONB, server_default="{}")
+    event_data = Column(JSONB, nullable=True)
     user_id = Column(String(255), nullable=True)
     company_id = Column(String(255), nullable=True)
     duration_ms = Column(Integer, nullable=True)
@@ -205,13 +207,13 @@ class Analytics(Base):
 class Feedback(Base):
     __tablename__ = "icrm_feedback"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("icrm_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
-    message_id = Column(UUID(as_uuid=True), ForeignKey("icrm_messages.id", ondelete="SET NULL"), nullable=True)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(36), ForeignKey("icrm_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+    message_id = Column(String(36), ForeignKey("icrm_messages.id", ondelete="SET NULL"), nullable=True)
     user_id = Column(String(255), nullable=True)
     rating = Column(Integer, nullable=True)
     comment = Column(Text, nullable=True)
-    tags = Column(JSONB, server_default="[]")
+    tags = Column(JSONB, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     __table_args__ = (
@@ -222,13 +224,13 @@ class Feedback(Base):
 class ToolRegistry(Base):
     __tablename__ = "icrm_tool_registry"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False, unique=True)
     display_name = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
     category = Column(String(100), nullable=True, index=True)
-    parameters = Column(JSONB, server_default="{}")
-    returns = Column(JSONB, server_default="{}")
+    parameters = Column(JSONB, nullable=True)
+    returns = Column(JSONB, nullable=True)
     requires_approval = Column(Boolean, default=False)
     risk_level = Column(Enum(RiskLevel), nullable=False, default=RiskLevel.low)
     enabled = Column(Boolean, default=True)
@@ -255,13 +257,13 @@ class DistillationRecord(Base):
     """Training data collected from query-response pairs for future model distillation."""
     __tablename__ = "icrm_distillation_records"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(36), nullable=False, index=True)
     user_query = Column(Text, nullable=False)
     intent = Column(String(255), nullable=True)
     entity = Column(String(255), nullable=True)
-    tools_used = Column(JSONB, server_default="[]")
-    tool_results = Column(JSONB, server_default="[]")
+    tools_used = Column(JSONB, nullable=True)
+    tool_results = Column(JSONB, nullable=True)
     llm_prompt = Column(Text, nullable=True)
     llm_response = Column(Text, nullable=True)
     final_response = Column(Text, nullable=True)
@@ -285,7 +287,7 @@ class KnowledgeEntry(Base):
     """Knowledge base entries for context enrichment."""
     __tablename__ = "icrm_knowledge_entries"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
     category = Column(Enum(KnowledgeCategory), nullable=False, index=True)
     question = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
@@ -315,16 +317,16 @@ class KBFileIndex(Base):
     """
     __tablename__ = "cosmos_kb_file_index"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
     repo_id = Column(String(255), nullable=False, default="")
-    file_path = Column(String(1000), nullable=False)   # relative path inside KB root
+    file_path = Column(String(500), nullable=False)   # relative path inside KB root
     file_hash = Column(String(64), nullable=False, default="")   # MD5 of raw file bytes
-    entity_id = Column(String(500), nullable=False, default="")  # table:orders / api:mc_get_order
+    entity_id = Column(String(191), nullable=False, default="")  # table:orders / api:mc_get_order
     entity_type = Column(String(100), nullable=False, default="")
     # 0=pending, 1=indexed, 2=failed
     status = Column(SmallInteger, nullable=False, default=0)
     # S3 fields — populated when S3 sync is active
-    s3_key = Column(String(1000), nullable=True)
+    s3_key = Column(String(500), nullable=True)
     s3_etag = Column(String(64), nullable=True)
     last_indexed_at = Column(DateTime, nullable=True)
     error_msg = Column(Text, nullable=True)
@@ -343,9 +345,9 @@ class S3ExportRecord(Base):
     """Tracks training data (DPO/SFT) exports pushed to S3."""
     __tablename__ = "cosmos_s3_exports"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
     export_type = Column(String(50), nullable=False)    # dpo | sft | embedding_backup
-    s3_key = Column(String(1000), nullable=False)
+    s3_key = Column(String(500), nullable=False)
     s3_bucket = Column(String(255), nullable=False)
     record_count = Column(Integer, nullable=False, default=0)
     size_bytes = Column(Integer, nullable=True)
@@ -363,13 +365,13 @@ class QueryAnalytics(Base):
     """Per-query metrics for analytics dashboard."""
     __tablename__ = "icrm_query_analytics"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(36), nullable=True, index=True)
     intent = Column(String(255), nullable=True, index=True)
     entity = Column(String(255), nullable=True)
     confidence = Column(Float, nullable=True)
     latency_ms = Column(Float, nullable=True)
-    tools_used = Column(JSONB, server_default="[]")
+    tools_used = Column(JSONB, nullable=True)
     escalated = Column(Boolean, default=False)
     model = Column(String(100), nullable=True)
     cost_usd = Column(Float, default=0.0)
@@ -379,4 +381,62 @@ class QueryAnalytics(Base):
         Index("idx_query_analytics_intent", "intent"),
         Index("idx_query_analytics_created", "created_at"),
         Index("idx_query_analytics_model", "model"),
+    )
+
+
+# --- Goal 5: Continuous Learning Models ---
+
+class StagedImprovementStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+    applied = "applied"
+
+
+class StagedImprovementType(str, enum.Enum):
+    missing_action_candidate = "missing_action_candidate"
+    add_negative_example = "add_negative_example"
+    add_clarification_rule = "add_clarification_rule"
+    kb_correction = "kb_correction"
+    new_qa_pair = "new_qa_pair"
+
+
+class StagedImprovement(Base):
+    __tablename__ = "cosmos_staged_improvements"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    improvement_type: Mapped[StagedImprovementType] = mapped_column(String(50))
+    status: Mapped[StagedImprovementStatus] = mapped_column(
+        String(20), default=StagedImprovementStatus.pending, index=True
+    )
+
+    # Source trace
+    source_query: Mapped[Optional[str]] = mapped_column(Text)
+    source_confidence: Mapped[Optional[float]] = mapped_column(Float)
+    source_domain: Mapped[Optional[str]] = mapped_column(String(100))
+    source_record_id: Mapped[Optional[str]] = mapped_column(String(36))  # DistillationRecord.id
+
+    # Proposed content (what goes into KB)
+    proposed_entity_id: Mapped[Optional[str]] = mapped_column(String(200))
+    proposed_pillar: Mapped[Optional[str]] = mapped_column(String(50))
+    proposed_content: Mapped[Optional[str]] = mapped_column(Text)  # JSON
+    proposed_rationale: Mapped[Optional[str]] = mapped_column(Text)  # Why this helps
+
+    # Eval context
+    eval_recall_before: Mapped[Optional[float]] = mapped_column(Float)
+    eval_domain: Mapped[Optional[str]] = mapped_column(String(100))
+
+    # Review
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(100))
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )

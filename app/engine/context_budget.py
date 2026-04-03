@@ -9,7 +9,7 @@ import structlog
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from cosmos.app.engine.model_router import ModelTier
+from app.engine.model_router import ModelTier
 
 logger = structlog.get_logger()
 

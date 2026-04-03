@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.endpoints import chat, sessions, tools, admin, actions, feedback, knowledge, costs, health, bridge, brain, graphrag, vectorstore, reportagent, sandbox, training, page_intelligence, hybrid_chat, training_pipeline, tournament, cosmos_settings
+from app.api.endpoints import chat, sessions, tools, admin, actions, feedback, knowledge, costs, health, bridge, brain, graphrag, vectorstore, reportagent, sandbox, training, page_intelligence, hybrid_chat, training_pipeline, tournament, cosmos_settings, learning
 
 router = APIRouter()
 router.include_router(chat.router, prefix="/chat", tags=["chat"])
@@ -22,6 +22,7 @@ router.include_router(hybrid_chat.router, prefix="/hybrid", tags=["hybrid"])
 router.include_router(training_pipeline.router, prefix="/pipeline", tags=["pipeline"])
 router.include_router(tournament.router, prefix="/tournament", tags=["tournament"])
 router.include_router(cosmos_settings.router, prefix="/settings", tags=["settings"])
+router.include_router(learning.router, prefix="/learning", tags=["learning"])
 
 # Health endpoints — exposed at /cosmos/ prefix (not under /api/v1)
 health_router = health.router

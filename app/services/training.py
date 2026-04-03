@@ -29,16 +29,16 @@ logger = structlog.get_logger()
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS cosmos_training_jobs (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id            CHAR(36) PRIMARY KEY,
     job_type      TEXT NOT NULL,
     repo_id       TEXT,
     status        TEXT NOT NULL DEFAULT 'queued',
-    config        JSONB DEFAULT '{}'::jsonb,
-    metrics       JSONB DEFAULT '{}'::jsonb,
-    started_at    TIMESTAMPTZ,
-    completed_at  TIMESTAMPTZ,
+    config        JSON DEFAULT '{}',
+    metrics       JSON DEFAULT '{}',
+    started_at    TIMESTAMP,
+    completed_at  TIMESTAMP,
     error         TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at    TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_training_jobs_type   ON cosmos_training_jobs(job_type);
 CREATE INDEX IF NOT EXISTS idx_training_jobs_status ON cosmos_training_jobs(status);
@@ -50,14 +50,14 @@ _EMBEDDING_TABLE_SQL = """
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS cosmos_embeddings (
-    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id         CHAR(36) PRIMARY KEY,
     repo_id    TEXT,
     source_id  TEXT NOT NULL,
     source_type TEXT NOT NULL DEFAULT 'knowledge',
     content    TEXT NOT NULL,
     embedding  vector(384),
-    metadata   JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    metadata   JSON DEFAULT '{}',
+    created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_embeddings_repo   ON cosmos_embeddings(repo_id);
 CREATE INDEX IF NOT EXISTS idx_embeddings_source ON cosmos_embeddings(source_id);
@@ -66,12 +66,12 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_source ON cosmos_embeddings(source_id)
 # Table for trained intent model artefacts
 _INTENT_MODEL_SQL = """
 CREATE TABLE IF NOT EXISTS cosmos_intent_models (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id          CHAR(36) PRIMARY KEY,
     repo_id     TEXT,
     version     TEXT NOT NULL,
-    model_data  JSONB NOT NULL DEFAULT '{}'::jsonb,
-    metrics     JSONB DEFAULT '{}'::jsonb,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    model_data  JSON NOT NULL DEFAULT '{}',
+    metrics     JSON DEFAULT '{}',
+    created_at  TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_intent_models_repo ON cosmos_intent_models(repo_id);
 """
@@ -79,12 +79,12 @@ CREATE INDEX IF NOT EXISTS idx_intent_models_repo ON cosmos_intent_models(repo_i
 # Table for optimised graph weights
 _GRAPH_WEIGHTS_SQL = """
 CREATE TABLE IF NOT EXISTS cosmos_graph_weights (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id          CHAR(36) PRIMARY KEY,
     repo_id     TEXT,
     version     TEXT NOT NULL,
-    weights     JSONB NOT NULL DEFAULT '{}'::jsonb,
-    metrics     JSONB DEFAULT '{}'::jsonb,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    weights     JSON NOT NULL DEFAULT '{}',
+    metrics     JSON DEFAULT '{}',
+    created_at  TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_graph_weights_repo ON cosmos_graph_weights(repo_id);
 """
@@ -143,7 +143,7 @@ class TrainingService:
                 text(
                     "INSERT INTO cosmos_training_jobs "
                     "(id, job_type, repo_id, status, config) "
-                    "VALUES (:id, :jtype, :repo, 'queued', :cfg::jsonb)"
+                    "VALUES (:id, :jtype, :repo, 'queued', :cfg)"
                 ),
                 {
                     "id": job_id,
@@ -176,7 +176,7 @@ class TrainingService:
                 text(
                     "UPDATE cosmos_training_jobs "
                     "SET status = 'completed', completed_at = :now, "
-                    "metrics = :m::jsonb WHERE id = :id"
+                    "metrics = :m WHERE id = :id"
                 ),
                 {"id": job_id, "now": now, "m": json.dumps(metrics)},
             )
@@ -397,7 +397,7 @@ class TrainingService:
                         text(
                             "INSERT INTO cosmos_embeddings "
                             "(id, repo_id, source_id, source_type, content, embedding, metadata) "
-                            "VALUES (:id, :repo, :src, :stype, :content, :emb::vector, :meta::jsonb)"
+                            "VALUES (:id, :repo, :src, :stype, :content, :emb, :meta)"
                         ),
                         {
                             "id": str(uuid.uuid4()),
@@ -570,7 +570,7 @@ class TrainingService:
                 await session.execute(
                     text(
                         "INSERT INTO cosmos_intent_models (id, repo_id, version, model_data, metrics) "
-                        "VALUES (:id, :repo, :ver, :data::jsonb, :met::jsonb)"
+                        "VALUES (:id, :repo, :ver, :data, :met)"
                     ),
                     {
                         "id": str(uuid.uuid4()),
@@ -779,7 +779,7 @@ class TrainingService:
                 await session.execute(
                     text(
                         "INSERT INTO cosmos_graph_weights (id, repo_id, version, weights, metrics) "
-                        "VALUES (:id, :repo, :ver, :w::jsonb, :m::jsonb)"
+                        "VALUES (:id, :repo, :ver, :w, :m)"
                     ),
                     {
                         "id": str(uuid.uuid4()),
@@ -985,7 +985,7 @@ class TrainingService:
                             "(id, repo_id, source_id, source_type, content, "
                             "embedding, metadata) "
                             "VALUES (:id, :repo, :src, :stype, :content, "
-                            ":emb::vector, :meta::jsonb)"
+                            ":emb, :meta)"
                         ),
                         {
                             "id": str(uuid.uuid4()),
@@ -1038,7 +1038,7 @@ class TrainingService:
                                     "(id, repo_id, source_id, source_type, content, "
                                     "embedding, metadata) "
                                     "VALUES (:id, :repo, :src, :stype, :content, "
-                                    ":emb::vector, :meta::jsonb)"
+                                    ":emb, :meta)"
                                 ),
                                 {
                                     "id": str(uuid.uuid4()),
@@ -1225,7 +1225,7 @@ class TrainingService:
                             "(id, repo_id, source_id, source_type, content, "
                             "embedding, metadata) "
                             "VALUES (:id, :repo, :src, :stype, :content, "
-                            ":emb::vector, :meta::jsonb)"
+                            ":emb, :meta)"
                         ),
                         {
                             "id": str(uuid.uuid4()),

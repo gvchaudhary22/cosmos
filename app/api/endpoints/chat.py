@@ -59,11 +59,25 @@ def _get_event_bus(request: Request):
 
 
 async def _emit_query_event(request: Request, chat_req, session_id, result, latency_ms: float):
-    """Fire-and-forget: produce a QueryCompletedEvent to Kafka."""
+    """Fire-and-forget: produce a QueryCompletedEvent to stage-cosmos-query-trace topic.
+
+    MARS consumer (mars-cosmos-trace-consumer) enriches this with user/session
+    context from mars.sessions and persists to cosmos_query_traces table.
+    This powers the LIME Chat Quality Dashboard (/chat/admin/cosmos/quality).
+    """
     bus = _get_event_bus(request)
     if bus is None:
         return
     try:
+        # Extract wave_trace from result if the engine exposes it
+        wave_trace = None
+        raw_trace = getattr(result, "wave_trace", None) or getattr(result, "pipeline_breakdown", None)
+        if raw_trace is not None:
+            if isinstance(raw_trace, dict) and "waves" in raw_trace:
+                wave_trace = raw_trace["waves"]
+            elif isinstance(raw_trace, list):
+                wave_trace = raw_trace
+
         event = QueryCompletedEvent(
             session_id=str(session_id),
             user_id=chat_req.user_id,
@@ -80,6 +94,7 @@ async def _emit_query_event(request: Request, chat_req, session_id, result, late
             tokens_in=getattr(result, "tokens_in", 0),
             tokens_out=getattr(result, "tokens_out", 0),
             cost_usd=getattr(result, "cost_usd", 0.0),
+            wave_trace=wave_trace,
         )
         await bus.produce_query_completed(event)
     except Exception as e:

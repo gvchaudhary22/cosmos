@@ -131,7 +131,7 @@ class WorkflowSettings:
 
     @classmethod
     def from_dict(cls, d: dict) -> "WorkflowSettings":
-        """Construct from a plain dict (e.g. fetched from Postgres JSONB column)."""
+        """Construct from a plain dict (e.g. fetched from Postgres JSON column)."""
         return cls(
             quality_mode=d.get("quality_mode", "balanced"),
             force_complex=bool(d.get("force_complex", False)),
@@ -184,6 +184,130 @@ class WorkflowSettings:
             "wave4_max_depth": self.wave4_max_depth,
             "wave4_timeout_sec": self.wave4_timeout_sec,
         }
+
+
+import json
+import os
+from datetime import datetime
+
+# Shadow promotion thresholds (Phase 5a)
+# W3 (Neo4j) is promoted when graph-heavy query MRR lifts by ≥0.05
+_W3_MRR_LIFT_GATE = 0.05
+_W3_P95_LATENCY_MS = 5000   # combined W2+W3 p95 must stay under 5s
+# W4 (LangGraph) is promoted when complex-query MRR lifts by ≥0.05
+_W4_MRR_LIFT_GATE = 0.05
+_W4_P95_LATENCY_MS = 8000   # combined W2+W4 p95 must stay under 8s
+_W4_TRIGGER_RATE_MAX = 0.20  # if W4 fires on >20% of queries, root cause is W2 gap
+
+
+async def promote_shadow_lanes_if_ready(
+    settings_cache: "CosmosSettingsCache",
+    benchmark_path: str = "cosmos/data/benchmark_results.json",
+    promotion_log_path: str = "cosmos/data/shadow_promotion.json",
+) -> dict:
+    """Check promotion gates for W3 (Neo4j) and W4 (LangGraph) shadow lanes.
+
+    Reads benchmark_results.json produced by benchmark_runner.py after each
+    training run.  When both MRR lift AND latency gates pass, sets
+    wave3_shadow_mode=False (or wave4_shadow_mode=False) via the settings cache
+    so the lane is promoted to primary for ALL subsequent requests.
+
+    Returns a dict describing what was promoted (if anything).
+    """
+    if not os.path.exists(benchmark_path):
+        logger.info("shadow_promotion.no_benchmark_file", path=benchmark_path)
+        return {"promoted": [], "reason": "no benchmark file"}
+
+    try:
+        with open(benchmark_path) as f:
+            results = json.load(f)
+    except Exception as exc:
+        logger.warning("shadow_promotion.parse_error", error=str(exc))
+        return {"promoted": [], "reason": f"parse error: {exc}"}
+
+    current: WorkflowSettings = settings_cache.get()
+    promoted = []
+    reasons = {}
+
+    # ── W3 (Neo4j) gate ─────────────────────────────────────────────────────
+    if current.wave3_shadow_mode:
+        w3 = results.get("wave3_neo4j", {})
+        w3_mrr_lift: float = float(w3.get("mrr_lift_graph_queries", 0.0))
+        w3_p95_ms: float = float(w3.get("p95_latency_ms_w2_w3", 9999.0))
+        w3_regression: bool = bool(w3.get("tool_accuracy_regression", True))
+
+        if w3_mrr_lift >= _W3_MRR_LIFT_GATE and w3_p95_ms <= _W3_P95_LATENCY_MS and not w3_regression:
+            new_settings = WorkflowSettings(**{
+                **vars(current),
+                "wave3_shadow_mode": False,
+            })
+            await settings_cache.update(new_settings)
+            promoted.append("wave3_neo4j")
+            reasons["wave3_neo4j"] = (
+                f"mrr_lift={w3_mrr_lift:.3f} >= {_W3_MRR_LIFT_GATE}, "
+                f"p95={w3_p95_ms:.0f}ms <= {_W3_P95_LATENCY_MS}ms, "
+                "no regressions"
+            )
+            logger.info("shadow_promotion.wave3_promoted",
+                        mrr_lift=w3_mrr_lift, p95_ms=w3_p95_ms)
+        else:
+            reasons["wave3_neo4j"] = (
+                f"NOT promoted: mrr_lift={w3_mrr_lift:.3f} (need {_W3_MRR_LIFT_GATE}), "
+                f"p95={w3_p95_ms:.0f}ms (need <={_W3_P95_LATENCY_MS}ms), "
+                f"regression={w3_regression}"
+            )
+
+    # ── W4 (LangGraph) gate ─────────────────────────────────────────────────
+    if current.wave4_shadow_mode:
+        w4 = results.get("wave4_langgraph", {})
+        w4_mrr_lift: float = float(w4.get("mrr_lift_complex_queries", 0.0))
+        w4_p95_ms: float = float(w4.get("p95_latency_ms_w2_w4", 9999.0))
+        w4_trigger_rate: float = float(w4.get("trigger_rate", 1.0))
+
+        if (w4_mrr_lift >= _W4_MRR_LIFT_GATE
+                and w4_p95_ms <= _W4_P95_LATENCY_MS
+                and w4_trigger_rate <= _W4_TRIGGER_RATE_MAX):
+            # Refresh settings (W3 may have been promoted just above)
+            current = settings_cache.get()
+            new_settings = WorkflowSettings(**{
+                **vars(current),
+                "wave4_shadow_mode": False,
+            })
+            await settings_cache.update(new_settings)
+            promoted.append("wave4_langgraph")
+            reasons["wave4_langgraph"] = (
+                f"mrr_lift={w4_mrr_lift:.3f} >= {_W4_MRR_LIFT_GATE}, "
+                f"p95={w4_p95_ms:.0f}ms <= {_W4_P95_LATENCY_MS}ms, "
+                f"trigger_rate={w4_trigger_rate:.2%} <= {_W4_TRIGGER_RATE_MAX:.0%}"
+            )
+            logger.info("shadow_promotion.wave4_promoted",
+                        mrr_lift=w4_mrr_lift, p95_ms=w4_p95_ms,
+                        trigger_rate=w4_trigger_rate)
+        else:
+            reasons["wave4_langgraph"] = (
+                f"NOT promoted: mrr_lift={w4_mrr_lift:.3f} (need {_W4_MRR_LIFT_GATE}), "
+                f"p95={w4_p95_ms:.0f}ms (need <={_W4_P95_LATENCY_MS}ms), "
+                f"trigger_rate={w4_trigger_rate:.2%} (need <={_W4_TRIGGER_RATE_MAX:.0%})"
+            )
+
+    # Write promotion log
+    log_entry = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "promoted": promoted,
+        "reasons": reasons,
+    }
+    try:
+        history = []
+        if os.path.exists(promotion_log_path):
+            with open(promotion_log_path) as f:
+                history = json.load(f)
+        history.append(log_entry)
+        with open(promotion_log_path, "w") as f:
+            json.dump(history, f, indent=2)
+    except Exception as exc:
+        logger.warning("shadow_promotion.log_write_error", error=str(exc))
+
+    return log_entry
 
 
 class CosmosSettingsCache:

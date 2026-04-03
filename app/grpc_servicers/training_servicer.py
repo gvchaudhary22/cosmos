@@ -19,6 +19,15 @@ from app.services.training import TrainingService
 
 logger = structlog.get_logger(__name__)
 
+# Lazy accessor for the KB-first TrainingPipeline (set on app startup in main.py)
+_training_pipeline = None
+
+
+def set_training_pipeline(pipeline) -> None:
+    """Called from main.py to inject the canonical TrainingPipeline."""
+    global _training_pipeline
+    _training_pipeline = pipeline
+
 
 def _job_dict_to_proto(job: Dict[str, Any]) -> cosmos_pb2.TrainingJobResponse:
     """Convert a training job dict to protobuf TrainingJobResponse.
@@ -69,21 +78,43 @@ class TrainingServicer(cosmos_pb2_grpc.TrainingServiceServicer):
     async def TriggerEmbeddingTraining(
         self, request: cosmos_pb2.TrainingRequest, context: grpc.aio.ServicerContext
     ) -> cosmos_pb2.TrainingJobResponse:
-        """Trigger an embedding generation pipeline.
+        """Trigger embedding generation via the KB-first TrainingPipeline.
 
-        Creates the job immediately and returns its record; the actual
-        training runs asynchronously in the background.
+        Falls back to legacy TrainingService only if the pipeline is unavailable.
         """
         logger.info("grpc.training.TriggerEmbeddingTraining", repo_id=request.repo_id)
         try:
             repo_id = request.repo_id or None
-            job = await self._svc.trigger_embedding_training(repo_id=repo_id)
+            if _training_pipeline is not None:
+                # Route through KB-first pipeline (canonical path)
+                logger.info("grpc.training.using_kb_pipeline", repo_id=repo_id)
+                job_id = await self._svc._create_job("embedding", repo_id)
+                asyncio.create_task(self._run_kb_pipeline(job_id, repo_id))
+                job = await self._svc.get_training_status(job_id)
+            else:
+                # Fallback: legacy path (deprecated)
+                logger.warning("grpc.training.legacy_fallback", reason="TrainingPipeline not available")
+                job = await self._svc.trigger_embedding_training(repo_id=repo_id)
             return _job_dict_to_proto(job)
         except Exception as exc:
             logger.error("grpc.training.TriggerEmbeddingTraining.error", error=str(exc))
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(exc))
             return cosmos_pb2.TrainingJobResponse()
+
+    async def _run_kb_pipeline(self, job_id: str, repo_id: str | None) -> None:
+        """Run KB-first pipeline and update the training job record."""
+        try:
+            await self._svc._mark_running(job_id)
+            result = await _training_pipeline.run_full(repo_id=repo_id)
+            await self._svc._mark_completed(job_id, {
+                "source": "kb_pipeline",
+                "total_documents": result.total_documents,
+                "milestones": len(result.milestones),
+            })
+        except Exception as exc:
+            logger.error("grpc.training.kb_pipeline_error", error=str(exc))
+            await self._svc._mark_failed(job_id, str(exc))
 
     async def TriggerIntentTraining(
         self, request: cosmos_pb2.TrainingRequest, context: grpc.aio.ServicerContext

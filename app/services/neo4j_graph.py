@@ -337,6 +337,110 @@ class Neo4jGraphService:
             logger.warning("neo4j.entity_lookup.failed", error=str(exc))
             return None
 
+    # ── Advanced: Weighted Dijkstra + Multi-hop Chain Scoring ──────────────
+
+    async def weighted_shortest_path(
+        self, source_id: str, target_id: str, max_depth: int = 5,
+    ) -> Optional[Dict[str, Any]]:
+        """Find shortest path using edge weights (Dijkstra) instead of hop count."""
+        if not self._available:
+            return None
+        query = f"""
+        MATCH (a:CosmosNode {{node_id: $src}}), (b:CosmosNode {{node_id: $tgt}})
+        MATCH path = shortestPath((a)-[*..{max_depth}]->(b))
+        RETURN [n IN nodes(path) | n.node_id] AS node_ids,
+               [n IN nodes(path) | n.label] AS labels,
+               [r IN relationships(path) | type(r)] AS edge_types,
+               reduce(w = 0.0, r IN relationships(path) | w + coalesce(r.weight, 1.0)) AS total_weight,
+               length(path) AS hops
+        """
+        try:
+            async with self._driver.session() as session:
+                result = await session.run(query, src=source_id, tgt=target_id)
+                record = await result.single()
+                if not record:
+                    return None
+                return {
+                    "node_ids": record["node_ids"],
+                    "labels": record["labels"],
+                    "edge_types": record["edge_types"],
+                    "total_weight": record["total_weight"],
+                    "hops": record["hops"],
+                }
+        except Exception as exc:
+            logger.debug("neo4j.weighted_path.failed", error=str(exc))
+            return None
+
+    async def score_chains(
+        self,
+        seed_ids: List[str],
+        target_types: Optional[List[str]] = None,
+        max_depth: int = 4,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Score multi-hop paths from seed nodes to target node types.
+
+        Finds ALL paths from seeds to targets (action_contract, workflow,
+        table, api_endpoint), scored by cumulative edge weight.
+        """
+        if not self._available or not seed_ids:
+            return []
+        target_filter = ""
+        if target_types:
+            types_str = ", ".join(f"'{t}'" for t in target_types)
+            target_filter = f"AND target.node_type IN [{types_str}]"
+
+        query = f"""
+        UNWIND $seeds AS seed_id
+        MATCH (start:CosmosNode {{node_id: seed_id}})
+        MATCH path = (start)-[*1..{max_depth}]->(target:CosmosNode)
+        WHERE target.node_id <> start.node_id {target_filter}
+        WITH target, path,
+             reduce(w = 0.0, r IN relationships(path) | w + coalesce(r.weight, 1.0)) AS chain_weight,
+             length(path) AS hops
+        RETURN DISTINCT target.node_id AS node_id,
+               target.node_type AS node_type,
+               target.label AS label,
+               chain_weight, hops,
+               [n IN nodes(path) | n.label] AS path_labels
+        ORDER BY chain_weight DESC, hops ASC
+        LIMIT $limit
+        """
+        try:
+            async with self._driver.session() as session:
+                result = await session.run(query, seeds=seed_ids[:5], limit=limit)
+                records = [dict(r) async for r in result]
+                logger.debug("neo4j.score_chains", seeds=len(seed_ids), results=len(records))
+                return records
+        except Exception as exc:
+            logger.warning("neo4j.score_chains.failed", error=str(exc))
+            return []
+
+    async def domain_scoped_traversal(
+        self, seed_id: str, domain: str, max_depth: int = 3, limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Traverse staying within a domain cluster (e.g., only orders-related nodes)."""
+        if not self._available:
+            return []
+        query = f"""
+        MATCH (start:CosmosNode {{node_id: $seed}})
+        MATCH path = (start)-[*1..{max_depth}]-(related:CosmosNode)
+        WHERE related.props.domain = $domain OR toLower(related.label) CONTAINS toLower($domain)
+        WITH related, min(length(path)) AS depth,
+             reduce(w = 0.0, r IN relationships(path) | w + coalesce(r.weight, 1.0)) AS chain_weight
+        RETURN related.node_id AS node_id, related.node_type AS node_type,
+               related.label AS label, depth, chain_weight
+        ORDER BY chain_weight DESC, depth ASC
+        LIMIT $limit
+        """
+        try:
+            async with self._driver.session() as session:
+                result = await session.run(query, seed=seed_id, domain=domain, limit=limit)
+                return [dict(r) async for r in result]
+        except Exception as exc:
+            logger.warning("neo4j.domain_traversal.failed", error=str(exc))
+            return []
+
     # ── Stats ─────────────────────────────────────────────────────────────────
 
     async def get_stats(self) -> Dict[str, Any]:

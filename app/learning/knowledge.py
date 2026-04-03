@@ -16,7 +16,7 @@ import structlog
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cosmos.app.db.models import KnowledgeEntry as KnowledgeEntryModel, KnowledgeCategory
+from app.db.models import KnowledgeEntry as KnowledgeEntryModel, KnowledgeCategory
 
 logger = structlog.get_logger()
 

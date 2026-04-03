@@ -15,7 +15,7 @@ import structlog
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cosmos.app.db.models import DistillationRecord as DistillationRecordModel
+from app.db.models import DistillationRecord as DistillationRecordModel
 
 logger = structlog.get_logger()
 

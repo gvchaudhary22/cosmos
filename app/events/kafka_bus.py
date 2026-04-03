@@ -2,10 +2,10 @@
 Kafka Event Bus for COSMOS.
 
 Topics:
-  cosmos.query.completed   — Every query result (for distillation + analytics)
-  cosmos.learning.insight  — GREL learning discoveries (for KB pipeline)
+  stage-cosmos-query-trace  — Every query result (for MARS observability + quality dashboard)
+  cosmos.learning.insight   — GREL learning discoveries (for KB pipeline)
   cosmos.feedback.submitted — User feedback events (for model improvement)
-  cosmos.kb.updated        — Knowledge base changes (for MARS/N8N notification)
+  cosmos.kb.updated         — Knowledge base changes (for MARS/N8N notification)
 
 Architecture:
   Producer: Fire-and-forget from request handlers (zero latency impact)
@@ -32,7 +32,7 @@ logger = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 class Topic(str, Enum):
-    QUERY_COMPLETED = "cosmos.query.completed"
+    QUERY_COMPLETED = "stage-cosmos-query-trace"
     LEARNING_INSIGHT = "cosmos.learning.insight"
     FEEDBACK_SUBMITTED = "cosmos.feedback.submitted"
     KB_UPDATED = "cosmos.kb.updated"
@@ -46,7 +46,12 @@ class Topic(str, Enum):
 
 @dataclass
 class QueryCompletedEvent:
-    """Produced after every chat query is processed."""
+    """Produced after every chat query is processed.
+
+    Published to Kafka topic: stage-cosmos-query-trace
+    Consumed by MARS (mars-cosmos-trace-consumer) which enriches with
+    user/session context and persists to cosmos_query_traces MySQL table.
+    """
     session_id: str
     user_id: str
     company_id: Optional[str]
@@ -62,6 +67,8 @@ class QueryCompletedEvent:
     tokens_in: int
     tokens_out: int
     cost_usd: float
+    # Full 5-wave execution trace for MARS observability dashboard
+    wave_trace: Optional[List[Dict[str, Any]]] = field(default=None)
     timestamp: float = field(default_factory=time.time)
 
     def to_json(self) -> bytes:

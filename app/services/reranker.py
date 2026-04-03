@@ -58,7 +58,63 @@ class Reranker:
 
         # Sort by rerank_score descending
         scored.sort(key=lambda c: c.get("rerank_score", 0), reverse=True)
-        return scored[:top_k]
+
+        # MMR diversity reranking: avoid returning 5 similar chunks
+        # Balance relevance (λ=0.7) with diversity (1-λ=0.3)
+        diverse = self._apply_mmr(scored, top_k, lambda_param=0.7)
+        return diverse
+
+    # ------------------------------------------------------------------
+    # MMR Diversity Reranking
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _apply_mmr(
+        candidates: List[Dict], top_k: int, lambda_param: float = 0.7,
+    ) -> List[Dict]:
+        """Maximal Marginal Relevance: balance relevance with diversity.
+
+        Prevents returning 5 similar API docs when the query needs
+        diverse evidence (schema + API + action + workflow).
+
+        MMR(doc) = λ × relevance(doc) - (1-λ) × max_similarity(doc, already_selected)
+        """
+        if len(candidates) <= top_k:
+            return candidates
+
+        selected = [candidates[0]]  # Always include the most relevant
+        remaining = list(candidates[1:])
+
+        while len(selected) < top_k and remaining:
+            best_mmr = -float("inf")
+            best_idx = 0
+
+            for i, candidate in enumerate(remaining):
+                relevance = candidate.get("rerank_score", 0)
+
+                # Compute max similarity to already-selected docs
+                # Use content overlap as a proxy for embedding similarity
+                max_sim = 0.0
+                cand_terms = set(candidate.get("content", "").lower().split()[:50])
+                for sel in selected:
+                    sel_terms = set(sel.get("content", "").lower().split()[:50])
+                    if cand_terms and sel_terms:
+                        overlap = len(cand_terms & sel_terms) / max(len(cand_terms | sel_terms), 1)
+                        max_sim = max(max_sim, overlap)
+
+                # Also penalize same entity_type (e.g., 5 api_endpoint docs)
+                cand_type = candidate.get("entity_type", "")
+                type_penalty = sum(1 for s in selected if s.get("entity_type") == cand_type) * 0.1
+                max_sim += type_penalty
+
+                mmr = lambda_param * relevance - (1 - lambda_param) * max_sim
+                if mmr > best_mmr:
+                    best_mmr = mmr
+                    best_idx = i
+
+            selected.append(remaining.pop(best_idx))
+
+        return selected
 
     # ------------------------------------------------------------------
     # Keyword-based reranking (fast, zero-latency)
@@ -154,7 +210,7 @@ class Reranker:
 
             AIGATEWAY_URL = os.environ.get("AIGATEWAY_URL", "https://aigateway.shiprocket.in")
             AIGATEWAY_API_KEY = os.environ.get("AIGATEWAY_API_KEY", "")
-            AIGATEWAY_LLM_MODEL = os.environ.get("AIGATEWAY_LLM_MODEL", "gpt-4o-mini")
+            AIGATEWAY_LLM_MODEL = os.environ.get("AIGATEWAY_LLM_MODEL", "claude-sonnet-4-20250514")
 
             # Build batch prompt
             passages = []
@@ -175,7 +231,7 @@ class Reranker:
                     headers={"Authorization": f"Bearer {AIGATEWAY_API_KEY}"},
                     json={
                         "model": AIGATEWAY_LLM_MODEL,
-                        "provider": "openai",
+                        "provider": "anthropic",
                         "project_key": "cosmos",
                         "messages": [{"role": "user", "content": prompt}],
                         "max_tokens": 100,

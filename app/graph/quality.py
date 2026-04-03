@@ -68,8 +68,8 @@ def compute_edge_weight(
     Parameters
     ----------
     edge_type     : One of the EdgeType string values (e.g. "reads_table").
-    source_props  : JSONB properties dict of the source node.
-    target_props  : JSONB properties dict of the target node.
+    source_props  : JSON properties dict of the source node.
+    target_props  : JSON properties dict of the target node.
     evidence      : Optional parsed evidence.yaml content.
 
     Returns
@@ -124,7 +124,7 @@ def compute_node_confidence(
     Parameters
     ----------
     node_type              : e.g. "api_endpoint", "table", "tool", "agent".
-    properties             : JSONB properties dict of the node.
+    properties             : JSON properties dict of the node.
     confidence_by_section  : Optional dict from index.yaml mapping section →
                              "high" | "medium" | "low".
 
@@ -207,7 +207,7 @@ def extract_negative_signals(tool_agent_tags: Dict[str, Any]) -> List[Dict[str, 
 def extract_guardrails(guardrails_yaml: Dict[str, Any]) -> Dict[str, Any]:
     """
     Parse guardrails.yaml into a flat dict suitable for storage in node
-    JSONB properties.
+    JSON properties.
 
     Expected input keys (all optional):
         safety_constraints : list of {rule, severity, action}

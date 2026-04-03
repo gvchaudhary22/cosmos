@@ -160,7 +160,7 @@ class EmbeddingProducer:
                     entity_type VARCHAR(255) NOT NULL,
                     entity_id VARCHAR(500) NOT NULL,
                     content_hash VARCHAR(64) NOT NULL DEFAULT '',
-                    published_at TIMESTAMPTZ DEFAULT now(),
+                    published_at TIMESTAMP DEFAULT now(),
                     small_done BOOLEAN DEFAULT false,
                     large_done BOOLEAN DEFAULT false,
                     voyage_done BOOLEAN DEFAULT false,
@@ -603,7 +603,7 @@ class EmbeddingConsumer:
                 ]:
                     await session.execute(sql_text(f"""
                         CREATE TABLE IF NOT EXISTS {table} (
-                            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                            id CHAR(36) PRIMARY KEY,
                             repo_id VARCHAR(255) NOT NULL DEFAULT '',
                             entity_type VARCHAR(255) NOT NULL,
                             entity_id VARCHAR(500) NOT NULL,
@@ -612,8 +612,8 @@ class EmbeddingConsumer:
                             embedding vector({dim}),
                             trust_score FLOAT DEFAULT 0.5,
                             embedding_model VARCHAR(100) DEFAULT '{model}',
-                            metadata JSONB DEFAULT '{{}}'::jsonb,
-                            embedded_at TIMESTAMPTZ DEFAULT now()
+                            metadata JSON DEFAULT '{{}}',
+                            embedded_at TIMESTAMP DEFAULT now()
                         )
                     """))
                     await session.execute(sql_text(f"""
@@ -628,7 +628,7 @@ class EmbeddingConsumer:
                         entity_type VARCHAR(255) NOT NULL,
                         entity_id VARCHAR(500) NOT NULL,
                         content_hash VARCHAR(64) NOT NULL DEFAULT '',
-                        published_at TIMESTAMPTZ DEFAULT now(),
+                        published_at TIMESTAMP DEFAULT now(),
                         large_done BOOLEAN DEFAULT false,
                         voyage_done BOOLEAN DEFAULT false,
                         PRIMARY KEY (repo_id, entity_type, entity_id)

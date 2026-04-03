@@ -15,8 +15,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from cosmos.app.engine.classifier import ClassifyResult, Intent
-from cosmos.app.engine.confidence import score_confidence
+from app.engine.classifier import ClassifyResult, Intent
+from app.engine.confidence import score_confidence
+from app.engine.loop_detector import LoopDetector
 
 logger = structlog.get_logger()
 
@@ -81,6 +82,7 @@ class ReActEngine:
         self.llm = llm_client
         self.guardrails = guardrails
         self.approval_engine = approval_engine
+        self._loop_detector = LoopDetector()
 
     # ------------------------------------------------------------------
     # Public API
@@ -111,6 +113,7 @@ class ReActEngine:
         start_time = time.time()
         accumulated_context: Dict[str, Any] = {}
         loop = 0
+        self._loop_detector.reset()
 
         # Use more loops for complex queries (multi-intent, multi-entity)
         is_complex = session_context.get("complexity") == "complex" if isinstance(session_context, dict) else False
@@ -140,6 +143,41 @@ class ReActEngine:
             act_step = await self._act(reason_step.tool_calls)
             steps.append(act_step)
             tools_used.extend(tc.tool_name for tc in reason_step.tool_calls)
+
+            # Record each tool call and check for loops
+            for tc in reason_step.tool_calls:
+                self._loop_detector.record(tc.tool_name)
+            loop_detected, looping_tool = self._loop_detector.is_loop()
+            if loop_detected:
+                logger.warning(
+                    "react.loop_detected",
+                    tool=looping_tool,
+                    threshold=LoopDetector.THRESHOLD,
+                )
+                result = ReActResult(
+                    response=(
+                        "I wasn't able to find a confident answer to your question. "
+                        "I'm escalating this to a human agent who can help you further."
+                    ),
+                    confidence=0.0,
+                    steps=steps,
+                    tools_used=list(set(tools_used)),
+                    total_loops=loop + 1,
+                    total_latency_ms=(time.time() - start_time) * 1000,
+                    escalated=True,
+                    escalation_reason=(
+                        f"Loop detected: {looping_tool} called "
+                        f"{LoopDetector.THRESHOLD}+ times"
+                    ),
+                )
+                logger.info(
+                    "react.complete",
+                    confidence=result.confidence,
+                    loops=result.total_loops,
+                    escalated=result.escalated,
+                    latency_ms=round(result.total_latency_ms, 1),
+                )
+                return result
 
             # --- OBSERVE ---
             observe_step = self._observe(act_step.tool_results)
@@ -618,4 +656,34 @@ class ReActEngine:
                         ToolCall(tool_name=tool_name, params=dict(base_params))
                     )
 
+        # Precondition check: validate against action contracts if available
+        if selected and hasattr(self, '_action_contracts'):
+            validated = []
+            for tc in selected:
+                contract = self._action_contracts.get(tc.tool_name)
+                if contract:
+                    preconditions = contract.get("preconditions", [])
+                    blocked = False
+                    for pc in preconditions:
+                        # Check entity-level preconditions (e.g., status must be pre-pickup)
+                        if isinstance(pc, dict) and pc.get("check") == "status":
+                            required_status = pc.get("value")
+                            actual_status = accumulated.get("entity_status")
+                            if actual_status and required_status and actual_status != required_status:
+                                logger.info("react.precondition_blocked",
+                                            tool=tc.tool_name, precondition=pc,
+                                            actual=actual_status)
+                                blocked = True
+                                break
+                    if not blocked:
+                        validated.append(tc)
+                else:
+                    validated.append(tc)  # No contract = no precondition check
+            selected = validated
+
         return selected
+
+    def set_action_contracts(self, contracts: Dict[str, Dict]) -> None:
+        """Inject action contract metadata for precondition checking.
+        Called by orchestrator after KB retrieval."""
+        self._action_contracts = contracts
