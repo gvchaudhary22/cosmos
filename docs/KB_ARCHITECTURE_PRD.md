@@ -585,17 +585,20 @@ approval_gate:
 
 For each business domain (orders, shipments, billing, etc.), the KB provides:
 
-| Pillar | What It Provides | Example (Orders) |
-|--------|-----------------|-------------------|
-| **P1: Schema** | Table structure, columns, types, state machine | `orders` table: 50+ columns, status values 0-105 |
-| **P2: Business Rules** | Limits, thresholds, policies | COD limit Rs 50,000, cancel window 24h |
-| **P3: API Tools** | 1,320 API endpoints with params, examples | GET /orders/show/{id}, POST /orders/cancel |
-| **P4: Pages** | ICRM UI pages that display order data | /admin/orders, /admin/orders/{id} |
-| **P5: Modules** | Code module documentation | OrderController, OrderRepository |
-| **P6: Actions** | 4 executable contracts | create_order, cancel_order, bulk_ship, clone_order |
-| **P7: Workflows** | Multi-step runbooks | Order Creation Pipeline (8 steps) |
-| **P8: Negatives** | What NOT to do | Never cancel shipped orders, never modify COD amount |
-| **Entity Hub** | Cross-pillar summary | orders hub: tables + APIs + actions + workflows linked |
+| Pillar | What It Provides | Example (Orders) | Count |
+|--------|-----------------|-------------------|-------|
+| **P1: Schema** | Table structure, columns, types, state machine | `orders` table: 50+ columns, status values 0-105 | 676 tables |
+| **P2: Business Rules** | Limits, thresholds, policies | COD limit Rs 50,000, cancel window 24h | per-domain YAML |
+| **P3: API Tools** | API endpoints with params, examples, tool/agent tags | GET /orders/show/{id}, POST /orders/cancel | 5,617 endpoints |
+| **P4: Pages** | ICRM UI pages that display order data | /admin/orders, /admin/orders/{id} | 24 pages |
+| **P5: Modules** | Code module documentation | OrderController, OrderRepository | 739 files |
+| **P6: Actions** | Executable contracts with preconditions + approval gates | create_order, cancel_order, update_delivery_address | **25 actions** |
+| **P7: Workflows** | Multi-step runbooks with state machines | Order Creation Pipeline (8 steps) | 10 runbooks |
+| **P8: Negatives** | What NOT to do / disambiguation | Never cancel shipped orders, never modify COD amount | 100 examples |
+| **P9: Agents** | Agent definitions: domain, tools, skills, handoff rules | order_ops_agent, ndr_resolver_agent | **10 agents** |
+| **P10: Skills** | Skill recipes: triggers, steps, required params | order_lookup, order_cancel, ndr_resolution | **13 skills** |
+| **P11: Tools** | Tool definitions: endpoint, risk level, schema | orders_get, orders_list, ndr_action | **16 tools** |
+| **Entity Hub** | Cross-pillar summary linking tables + APIs + actions | billing, channels, courier, ndr, orders, pickup, returns, settings, shipments, support | 10 hubs |
 
 ---
 
@@ -641,6 +644,9 @@ Training Pipeline (COSMOS)
     ├── M4:  Generate + embed artifacts
     ├── P2:  Generate Business Rules (Opus)
     ├── P8+: Expand Negatives (Opus)
+    ├── M9:  Embed Pillar 9 (agent definitions) → Qdrant + MySQL + Neo4j
+    ├── M10: Embed Pillar 10 (skill recipes) → Qdrant + MySQL + Neo4j
+    ├── M11: Embed Pillar 11 (tool definitions) → Qdrant + MySQL + Neo4j
     ├── Enrich: Contextual headers (Opus) + Synthetic Q&A (5 per chunk)
     ├── Link:  Cross-pillar connections
     └── Sync:  KB Registry → graph_nodes (agents/tools/skills enriched)
@@ -667,7 +673,137 @@ Claude Opus 4.6 (response generation)
 
 ---
 
-## 8. Success Metrics
+## 8. KB File Tier System — Enrichment Structure
+
+Every KB file is classified into a tier that controls whether it gets embedded into Qdrant. The tier system is defined per-pillar in `_embedding_manifest.yaml` files. **No code change is required to add or remove a file from embeddings** — just move it between sections in the manifest and re-run the pipeline.
+
+### 8.1 Pillar 1 (Schema) — 13-File Per-Table Pack
+
+Each of the 676 tables has a dedicated folder with 13 YAML files split across three tiers:
+
+```
+tables/orders/
+  ├── HIGH (embedded — core identity + business logic)
+  │   ├── _meta.yaml          # table name, domain, tier, description, DB connections
+  │   ├── columns.yaml        # column definitions: name, type, human_meaning, examples
+  │   ├── state_machine.yaml  # status transitions (forward, cancel, RTO, return flows)
+  │   └── api_mapping.yaml    # which API endpoints create/read/update this table
+  │
+  ├── MEDIUM (embedded — merged with HIGH for single rich embedding document)
+  │   ├── validation.yaml     # Laravel FormRequest rules, regex, required_if conditions
+  │   ├── data_flows.yaml     # inbound sources (webhooks, channels) + outbound consumers
+  │   ├── side_effects.yaml   # jobs/events fired on insert/update/delete
+  │   └── constants.yaml      # enum values, status codes with human-readable meanings
+  │
+  ├── REFERENCE-ONLY (not embedded — too granular, adds noise)
+  │   ├── read_paths.yaml         # code locations that SELECT from table
+  │   ├── write_paths.yaml        # code locations that INSERT/UPDATE
+  │   ├── cron_dependencies.yaml  # scheduled jobs touching this table
+  │   └── cross_repo.yaml         # other repos (shiprocket-go etc.) accessing table
+  │
+  └── EXCLUDED (empty scaffold — not yet populated)
+      └── prod_stats.yaml     # production metadata (estimated_rows, indexes)
+```
+
+The training pipeline merges HIGH + MEDIUM into **one embedding document per table** — roughly 200–500 tokens of focused, retrieval-optimized content. LOW/REFERENCE files are available for human browsing and deep debugging but never go into Qdrant.
+
+### 8.2 Pillar 3 (API/MCP Tools) — 15-File Per-API Folder
+
+Each API endpoint has a dedicated folder under `pillar_3_api_mcp_tools/apis/` with 15 YAML files:
+
+```
+apis/mcapi.v1.orders.show/
+  ├── index.yaml           # top-level summary (embedded as high.yaml)
+  ├── overview.yaml        # purpose, domain, auth type
+  ├── request_schema.yaml  # parameter definitions, types, validation
+  ├── response_schema.yaml # response fields with types and examples
+  ├── auth_permissions.yaml
+  ├── db_mapping.yaml      # which tables this API reads/writes
+  ├── code_mapping.yaml    # controller/service/repo chain
+  ├── panel_usage.yaml     # which ICRM pages call this API
+  ├── tool_agent_tags.yaml # which agent/skill/tool this maps to
+  ├── examples.yaml        # real request/response pairs (Hinglish variants)
+  ├── errors_retries.yaml  # error codes, retry logic
+  ├── guardrails.yaml      # safety rules (rate limits, approval gates)
+  ├── eval_cases.yaml      # positive, ambiguous, unsafe test cases
+  ├── evidence.yaml        # code evidence for every claim
+  └── changelog.yaml       # API version history
+```
+
+`index.yaml` (the `high.yaml` equivalent) is the primary embedding target — it aggregates the most retrieval-relevant content. The `high/` sub-chunks (individual component files) can optionally be embedded to increase retrieval granularity (21,167 sub-chunk files — see issue #3).
+
+### 8.3 Pillar 6 (Actions) — 25 Action Contracts
+
+Each action contract defines the full safety envelope:
+
+```
+pillar_6_actions/
+  ├── create_order.yaml
+  ├── cancel_order.yaml
+  ├── cancel_shipment.yaml
+  ├── assign_courier.yaml
+  ├── bulk_ship.yaml
+  ├── generate_label.yaml
+  ├── schedule_pickup.yaml
+  ├── track_shipment.yaml
+  ├── update_delivery_address.yaml
+  ├── process_refund.yaml
+  ├── ndr_reattempt.yaml
+  ├── ndr_escalation.yaml
+  ├── create_return.yaml
+  ├── mark_return_received.yaml
+  ├── rto_reattempt.yaml
+  ├── check_serviceability.yaml
+  ├── cod_remittance.yaml
+  ├── weight_dispute.yaml
+  ├── channel_sync.yaml
+  ├── pickup_reschedule.yaml
+  ├── send_whatsapp_notification.yaml
+  ├── send_pickup_reminder.yaml
+  ├── save_rto_prediction.yaml
+  └── action_registry.yaml    # master index of all 25 actions
+```
+
+### 8.4 Pillar 9/10/11 — Agents, Skills, Tools
+
+The three runtime pillars that define COSMOS's execution surface:
+
+```
+pillar_9_agents/   (10 agents)
+  ├── order_ops_agent.yaml        # Orders: status, cancel, create, search
+  ├── shipment_ops_agent.yaml     # Shipments: tracking, AWB, courier
+  ├── ndr_resolver_agent.yaml     # NDR: delivery failures, reattempts
+  ├── billing_wallet_agent.yaml   # Billing: wallet, COD, refunds
+  ├── courier_ops_agent.yaml      # Couriers: rates, serviceability
+  ├── analytics_agent.yaml        # Reports: dashboards, exports
+  ├── auth_login_agent.yaml       # Authentication: login, SSO
+  ├── channel_sync_agent.yaml     # Channels: Shopify, WooCommerce, Amazon
+  ├── return_exchange_agent.yaml  # Returns: processing, RTO
+  └── settings_admin_agent.yaml   # Settings: company config, KYC
+
+pillar_10_skills/  (13 skills)
+  ├── order_lookup.yaml      ├── order_cancel.yaml     ├── order_search.yaml
+  ├── address_update.yaml    ├── awb_tracking.yaml     ├── courier_assignment.yaml
+  ├── ndr_resolution.yaml    ├── return_processing.yaml ├── wallet_check.yaml
+  ├── weight_dispute.yaml    ├── kyc_verification.yaml ├── channel_sync.yaml
+  └── dashboard_overview.yaml
+
+pillar_11_tools/   (16 tools)
+  ├── orders_get.yaml    ├── orders_list.yaml   ├── orders_cancel.yaml
+  ├── ndr_action.yaml    ├── assign_awb.yaml    ├── courier_rate.yaml
+  ├── billing_query.yaml ├── dashboard_counts.yaml ├── channel_list.yaml
+  └── ... (7 more)
+```
+
+These three pillars are written to **all three stores** on every pipeline run: Qdrant (vector embeddings), MySQL `graph_nodes` (MARS registry), and Neo4j (graph relationships with `agent_has_skill` and `skill_calls_tool` edges).
+
+### 8.5 Content-Hash Deduplication
+
+The training pipeline never re-embeds unchanged files. Before calling the embedding API, `vectorstore.py` computes a SHA-256 hash of the document content and checks if a Qdrant point with that hash already exists. If it does, the file is skipped. This makes re-runs cheap — only changed or new KB files are processed.
+
+---
+
+## 9. Success Metrics
 
 | Metric | Target | How Measured |
 |--------|--------|-------------|
