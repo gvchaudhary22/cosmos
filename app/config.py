@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # inject .env into os.environ before any module reads it directly
+
 from pydantic_settings import BaseSettings
 from typing import Optional
 
