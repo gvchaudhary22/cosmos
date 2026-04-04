@@ -142,14 +142,28 @@ class EmbeddingProducer:
             logger.debug("embedding_queue.publish_failed", error=str(e))
             return False
 
+    @staticmethod
+    def _tracker_db_url() -> str:
+        """Return tracker DB URL only if it is a PostgreSQL URL (tracker requires psycopg2).
+
+        Returns empty string when the configured DATABASE_URL is MySQL/SQLite/other,
+        so all tracker methods become fast no-ops instead of flooding logs with DSN errors.
+        """
+        db_url = os.environ.get("DATABASE_URL", "postgresql://cosmos:cosmos@localhost:5433/cosmos")
+        if "postgresql" not in db_url and "postgres" not in db_url:
+            return ""
+        return db_url
+
     def _ensure_tracker_table(self):
         """Create tracker table if needed (sync, called once)."""
         if self._tracker_ready:
             return
         self._tracker_ready = True
+        db_url = self._tracker_db_url()
+        if not db_url:
+            return  # non-PostgreSQL deployment — tracker is a no-op
         try:
             import psycopg2
-            db_url = os.environ.get("DATABASE_URL", "postgresql://cosmos:cosmos@localhost:5433/cosmos")
             # Parse async URL to sync
             sync_url = db_url.replace("+asyncpg", "").replace("postgresql+asyncpg", "postgresql")
             conn = psycopg2.connect(sync_url)
@@ -176,10 +190,12 @@ class EmbeddingProducer:
     def _is_already_published(self, repo_id: str, entity_type: str,
                                entity_id: str, content_hash: str) -> bool:
         """Check if doc was already published with same content_hash."""
+        db_url = self._tracker_db_url()
+        if not db_url:
+            return False  # non-PostgreSQL: always re-publish (content-hash dedup handles duplicates)
         self._ensure_tracker_table()
         try:
             import psycopg2
-            db_url = os.environ.get("DATABASE_URL", "postgresql://cosmos:cosmos@localhost:5433/cosmos")
             sync_url = db_url.replace("+asyncpg", "").replace("postgresql+asyncpg", "postgresql")
             conn = psycopg2.connect(sync_url)
             cur = conn.cursor()
@@ -197,9 +213,11 @@ class EmbeddingProducer:
     def _track_published(self, repo_id: str, entity_type: str,
                           entity_id: str, content_hash: str):
         """Record that a doc was published to Kafka."""
+        db_url = self._tracker_db_url()
+        if not db_url:
+            return  # non-PostgreSQL deployment — tracker is a no-op
         try:
             import psycopg2
-            db_url = os.environ.get("DATABASE_URL", "postgresql://cosmos:cosmos@localhost:5433/cosmos")
             sync_url = db_url.replace("+asyncpg", "").replace("postgresql+asyncpg", "postgresql")
             conn = psycopg2.connect(sync_url)
             cur = conn.cursor()
@@ -219,10 +237,12 @@ class EmbeddingProducer:
     def _track_small_done(self, repo_id: str, entity_type: str,
                           entity_id: str, content_hash: str):
         """Mark primary (small) embedding as done in tracker."""
+        db_url = self._tracker_db_url()
+        if not db_url:
+            return  # non-PostgreSQL deployment — tracker is a no-op
         self._ensure_tracker_table()
         try:
             import psycopg2
-            db_url = os.environ.get("DATABASE_URL", "postgresql://cosmos:cosmos@localhost:5433/cosmos")
             sync_url = db_url.replace("+asyncpg", "").replace("postgresql+asyncpg", "postgresql")
             conn = psycopg2.connect(sync_url)
             cur = conn.cursor()
@@ -237,6 +257,75 @@ class EmbeddingProducer:
             conn.close()
         except Exception as e:
             logger.debug("embedding_queue.track_small_failed", error=str(e))
+
+    def publish_primary(self, entity_type: str, entity_id: str, content: str,
+                        repo_id: str = "", metadata: Optional[Dict] = None,
+                        trust_score: float = 0.5) -> bool:
+        """Publish doc for primary embedding via Kafka (kafka_mode=True path).
+
+        Published to sc_webhook_orders_wc with msg_type="cosmos_primary_embedding".
+        PrimaryEmbeddingConsumer picks this up and embeds with text-embedding-3-small → Qdrant.
+
+        Non-blocking. Returns False if Kafka unavailable — caller falls back to in-process embed.
+        """
+        if not self._enabled:
+            return False
+
+        producer = self._get_producer()
+        if not producer:
+            return False
+
+        try:
+            content_hash = hashlib.sha256(content.encode()).hexdigest()[:32]
+            message = {
+                "msg_type": "cosmos_primary_embedding",
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "content": content,
+                "repo_id": repo_id,
+                "metadata": metadata or {},
+                "trust_score": trust_score,
+                "content_hash": content_hash,
+                "published_at": time.time(),
+                "retry_count": 0,
+            }
+            producer.send(
+                KAFKA_TOPIC,
+                value=message,
+                key=entity_id.encode("utf-8"),
+            )
+            return True
+        except Exception as e:
+            logger.debug("embedding_queue.publish_primary_failed", error=str(e))
+            return False
+
+    def publish_dlq(self, doc: Dict, reason: str) -> bool:
+        """Route a failed doc to the DLQ (dead-letter queue) on the same topic."""
+        if not self._enabled:
+            return False
+
+        producer = self._get_producer()
+        if not producer:
+            return False
+
+        try:
+            dlq_msg = {
+                **doc,
+                "msg_type": "cosmos_primary_embedding.dlq",
+                "dlq_reason": reason,
+                "dlq_at": time.time(),
+            }
+            producer.send(
+                KAFKA_TOPIC,
+                value=dlq_msg,
+                key=doc.get("entity_id", "dlq").encode("utf-8"),
+            )
+            logger.warning("embedding_queue.dlq_published",
+                           entity_id=doc.get("entity_id", "")[:60], reason=reason)
+            return True
+        except Exception as e:
+            logger.debug("embedding_queue.dlq_publish_failed", error=str(e))
+            return False
 
     def flush(self):
         """Flush any pending messages."""
@@ -256,7 +345,156 @@ class EmbeddingProducer:
 
 
 # ===================================================================
-# CONSUMER — runs as background worker
+# PRIMARY CONSUMER — embeds text-embedding-3-small → Qdrant
+# ===================================================================
+
+# Configurable via env vars
+PRIMARY_CONSUMER_BATCH = int(os.environ.get("KAFKA_PRIMARY_CONSUMER_BATCH", "20"))
+PRIMARY_MAX_RETRIES = int(os.environ.get("KAFKA_PRIMARY_MAX_RETRIES", "3"))
+
+
+class PrimaryEmbeddingConsumer:
+    """Consumes cosmos_primary_embedding messages and embeds with text-embedding-3-small → Qdrant.
+
+    - Micro-batches PRIMARY_CONSUMER_BATCH (default: 20) messages per poll
+    - asyncio.gather() fires all 20 embeds concurrently
+    - Commits Kafka offset AFTER successful batch (at-least-once delivery)
+    - After PRIMARY_MAX_RETRIES (default: 3) failures per entity_id → DLQ
+    - Resumes from last committed offset after restart — no re-embed of done docs
+
+    Usage:
+        consumer = PrimaryEmbeddingConsumer(vectorstore)
+        await consumer.run()   # blocks forever
+
+    CLI:
+        python -m app.services.embedding_queue consume-primary
+    """
+
+    BATCH_SIZE = PRIMARY_CONSUMER_BATCH
+    MAX_RETRIES = PRIMARY_MAX_RETRIES
+
+    def __init__(self, vectorstore=None):
+        self._vectorstore = vectorstore
+        self._retry_counts: Dict[str, int] = {}  # entity_id → attempt count
+        self._producer = EmbeddingProducer()      # for DLQ publishing
+        self._stats = {
+            "embedded_ok": 0, "embedded_err": 0,
+            "dlq_sent": 0, "skipped_hash": 0,
+        }
+
+    async def _get_vectorstore(self):
+        """Lazy-load vectorstore if not injected (CLI mode)."""
+        if self._vectorstore:
+            return self._vectorstore
+        from app.services.vectorstore import VectorStoreService
+        vs = VectorStoreService()
+        await vs.ensure_schema()
+        self._vectorstore = vs
+        return vs
+
+    async def run(self):
+        """Start consuming. Blocks forever. Safe to restart."""
+        from kafka import KafkaConsumer
+
+        vs = await self._get_vectorstore()
+
+        consumer = KafkaConsumer(
+            KAFKA_TOPIC,
+            bootstrap_servers=KAFKA_BROKERS.split(","),
+            security_protocol="SASL_PLAINTEXT",
+            sasl_mechanism="SCRAM-SHA-512",
+            sasl_plain_username=KAFKA_USERNAME,
+            sasl_plain_password=KAFKA_PASSWORD,
+            group_id="cosmos-primary-embed",
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,   # manual commit after successful batch
+            max_poll_records=self.BATCH_SIZE,
+            consumer_timeout_ms=30000,
+        )
+
+        logger.info("primary_consumer.started",
+                    topic=KAFKA_TOPIC,
+                    batch_size=self.BATCH_SIZE,
+                    max_retries=self.MAX_RETRIES)
+
+        try:
+            while True:
+                records = consumer.poll(timeout_ms=5000, max_records=self.BATCH_SIZE)
+
+                if not records:
+                    continue
+
+                batch: List[Dict] = []
+                for tp, messages in records.items():
+                    for msg in messages:
+                        doc = msg.value
+                        if not isinstance(doc, dict):
+                            continue
+                        if doc.get("msg_type") != "cosmos_primary_embedding":
+                            continue  # skip WC webhooks + shadow messages + DLQ
+                        batch.append(doc)
+
+                if batch:
+                    await self._process_batch(batch, vs)
+
+                # Commit offset only after successful processing
+                consumer.commit()
+
+                total = sum(self._stats.values())
+                if total > 0 and total % 100 == 0:
+                    logger.info("primary_consumer.progress", **self._stats)
+
+        except KeyboardInterrupt:
+            logger.info("primary_consumer.stopping")
+        finally:
+            consumer.close()
+            logger.info("primary_consumer.stopped", **self._stats)
+
+    async def _process_batch(self, batch: List[Dict], vs):
+        """Embed a batch of docs concurrently. Failed docs retry or go to DLQ."""
+        semaphore = asyncio.Semaphore(self.BATCH_SIZE)
+
+        async def _embed_one(doc: Dict) -> bool:
+            entity_id = doc.get("entity_id", "")
+            async with semaphore:
+                try:
+                    await vs.store_embedding(
+                        entity_type=doc.get("entity_type", "unknown"),
+                        entity_id=entity_id,
+                        content=doc.get("content", ""),
+                        repo_id=doc.get("repo_id") or None,
+                        metadata=doc.get("metadata") or {},
+                    )
+                    # Reset retry counter on success
+                    self._retry_counts.pop(entity_id, None)
+                    self._stats["embedded_ok"] += 1
+                    return True
+                except Exception as e:
+                    self._retry_counts[entity_id] = self._retry_counts.get(entity_id, 0) + 1
+                    retries = self._retry_counts[entity_id]
+
+                    if retries >= self.MAX_RETRIES:
+                        # Route to DLQ after MAX_RETRIES failures
+                        self._producer.publish_dlq(doc, reason=str(e)[:200])
+                        self._retry_counts.pop(entity_id, None)
+                        self._stats["dlq_sent"] += 1
+                        logger.warning("primary_consumer.dlq_routed",
+                                       entity_id=entity_id[:60], retries=retries)
+                    else:
+                        self._stats["embedded_err"] += 1
+                        logger.debug("primary_consumer.embed_failed",
+                                     entity_id=entity_id[:60], attempt=retries, error=str(e)[:100])
+                    return False
+
+        await asyncio.gather(*[_embed_one(doc) for doc in batch], return_exceptions=True)
+
+    def get_stats(self) -> Dict:
+        return dict(self._stats)
+
+
+# ===================================================================
+# CONSUMER — runs as background worker (shadow lanes)
 # ===================================================================
 
 class EmbeddingConsumer:
@@ -621,17 +859,22 @@ class EmbeddingConsumer:
                         ON {table} (repo_id, entity_type, entity_id)
                     """))
 
-                # Tracker table (shared with producer)
+                # Tracker table (shared with producer) — MySQL-compatible DDL.
+                # Uses AUTO_INCREMENT PK + UNIQUE KEY with prefix lengths to stay
+                # within MySQL's 3072-byte combined index limit (utf8mb4 × 4 bytes/char).
                 await session.execute(sql_text(f"""
                     CREATE TABLE IF NOT EXISTS {TRACKING_TABLE} (
-                        repo_id VARCHAR(255) NOT NULL DEFAULT '',
-                        entity_type VARCHAR(255) NOT NULL,
-                        entity_id VARCHAR(500) NOT NULL,
-                        content_hash VARCHAR(64) NOT NULL DEFAULT '',
-                        published_at TIMESTAMP DEFAULT now(),
-                        large_done BOOLEAN DEFAULT false,
-                        voyage_done BOOLEAN DEFAULT false,
-                        PRIMARY KEY (repo_id, entity_type, entity_id)
+                        id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                        repo_id       VARCHAR(255)    NOT NULL DEFAULT '',
+                        entity_type   VARCHAR(255)    NOT NULL DEFAULT '',
+                        entity_id     VARCHAR(500)    NOT NULL DEFAULT '',
+                        content_hash  VARCHAR(64)     NOT NULL DEFAULT '',
+                        published_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        small_done    TINYINT(1)      NOT NULL DEFAULT 0,
+                        large_done    TINYINT(1)      NOT NULL DEFAULT 0,
+                        voyage_done   TINYINT(1)      NOT NULL DEFAULT 0,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY uq_tracker_entity (repo_id(100), entity_type(100), entity_id(191))
                     )
                 """))
 
@@ -647,8 +890,53 @@ class EmbeddingConsumer:
 # ===================================================================
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "consume":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+
+    if cmd == "consume":
+        # Shadow lanes (text-embedding-3-large + voyage-3-large)
         consumer = EmbeddingConsumer()
         asyncio.run(consumer.run())
+
+    elif cmd == "consume-primary":
+        # Primary lane (text-embedding-3-small → Qdrant)
+        # Usage: python -m app.services.embedding_queue consume-primary
+        print(f"Starting PrimaryEmbeddingConsumer  topic={KAFKA_TOPIC}  batch={PRIMARY_CONSUMER_BATCH}  max_retries={PRIMARY_MAX_RETRIES}")
+        consumer = PrimaryEmbeddingConsumer()
+        asyncio.run(consumer.run())
+
+    elif cmd == "inspect-dlq":
+        # Print DLQ messages for inspection
+        from kafka import KafkaConsumer as _KC
+        print(f"Inspecting DLQ messages on {KAFKA_TOPIC} (msg_type=cosmos_primary_embedding.dlq) ...")
+        c = _KC(
+            KAFKA_TOPIC,
+            bootstrap_servers=KAFKA_BROKERS.split(","),
+            security_protocol="SASL_PLAINTEXT",
+            sasl_mechanism="SCRAM-SHA-512",
+            sasl_plain_username=KAFKA_USERNAME,
+            sasl_plain_password=KAFKA_PASSWORD,
+            group_id="cosmos-dlq-inspector",
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            auto_offset_reset="earliest",
+            consumer_timeout_ms=5000,
+        )
+        count = 0
+        for msg in c:
+            doc = msg.value
+            if isinstance(doc, dict) and doc.get("msg_type") == "cosmos_primary_embedding.dlq":
+                print(json.dumps({
+                    "entity_id": doc.get("entity_id"),
+                    "entity_type": doc.get("entity_type"),
+                    "dlq_reason": doc.get("dlq_reason"),
+                    "dlq_at": doc.get("dlq_at"),
+                }, indent=2))
+                count += 1
+        c.close()
+        print(f"\nTotal DLQ messages: {count}")
+
     else:
-        print("Usage: python -m app.services.embedding_queue consume")
+        print("Usage: python -m app.services.embedding_queue <command>")
+        print("Commands:")
+        print("  consume          — Start shadow lane consumer (3-large + voyage)")
+        print("  consume-primary  — Start primary lane consumer (3-small → Qdrant)")
+        print("  inspect-dlq      — Print failed docs from DLQ")

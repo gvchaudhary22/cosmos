@@ -340,6 +340,14 @@ class MCAPIClient:
     # Write / Action endpoints (Phase 2)
     # ------------------------------------------------------------------ #
 
+    async def create_order(
+        self, payload: Dict[str, Any], headers: Dict = None
+    ) -> MCAPIResponse:
+        """Create a new Custom/Local channel order."""
+        return await self.post(
+            "/api/v1/app/orders/create", json=payload, headers=headers
+        )
+
     async def cancel_order(
         self, order_id: str, reason: str = None, headers: Dict = None
     ) -> MCAPIResponse:

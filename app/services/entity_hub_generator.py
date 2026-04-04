@@ -67,11 +67,10 @@ def generate_entity_hubs(
 
         # Build embedding doc
         docs.append({
-            "source_id": f"entity_hub:{entity['name']}",
-            "source_type": "entity_hub",
             "content": hub["content"],
             "entity_type": "entity_hub",
             "entity_id": f"entity_hub:{entity['name']}",
+            "repo_id": repo_id,
             "capability": "retrieval",
             "trust_score": 0.95,
             "metadata": {
@@ -125,6 +124,13 @@ def _build_hub(kb: Path, entity: Dict, repo_id: str) -> Optional[Dict]:
     if field_lines:
         parts.append("## Field Traces")
         parts.extend(field_lines)
+        parts.append("")
+
+    # P9/P10/P11: Agents, Skills, Tools
+    ast_lines = _gather_agents_skills_tools(kb, name)
+    if ast_lines:
+        parts.append("## Agents / Skills / Tools")
+        parts.extend(ast_lines)
 
     content = "\n".join(parts)
 
@@ -268,3 +274,56 @@ def _gather_field_traces(kb: Path, domain: str, repo_id: str) -> List[str]:
             except Exception:
                 pass
     return lines[:8]  # Cap at 8 traces per hub
+
+
+def _gather_agents_skills_tools(kb: Path, domain: str) -> List[str]:
+    """Extract agents (P9), skills (P10), and tools (P11) for this domain."""
+    lines: List[str] = []
+
+    # P9: Agents whose domain matches
+    p9_dir = kb / "pillar_9_agents"
+    if p9_dir.exists():
+        for f in sorted(p9_dir.glob("*.yaml")):
+            try:
+                with open(f) as fh:
+                    data = yaml.safe_load(fh)
+                if isinstance(data, dict) and data.get("domain") == domain:
+                    lines.append(
+                        f"- agent:{data.get('agent_name', f.stem)} "
+                        f"({data.get('tier', '')}): {data.get('description', '')[:80]}"
+                    )
+            except Exception:
+                pass
+
+    # P10: Skills whose domain matches
+    p10_dir = kb / "pillar_10_skills"
+    if p10_dir.exists():
+        for f in sorted(p10_dir.glob("*.yaml")):
+            try:
+                with open(f) as fh:
+                    data = yaml.safe_load(fh)
+                if isinstance(data, dict) and data.get("domain") == domain:
+                    lines.append(
+                        f"- skill:{data.get('skill_name', f.stem)}: "
+                        f"{data.get('description', '')[:80]}"
+                    )
+            except Exception:
+                pass
+
+    # P11: Tools whose domain matches
+    p11_dir = kb / "pillar_11_tools"
+    if p11_dir.exists():
+        for f in sorted(p11_dir.glob("*.yaml")):
+            try:
+                with open(f) as fh:
+                    data = yaml.safe_load(fh)
+                if isinstance(data, dict) and data.get("domain") == domain:
+                    lines.append(
+                        f"- tool:{data.get('tool_name', f.stem)} "
+                        f"[{data.get('category', 'read')} risk:{data.get('risk_level', 'low')}]: "
+                        f"{str(data.get('description', ''))[:80].splitlines()[0]}"
+                    )
+            except Exception:
+                pass
+
+    return lines

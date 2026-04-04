@@ -101,20 +101,26 @@ class KBFileIndexService:
         if not os.path.isdir(kb_path):
             return []
 
-        # 1. Build current file-hash map from disk
-        disk_hashes: Dict[str, str] = {}  # rel_path -> md5
-        for root, _dirs, files in os.walk(kb_path):
-            for fname in files:
-                if not fname.endswith((".yaml", ".yml")):
-                    continue
-                full = os.path.join(root, fname)
-                rel = os.path.relpath(full, kb_path)
-                disk_hashes[rel] = _md5_file(full)
+        # 1. Build current file-hash map from disk.
+        # Run in a thread pool so the synchronous os.walk + MD5 hashing does NOT
+        # block the asyncio event loop (44K files can take 60-90s synchronously).
+        _SKIP_FILENAMES = frozenset({"medium.yaml", "low.yaml", "medium.yml", "low.yml"})
 
-        # Filter by repo_id if specified (e.g. only MultiChannel_API)
-        if repo_id:
-            prefix = repo_id + os.sep
-            disk_hashes = {k: v for k, v in disk_hashes.items() if k.startswith(prefix)}
+        def _build_disk_hashes() -> Dict[str, str]:
+            """Sync disk walk — called via asyncio.to_thread to avoid blocking."""
+            hashes: Dict[str, str] = {}
+            scan_root = os.path.join(kb_path, repo_id) if repo_id else kb_path
+            for root, _dirs, files in os.walk(scan_root):
+                for fname in files:
+                    if not fname.endswith((".yaml", ".yml")) or fname in _SKIP_FILENAMES:
+                        continue
+                    full = os.path.join(root, fname)
+                    rel = os.path.relpath(full, kb_path)
+                    hashes[rel] = _md5_file(full)
+            return hashes
+
+        import asyncio as _asyncio
+        disk_hashes: Dict[str, str] = await _asyncio.to_thread(_build_disk_hashes)
 
         # 2. Load stored hashes from DB
         stored_hashes = await self._load_hashes(kb_path, repo_id)
@@ -144,7 +150,49 @@ class KBFileIndexService:
                 repo_id=repo_id or "all",
             )
 
+        # 5. Remove any medium.yaml / low.yaml rows that were registered in previous runs
+        purged = await self._purge_non_embeddable(repo_id)
+        if purged:
+            logger.info("kb_file_index.purged_non_embeddable", count=purged)
+
         return changed
+
+    async def _purge_non_embeddable(self, repo_id: Optional[str] = None) -> int:
+        """Delete medium.yaml and low.yaml rows from the index.
+
+        These files are never read by the KB reader, so registering them causes
+        the pending count to be permanently inflated. Safe to delete — re-scanning
+        will not re-add them because diff_and_mark_pending now skips them.
+        """
+        async with AsyncSessionLocal() as session:
+            try:
+                if repo_id:
+                    result = await session.execute(
+                        text(f"""
+                            DELETE FROM {self.TABLE}
+                            WHERE repo_id = :repo
+                              AND (file_path LIKE '%/medium.yaml'
+                                   OR file_path LIKE '%/low.yaml'
+                                   OR file_path LIKE '%/medium.yml'
+                                   OR file_path LIKE '%/low.yml')
+                        """),
+                        {"repo": repo_id},
+                    )
+                else:
+                    result = await session.execute(
+                        text(f"""
+                            DELETE FROM {self.TABLE}
+                            WHERE file_path LIKE '%/medium.yaml'
+                               OR file_path LIKE '%/low.yaml'
+                               OR file_path LIKE '%/medium.yml'
+                               OR file_path LIKE '%/low.yml'
+                        """)
+                    )
+                await session.commit()
+                return result.rowcount or 0
+            except Exception as e:
+                logger.debug("kb_file_index.purge_non_embeddable_failed", error=str(e))
+                return 0
 
     async def _load_hashes(self, kb_path: str, repo_id: Optional[str]) -> Dict[str, str]:
         """Load (file_path, file_hash) from DB for comparison."""
@@ -192,8 +240,8 @@ class KBFileIndexService:
                             VALUES
                                 (UUID(), :repo, :path, :hash, :entity_id, :entity_type, :status, now(), now())
                             ON DUPLICATE KEY UPDATE
-                                file_hash = VALUES(file_hash),
-                                status = VALUES(status),
+                                file_hash = :hash,
+                                status = :status,
                                 error_msg = NULL,
                                 updated_at = now()
                         """), {
@@ -350,6 +398,40 @@ class KBFileIndexService:
                 logger.warning("kb_file_index.mark_paths_pending_failed", error=str(e))
                 return 0
 
+    async def bulk_mark_indexed(self, repo_ids: Optional[List[str]] = None) -> int:
+        """Mark all pending files as indexed for the given repos (or all repos).
+
+        Called at the end of a successful pipeline run. Files that failed the
+        quality gate are still counted as 'indexed' here (they stay skipped in
+        Qdrant, but the file index is a display helper, not source of truth).
+
+        Returns the number of rows updated.
+        """
+        async with AsyncSessionLocal() as session:
+            try:
+                if repo_ids:
+                    placeholders = ", ".join(f":r{i}" for i in range(len(repo_ids)))
+                    params = {f"r{i}": r for i, r in enumerate(repo_ids)}
+                    result = await session.execute(text(f"""
+                        UPDATE {self.TABLE}
+                        SET status = 1, last_indexed_at = now(), updated_at = now()
+                        WHERE status = 0 AND repo_id IN ({placeholders})
+                    """), params)
+                else:
+                    result = await session.execute(text(f"""
+                        UPDATE {self.TABLE}
+                        SET status = 1, last_indexed_at = now(), updated_at = now()
+                        WHERE status = 0
+                    """))
+                await session.commit()
+                count = result.rowcount
+                logger.info("kb_file_index.bulk_mark_indexed", updated=count, repos=repo_ids)
+                return count
+            except Exception as e:
+                await session.rollback()
+                logger.warning("kb_file_index.bulk_mark_indexed_failed", error=str(e))
+                return 0
+
     # ------------------------------------------------------------------
     # S3 ETag sync — update stored etag after S3 download
     # ------------------------------------------------------------------
@@ -368,8 +450,266 @@ class KBFileIndexService:
                 logger.warning("kb_file_index.s3_etag_update_failed", error=str(e))
 
     # ------------------------------------------------------------------
+    # cosmos_tools seeder — called by training pipeline after P11 ingest
+    # ------------------------------------------------------------------
+
+    async def ingest_tool_definitions(self, kb_path: str) -> Dict:
+        """
+        Scan all pillar_11_tools/*.yaml files across repos and upsert rows
+        into cosmos_tools table.
+
+        Reads:
+          - tool_name, description, domain/entity, risk_level, approval_mode
+          - endpoints[0].method + path  →  http_method + endpoint_path
+          - parameters[]               →  request_schema (Anthropic format)
+
+        Uses content-hash skip: only re-upserts if YAML has changed.
+        Called at the end of run_pillar9_10_11() in training_pipeline.py.
+
+        Returns: {"tools_upserted": N, "tools_skipped": N, "errors": N}
+        """
+        import glob
+        import yaml as _yaml
+
+        upserted = 0
+        skipped = 0
+        errors = 0
+
+        pattern = os.path.join(kb_path, "*", "pillar_11_tools", "*.yaml")
+        yaml_files = glob.glob(pattern)
+
+        if not yaml_files:
+            logger.warning("kb_file_index.ingest_tools.no_files", pattern=pattern)
+            return {"tools_upserted": 0, "tools_skipped": 0, "errors": 0}
+
+        for fpath in sorted(yaml_files):
+            try:
+                content_hash = _md5_file(fpath)
+                tool_id = os.path.splitext(os.path.basename(fpath))[0]  # "orders_create"
+
+                # Content-hash skip: check if already indexed with same hash
+                already = await self._get_tool_hash(tool_id)
+                if already == content_hash:
+                    skipped += 1
+                    continue
+
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = _yaml.safe_load(f)
+
+                if not isinstance(data, dict):
+                    errors += 1
+                    continue
+
+                row = self._p11_yaml_to_tool_row(tool_id, data, content_hash)
+                await self._upsert_cosmos_tool(row)
+                upserted += 1
+
+            except Exception as exc:
+                logger.warning("kb_file_index.ingest_tools.error", file=fpath, error=str(exc))
+                errors += 1
+
+        logger.info(
+            "kb_file_index.ingest_tools.complete",
+            upserted=upserted, skipped=skipped, errors=errors,
+        )
+        return {"tools_upserted": upserted, "tools_skipped": skipped, "errors": errors}
+
+    @staticmethod
+    def _p11_yaml_to_tool_row(tool_id: str, data: Dict, content_hash: str) -> Dict:
+        """Convert a parsed P11 YAML dict to a cosmos_tools row dict."""
+        import json
+
+        # Endpoint metadata (use first endpoint if list)
+        endpoints = data.get("endpoints") or []
+        ep = endpoints[0] if endpoints else {}
+        http_method = (ep.get("method") or "POST").upper()
+        endpoint_path = ep.get("path") or ""
+
+        # Auth type: infer from auth field
+        auth_str = (ep.get("auth") or "").lower()
+        if "getuserfromtoken" in auth_str or "token" in auth_str:
+            auth_type = "seller_token"
+        else:
+            auth_type = "seller_token"  # default for MCAPI
+
+        # Build Anthropic-format input_schema from parameters list
+        params = data.get("parameters") or []
+        required = [p["name"] for p in params if p.get("required")]
+        properties = {}
+        for p in params:
+            pname = p.get("name", "")
+            ptype = p.get("type", "string")
+            # Map YAML type names to JSON Schema types
+            type_map = {"boolean": "boolean", "integer": "integer",
+                        "number": "number", "array": "array", "object": "object"}
+            json_type = type_map.get(ptype, "string")
+            prop: Dict = {"type": json_type}
+            if p.get("description"):
+                prop["description"] = p["description"]
+            if p.get("enum"):
+                prop["enum"] = p["enum"]
+            properties[pname] = prop
+
+        request_schema = {
+            "type": "object",
+            "required": required,
+            "properties": properties,
+        }
+
+        # Governance
+        risk = (data.get("risk_level") or "medium").lower()
+        approval = (data.get("approval_mode") or "confirm").lower()
+        # normalise: "confirm" → "manual"
+        if approval in ("confirm", "required", "yes"):
+            approval = "manual"
+        elif approval in ("none", "no", "skip"):
+            approval = "auto"
+
+        entity = data.get("domain") or data.get("category") or "unknown"
+        intent = "act" if data.get("category") == "action" else "lookup"
+
+        return {
+            "id": tool_id,
+            "name": data.get("tool_name") or tool_id,
+            "display_name": data.get("display_name") or tool_id,
+            "description": (data.get("description") or "").strip(),
+            "pillar": "P11",
+            "entity": entity,
+            "intent": intent,
+            "http_method": http_method,
+            "endpoint_path": endpoint_path,
+            "base_url_key": "MCAPI_BASE_URL",
+            "auth_type": auth_type,
+            "request_schema": json.dumps(request_schema),
+            "risk_level": risk,
+            "approval_mode": approval,
+            "allowed_roles": json.dumps(["operator", "seller"]),
+            "kb_doc_id": f"pillar_11_tools/{tool_id}",
+            "trust_score": 0.9,
+            "training_ready": 1,
+            "content_hash": content_hash,
+        }
+
+    async def _get_tool_hash(self, tool_id: str) -> Optional[str]:
+        """Return stored content_hash for a tool, or None if not indexed yet."""
+        async with AsyncSessionLocal() as session:
+            try:
+                row = await session.execute(
+                    text("SELECT content_hash FROM cosmos_tools WHERE id = :id"),
+                    {"id": tool_id},
+                )
+                r = row.first()
+                return r[0] if r else None
+            except Exception:
+                return None
+
+    async def _upsert_cosmos_tool(self, row: Dict) -> None:
+        """INSERT ... ON DUPLICATE KEY UPDATE for a single cosmos_tools row."""
+        async with AsyncSessionLocal() as session:
+            try:
+                await session.execute(text("""
+                    INSERT INTO cosmos_tools
+                        (id, name, display_name, description, pillar, entity, intent,
+                         http_method, endpoint_path, base_url_key, auth_type,
+                         request_schema, risk_level, approval_mode, allowed_roles,
+                         kb_doc_id, trust_score, training_ready, content_hash,
+                         enabled, created_at, updated_at)
+                    VALUES
+                        (:id, :name, :display_name, :description, :pillar, :entity, :intent,
+                         :http_method, :endpoint_path, :base_url_key, :auth_type,
+                         :request_schema, :risk_level, :approval_mode, :allowed_roles,
+                         :kb_doc_id, :trust_score, :training_ready, :content_hash,
+                         1, NOW(), NOW())
+                    ON DUPLICATE KEY UPDATE
+                        name          = VALUES(name),
+                        display_name  = VALUES(display_name),
+                        description   = VALUES(description),
+                        http_method   = VALUES(http_method),
+                        endpoint_path = VALUES(endpoint_path),
+                        auth_type     = VALUES(auth_type),
+                        request_schema = VALUES(request_schema),
+                        risk_level    = VALUES(risk_level),
+                        approval_mode = VALUES(approval_mode),
+                        allowed_roles = VALUES(allowed_roles),
+                        trust_score   = VALUES(trust_score),
+                        content_hash  = VALUES(content_hash),
+                        updated_at    = NOW()
+                """), row)
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                logger.warning("kb_file_index.upsert_tool_failed", tool=row.get("id"), error=str(e))
+
+    # ------------------------------------------------------------------
     # Stats for UI
     # ------------------------------------------------------------------
+
+    async def get_pillar_stats(self, repo_id: Optional[str] = None) -> Dict:
+        """Return per-repo, per-pillar breakdown of indexed/pending/failed counts.
+
+        Uses only DB data (cosmos_kb_file_index) — no disk scan. Instant.
+        Only repos that have at least one tracked file are returned.
+
+        Returns:
+            {
+              "MultiChannel_API": {
+                "total": 100,
+                "indexed": 80,
+                "pending": 15,
+                "failed": 5,
+                "by_pillar": {
+                  "pillar_1_schema": {"indexed": 30, "pending": 5, "failed": 0},
+                  "pillar_3_api_mcp_tools": {"indexed": 50, "pending": 10, "failed": 5},
+                }
+              },
+              ...
+            }
+        """
+        async with AsyncSessionLocal() as session:
+            try:
+                params = {}
+                where = "WHERE 1=1"
+                if repo_id:
+                    where += " AND repo_id = :repo"
+                    params["repo"] = repo_id
+
+                # Extract pillar from file_path: repo/pillar_dir/... → pillar_dir
+                # file_path format: "MultiChannel_API/pillar_1_schema/tables/orders/_meta.yaml"
+                # SUBSTRING_INDEX(SUBSTRING_INDEX(file_path, '/', 2), '/', -1) → "pillar_1_schema"
+                rows = await session.execute(text(f"""
+                    SELECT
+                        repo_id,
+                        SUBSTRING_INDEX(SUBSTRING_INDEX(file_path, '/', 2), '/', -1) AS pillar,
+                        status,
+                        COUNT(*) AS cnt
+                    FROM {self.TABLE}
+                    {where}
+                    GROUP BY repo_id, pillar, status
+                    ORDER BY repo_id, pillar, status
+                """), params)
+
+                result: Dict = {}
+                status_label = {0: "pending", 1: "indexed", 2: "failed"}
+
+                for row in rows.fetchall():
+                    repo = row.repo_id or "unknown"
+                    pillar = row.pillar or "unknown"
+                    label = status_label.get(row.status, "unknown")
+                    cnt = int(row.cnt)
+
+                    if repo not in result:
+                        result[repo] = {"total": 0, "indexed": 0, "pending": 0, "failed": 0, "by_pillar": {}}
+                    if pillar not in result[repo]["by_pillar"]:
+                        result[repo]["by_pillar"][pillar] = {"indexed": 0, "pending": 0, "failed": 0}
+
+                    result[repo][label] = result[repo].get(label, 0) + cnt
+                    result[repo]["total"] += cnt
+                    result[repo]["by_pillar"][pillar][label] = cnt
+
+                return result
+            except Exception as e:
+                logger.warning("kb_file_index.pillar_stats_failed", error=str(e))
+                return {}
 
     async def get_stats(self, repo_id: Optional[str] = None) -> Dict:
         """Return indexed/pending/failed counts per repo (or overall)."""

@@ -15,6 +15,7 @@ from app.tools.base import ToolCategory, RiskLevel, ToolResult
 from app.tools.write_tools import (
     WriteToolBase,
     CancelOrderTool,
+    CreateOrderTool,
     InitiateRefundTool,
     ReattemptDeliveryTool,
     UpdateAddressTool,
@@ -50,6 +51,7 @@ def _make_mcapi_mock() -> MagicMock:
     """Create a mock MCAPI client with write methods."""
     mock = MagicMock()
     mock.cancel_order = AsyncMock(return_value=FakeMCAPIResponse(success=True, data={"cancelled": True}))
+    mock.create_order = AsyncMock(return_value=FakeMCAPIResponse(success=True, data={"order_id": 9001, "shipment_id": 7001, "status": "NEW", "status_code": 1}))
     mock.initiate_refund = AsyncMock(return_value=FakeMCAPIResponse(success=True, data={"refund_id": "R123"}))
     mock.reattempt_delivery = AsyncMock(return_value=FakeMCAPIResponse(success=True, data={"reattempt_id": "RA1"}))
     mock.update_address = AsyncMock(return_value=FakeMCAPIResponse(success=True, data={"updated": True}))
@@ -66,6 +68,7 @@ def _make_registry_with_tools(mcapi=None) -> ToolRegistry:
         mcapi = _make_mcapi_mock()
     registry = ToolRegistry()
     registry.register(CancelOrderTool(mcapi))
+    registry.register(CreateOrderTool(mcapi))
     registry.register(InitiateRefundTool(mcapi))
     registry.register(ReattemptDeliveryTool(mcapi))
     registry.register(UpdateAddressTool(mcapi))
@@ -86,7 +89,7 @@ class TestWriteToolDefinitions:
     def test_all_write_tools_are_action_category(self):
         mcapi = _make_mcapi_mock()
         tools = [
-            CancelOrderTool(mcapi), InitiateRefundTool(mcapi),
+            CancelOrderTool(mcapi), CreateOrderTool(mcapi), InitiateRefundTool(mcapi),
             ReattemptDeliveryTool(mcapi), UpdateAddressTool(mcapi),
             EscalateToSupervisorTool(mcapi), BlockSellerTool(mcapi),
             IssueWalletCreditTool(mcapi), ReassignCourierTool(mcapi),
@@ -100,6 +103,7 @@ class TestWriteToolDefinitions:
         mcapi = _make_mcapi_mock()
         expected = {
             "cancel_order": RiskLevel.HIGH,
+            "create_order": RiskLevel.MEDIUM,
             "initiate_refund": RiskLevel.CRITICAL,
             "reattempt_delivery": RiskLevel.LOW,
             "update_address": RiskLevel.MEDIUM,
@@ -109,7 +113,7 @@ class TestWriteToolDefinitions:
             "reassign_courier": RiskLevel.MEDIUM,
         }
         tools = [
-            CancelOrderTool(mcapi), InitiateRefundTool(mcapi),
+            CancelOrderTool(mcapi), CreateOrderTool(mcapi), InitiateRefundTool(mcapi),
             ReattemptDeliveryTool(mcapi), UpdateAddressTool(mcapi),
             EscalateToSupervisorTool(mcapi), BlockSellerTool(mcapi),
             IssueWalletCreditTool(mcapi), ReassignCourierTool(mcapi),
@@ -214,7 +218,103 @@ class TestWriteToolExecution:
 
 
 # =========================================================================== #
-# 3. Approval Engine Tests
+# 3. CreateOrderTool Tests
+# =========================================================================== #
+
+_CREATE_ORDER_PARAMS = {
+    "order_id": "ORD-TEST-001",
+    "order_date": "2026-04-04",
+    "channel_id": 12345,
+    "payment_method": "COD",
+    "billing_customer_name": "Rahul",
+    "billing_phone": "9876543210",
+    "billing_address": "123 MG Road",
+    "billing_city": "Delhi",
+    "billing_state": "Delhi",
+    "billing_pincode": "110001",
+    "billing_country": "India",
+    "shipping_is_billing": 1,
+    "order_items": [{"sku": "SKU001", "units": 1, "selling_price": 500, "name": "T-Shirt"}],
+    "sub_total": 500.0,
+    "length": 10.0,
+    "breadth": 10.0,
+    "height": 5.0,
+    "weight": 0.5,
+}
+
+
+class TestCreateOrderTool:
+    """Tests for CreateOrderTool — order creation via MCAPI."""
+
+    def test_create_order_is_medium_risk(self):
+        tool = CreateOrderTool(_make_mcapi_mock())
+        assert tool.definition.risk_level == RiskLevel.MEDIUM
+
+    def test_create_order_requires_approval(self):
+        tool = CreateOrderTool(_make_mcapi_mock())
+        assert tool.requires_approval is True
+
+    def test_create_order_validates_required_params(self):
+        tool = CreateOrderTool(_make_mcapi_mock())
+        error = tool.validate_params({})
+        assert error is not None
+        assert "order_id" in error
+
+    def test_create_order_validates_missing_order_items(self):
+        tool = CreateOrderTool(_make_mcapi_mock())
+        params = dict(_CREATE_ORDER_PARAMS)
+        del params["order_items"]
+        error = tool.validate_params(params)
+        assert error is not None
+        assert "order_items" in error
+
+    def test_create_order_valid_params_pass(self):
+        tool = CreateOrderTool(_make_mcapi_mock())
+        error = tool.validate_params(_CREATE_ORDER_PARAMS)
+        assert error is None
+
+    @pytest.mark.asyncio
+    async def test_create_order_returns_pending_without_approval(self):
+        mcapi = _make_mcapi_mock()
+        tool = CreateOrderTool(mcapi)
+        result = await tool.execute(_CREATE_ORDER_PARAMS)
+        assert result.success is True
+        assert result.data["status"] == "pending_approval"
+        assert result.data["tool_name"] == "create_order"
+        assert result.data["risk_level"] == "medium"
+        mcapi.create_order.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_order_executes_when_approved(self):
+        mcapi = _make_mcapi_mock()
+        tool = CreateOrderTool(mcapi)
+        result = await tool.execute(_CREATE_ORDER_PARAMS, context={"approved": True})
+        assert result.success is True
+        assert result.data["order_id"] == 9001
+        assert result.data["shipment_id"] == 7001
+        assert result.data["status"] == "NEW"
+        mcapi.create_order.assert_called_once_with(payload=_CREATE_ORDER_PARAMS, headers=None)
+
+    @pytest.mark.asyncio
+    async def test_create_order_forwards_auth_headers(self):
+        mcapi = _make_mcapi_mock()
+        tool = CreateOrderTool(mcapi)
+        headers = {"Authorization": "Bearer test-token"}
+        await tool.execute(_CREATE_ORDER_PARAMS, context={"approved": True, "headers": headers})
+        mcapi.create_order.assert_called_once_with(payload=_CREATE_ORDER_PARAMS, headers=headers)
+
+    @pytest.mark.asyncio
+    async def test_create_order_handles_mcapi_error(self):
+        mcapi = _make_mcapi_mock()
+        mcapi.create_order = AsyncMock(side_effect=Exception("MCAPI 500 — inventory_sync OFF"))
+        tool = CreateOrderTool(mcapi)
+        result = await tool.execute(_CREATE_ORDER_PARAMS, context={"approved": True})
+        assert result.success is False
+        assert "inventory_sync OFF" in result.error
+
+
+# =========================================================================== #
+# 4. Approval Engine Tests
 # =========================================================================== #
 
 class TestApprovalEngine:

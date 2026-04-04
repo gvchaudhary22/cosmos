@@ -1318,8 +1318,8 @@ class CanonicalIngestionPipeline:
             async with AsyncSessionLocal() as session:
                 for item in batch:
                     await session.execute(
-                        text("""INSERT INTO graph_nodes (id, node_type, label, repo_id, domain, properties, created_at)
-                                VALUES (:id, :nt, :label, :repo, :domain, :props, NOW())
+                        text("""INSERT INTO graph_nodes (id, node_type, label, repo_id, domain, properties, created_at, updated_at)
+                                VALUES (:id, :nt, :label, :repo, :domain, :props, NOW(), NOW())
                                 ON DUPLICATE KEY UPDATE node_type=:nt, label=:label, repo_id=:repo, domain=:domain, properties=:props, updated_at=NOW()"""),
                         {"id": item["id"], "nt": item.get("node_type",""), "label": item.get("label",""),
                          "repo": item.get("repo_id",""), "domain": item.get("domain",""),

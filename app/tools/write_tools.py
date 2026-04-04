@@ -448,3 +448,67 @@ class ReassignCourierTool(WriteToolBase):
             except Exception as e:
                 return ToolResult(success=False, error=str(e), latency_ms=(time.time() - start) * 1000)
         return self._pending_result(params)
+
+
+# --------------------------------------------------------------------------- #
+# 9. CreateOrderTool
+# --------------------------------------------------------------------------- #
+
+class CreateOrderTool(WriteToolBase):
+    """Create a new Custom/Local channel order via MCAPI."""
+
+    requires_approval = True
+    risk_level = "medium"
+
+    definition = ToolDefinition(
+        name="create_order",
+        category=ToolCategory.ACTION,
+        description=(
+            "Create a new order on a Custom (CS) or Local (LC) channel. "
+            "Requires inventory_sync_status ON for the seller. "
+            "Returns order_id and shipment_id on success."
+        ),
+        parameters=[
+            ToolParam("order_id", "str", True, "Seller's unique order reference ID"),
+            ToolParam("order_date", "str", True, "Order date (YYYY-MM-DD)"),
+            ToolParam("channel_id", "int", True, "Active Custom/Local channel ID"),
+            ToolParam("payment_method", "str", True, "COD or Prepaid"),
+            ToolParam("billing_customer_name", "str", True, "Buyer first name"),
+            ToolParam("billing_phone", "str", True, "10-digit buyer phone number"),
+            ToolParam("billing_address", "str", True, "Billing address line 1"),
+            ToolParam("billing_city", "str", True, "Billing city"),
+            ToolParam("billing_state", "str", True, "Billing state"),
+            ToolParam("billing_pincode", "str", True, "6-digit billing pincode"),
+            ToolParam("billing_country", "str", True, "Billing country"),
+            ToolParam("shipping_is_billing", "int", True, "1 if shipping = billing address"),
+            ToolParam("order_items", "list", True, "Array of {sku, units, selling_price, name}"),
+            ToolParam("sub_total", "float", True, "Order subtotal amount"),
+            ToolParam("length", "float", True, "Package length in cm (>= 0.5)"),
+            ToolParam("breadth", "float", True, "Package breadth in cm (>= 0.5)"),
+            ToolParam("height", "float", True, "Package height in cm (>= 0.5)"),
+            ToolParam("weight", "float", True, "Package weight in kg (> 0)"),
+            ToolParam("billing_last_name", "str", False, "Buyer last name"),
+            ToolParam("billing_email", "str", False, "Buyer email"),
+        ],
+        data_source=DataSource.MCAPI,
+        allowed_roles=["admin", "support_admin", "supervisor", "manager"],
+        risk_level=RiskLevel.MEDIUM,
+    )
+
+    def __init__(self, mcapi_client):
+        self.mcapi = mcapi_client
+
+    async def execute(self, params: Dict[str, Any], context: Dict = None) -> ToolResult:
+        start = time.time()
+        if context and context.get("approved"):
+            try:
+                headers = context.get("headers") if context else None
+                response = await self.mcapi.create_order(payload=params, headers=headers)
+                return ToolResult(
+                    success=response.success,
+                    data=response.data,
+                    latency_ms=(time.time() - start) * 1000,
+                )
+            except Exception as e:
+                return ToolResult(success=False, error=str(e), latency_ms=(time.time() - start) * 1000)
+        return self._pending_result(params)

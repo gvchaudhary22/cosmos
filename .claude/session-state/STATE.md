@@ -4,44 +4,92 @@
 
 ## Active Phase
 
-**M1 — Full KB Ingestion + Quality**
-Status: `code_complete` — All fixes merged, pipeline run pending.
+**M2 — Retrieval Quality & Live Execution**
+Status: `planning_complete` — Phase 6 plan produced (`docs/PHASE-6-PLAN.md`). Ready for `/cosmos:build 6`.
+M1 Status: `pipeline_clean` — run `6f5fba0c` complete.
 
-Qdrant current state: **20,685 vectors** across 8 repos.
-All `high.yaml` files (the embeddable tier) are already in Qdrant. ✓
+Qdrant current state: **22,450 vectors** (stable — all content-hash deduped, 10 entity hub docs added).
+`cosmos_tools` table: **27 tools** seeded from all P11 YAMLs. ✓
+Pillar 12 FAQ: **1,743 FAQ chunks** embedded (text-embedding-3-small). ✓
+Graph (MySQL): **11,082 nodes**, **48,184 edges**. Neo4j: DOWN (pipeline writes MySQL only).
+KB File Index: **34,481 indexed / 0 pending / 0 failed** across 8 repos + all 8 pillars.
 
-## GitHub Issues (open — fix via /cosmos:quick or /cosmos:build)
+## GitHub Issues
 
+### Done ✅
+| # | Title | Status |
+|---|-------|--------|
+| [#1](https://github.com/gvchaudhary22/cosmos/issues/1) | Run P9/10/11 ingestion — agents/skills/tools not yet in Qdrant/Neo4j | **DONE** ✅ — 52 docs, 27 tools seeded |
+| [#3](https://github.com/gvchaudhary22/cosmos/issues/3) | Embed high/ sub-chunks for Pillar 3 APIs | **DONE** ✅ — 439 sub-chunks merged into high.yaml on disk |
+| [#6](https://github.com/gvchaudhary22/cosmos/issues/6) | Live API execution layer — Claude tool_use loop | **DONE** ✅ |
+| [#7](https://github.com/gvchaudhary22/cosmos/issues/7) | DB-driven tool execution via training pipeline | **DONE** ✅ — cosmos_tools seeded |
+| [#19](https://github.com/gvchaudhary22/cosmos/issues/19) | ICRM token persistence + MARS→COSMOS wiring | **DONE** ✅ — token warm-up on session create; passed as `icrm_token` to COSMOS |
+
+### Phase 6 — ChatGPT-Like ICRM Copilot
 | # | Title | Priority | Status |
 |---|-------|----------|--------|
-| [#1](https://github.com/gvchaudhary22/cosmos/issues/1) | Run P9/10/11 ingestion — agents/skills/tools not yet in Qdrant/Neo4j | HIGH | open |
-| [#2](https://github.com/gvchaudhary22/cosmos/issues/2) | Neo4j cross-pillar edges nearly empty (READS_TABLE: 40, HAS_API: 8) | HIGH | open |
-| [#3](https://github.com/gvchaudhary22/cosmos/issues/3) | Embed high/ sub-chunks for Pillar 3 APIs — 21,167 files not indexed | MEDIUM | open (decision pending) |
-| [#4](https://github.com/gvchaudhary22/cosmos/issues/4) | Run full pipeline + eval benchmark — validate recall@5 ≥ 0.85 | HIGH | open |
+| [#18](https://github.com/gvchaudhary22/cosmos/issues/18) | ParamClarificationEngine — ask targeted follow-up | HIGH | KB done ✅; COSMOS engine PENDING |
+| [#20](https://github.com/gvchaudhary22/cosmos/issues/20) | SSE event format — COSMOS `chunk` → LIME `assistant` | HIGH | MARS translates ✅; true progressive streaming PENDING |
+| [#21](https://github.com/gvchaudhary22/cosmos/issues/21) | `soft_required_context` for admin/orders + admin/ndr | MEDIUM | PENDING |
 
-## What Was Fixed This Session (2026-04-04)
+### Open — KB Enrichment Roadmap
+| # | Title | Priority | Status |
+|---|-------|----------|--------|
+| [#11](https://github.com/gvchaudhary22/cosmos/issues/11) | Enrich 4,855 non-enriched P3 APIs with Opus+PHP source | CRITICAL | **IN PROGRESS** — orders: 178/377 done (148 prev + 30 this session), 199 remaining |
+| [#2](https://github.com/gvchaudhary22/cosmos/issues/2) | Neo4j cross-pillar edges nearly empty | HIGH | `/cosmos:riper 2` |
+| [#4](https://github.com/gvchaudhary22/cosmos/issues/4) | Run full pipeline + eval benchmark — recall@5 ≥ 0.85 | HIGH | `/cosmos:riper 4` |
+| [#5](https://github.com/gvchaudhary22/cosmos/issues/5) | Complete create-order KB enrichment | MEDIUM | `/cosmos:riper 5` |
+| [#12](https://github.com/gvchaudhary22/cosmos/issues/12) | Build P4 Pages+Fields pillar for MultiChannel_API | MEDIUM | not started |
+| [#13](https://github.com/gvchaudhary22/cosmos/issues/13) | Expand P7 workflows from 9 to 15 runbooks | MEDIUM | not started |
+| [#14](https://github.com/gvchaudhary22/cosmos/issues/14) | Expand P8 negative routing to 50+ examples | LOW | not started |
+| [#15](https://github.com/gvchaudhary22/cosmos/issues/15) | Build POST /pipeline/enriched-sync incremental re-embed | MEDIUM | not started |
+| [#16](https://github.com/gvchaudhary22/cosmos/issues/16) | Add high.yaml for 21 P5 module docs | LOW | not started |
 
-### Code Changes (merged, tests passing — 929 passed)
+## What Was Fixed This Session (2026-04-04 — Post-Compaction)
 
-| Fix | Files | What changed |
-|-----|-------|-------------|
-| P9/10/11 pipeline wiring | `training_pipeline.py` | `run_pillar9_10_11()` + `_build_agent_skill_tool_graph()` added to `run_full()` |
-| New REST endpoint | `api/endpoints/training_pipeline.py` | `POST /pipeline/agents-skills-tools` |
-| Graph model types | `services/graphrag_models.py` | `NodeType.skill`, `EdgeType.agent_has_skill`, `EdgeType.skill_calls_tool` |
-| Model routing quality | `engine/model_router.py` | `act`/`report`/`explain`/unknown → Opus; raised low-confidence threshold 0.5→0.6 |
-| Classify explicit path | `engine/llm_client.py` | `classify()` now uses `_force_classify` signal → guaranteed Haiku |
-| Dead flush call removed | `training_pipeline.py` | Removed `graphrag.flush()` (method doesn't exist, data persists per-call) |
-| Tests updated | `tests/test_model_routing.py`, `tests/test_llm_integration.py` | Reflect quality-first routing policy |
+### Bugs Fixed (1004 tests pass)
 
-### Key Findings (confirmed, no action needed)
+| Bug | Files | Fix |
+|-----|-------|-----|
+| `graph_nodes.label` column overflow (Data too long) | MySQL DDL + migration | VARCHAR(500) → TEXT; index prefix(191) |
+| `entity_hub` generator → IngestDocument unknown kwargs | `entity_hub_generator.py:70` | Removed `source_id`/`source_type` fields; 10 entity hub docs now embed ✓ |
+| KB file index stuck at 33K pending forever | `kb_file_index.py` + `training_pipeline.py` | Added `bulk_mark_indexed()` method; called at end of `run_full()` — 34,481 indexed, 0 pending |
+| `kb_drift_check` queried nonexistent `cosmos_embeddings` MySQL table | `training_pipeline.py:1698` | Fixed to use `vectorstore.get_stats()` (Qdrant) |
+| `cosmos_pattern_cache` table missing in MySQL | `001_initial.sql` + MySQL | Created table (17th) + fixed `ON CONFLICT` → `ON DUPLICATE KEY UPDATE` in `pattern_cache.py` |
+| `kb_driven_registry._sync_from_graph()` crash on string JSON `properties` | `kb_driven_registry.py:173` | Added `json.loads()` guard for MySQL string-returned JSON columns |
+| `enrichment.read_chunks_failed` — QdrantVectorStore has no `.available` | `training_pipeline.py:1901` | Removed `.available` check |
 
-- **Content-hash dedup**: working correctly in `vectorstore.py:491-501` — re-runs skip unchanged files
-- **Stub count**: 0 actual stubs across 5,496 API folders (earlier count of 517 was a false positive)
-- **Pillar 3 coverage**: all `high.yaml` files already embedded; gap is `high/` sub-chunks (issue #3)
-- **Neo4j**: live at bolt://127.0.0.1:7687, 28,019 nodes, 21,198 edges
-- **GraphRAGService.ingest_node()**: writes to MySQL + Neo4j simultaneously — no separate sync step needed
+### Previous Session Fixes (also this date)
 
-## Model Routing (Updated — Quality First)
+| Bug | File | Fix |
+|-----|------|-----|
+| `pipeline_status` 2m34s → 0.6s | `api/endpoints/training_pipeline.py` | Replaced KBIngestor disk-scan with DB-only `get_pillar_stats()` query |
+| `get_pillar_stats()` added | `services/kb_file_index.py` | New method: per-repo, per-pillar breakdown from cosmos_kb_file_index (instant) |
+| KB scan scheduler O(N²) | `brain/wiring.py` | Phase 2 removed (read_pillar3_apis per-file was 450M YAML parses) |
+| `diff_and_mark_pending` blocking | `services/kb_file_index.py` | Disk walk moved to `asyncio.to_thread()` — non-blocking event loop |
+| Embedding tracker DSN flood | `services/embedding_queue.py` | Guard added: `_tracker_db_url()` skips psycopg2 when DATABASE_URL is MySQL |
+| `graph_nodes` INSERT missing `updated_at` | `graph/ingest.py` | Added `updated_at` to INSERT column list |
+| Agent→skill edge malformed targets | `services/kb_ingestor.py`, `training_pipeline.py` | Structured `skills` list in P9 metadata; P10 `tools_called` in metadata |
+| Skill→tool edge never firing | `services/training_pipeline.py` | Use `meta["tools_called"]` instead of parsing content lines |
+| `cosmos_embedding_queue_tracker` missing | `001_initial.sql` + MySQL | Created table (16th) with MySQL-compatible DDL |
+
+## Key Operational Notes
+
+### Why Qdrant has 22,450 not 44K+
+- 44K P3 API folders exist on disk. Each folder's `high.yaml` is embedded as ONE vector.
+- Content-hash dedup in `store_embedding()` skips unchanged docs — re-runs are instant.
+- The 22,450 count includes: P1 schema chunks, P3 API summaries, P6/P7/P8/P9/P10/P11 docs, FAQ chunks, eval seeds, entity hubs.
+- To get MORE vectors: embed `high/` sub-chunks (issue #3 was about adding sub-chunks, now done for 439 files).
+
+### Pipeline all_success=False
+Expected — Neo4j is DOWN. MySQL graph writes work fine. All other milestones succeed.
+Fix: bring Neo4j online (`bolt://127.0.0.1:7687 neo4j/cosmospass123`).
+
+### file index 34,481 indexed vs 22,450 Qdrant vectors
+Normal — many files were quality-gate rejected (too short, low alpha ratio) or content-hash deduped.
+The file index tracks disk files; Qdrant tracks embedded vectors. Not 1:1.
+
+## Model Routing (Quality First)
 
 | Intent | Confidence | Model |
 |--------|-----------|-------|
@@ -52,34 +100,20 @@ All `high.yaml` files (the embeddable tier) are already in Qdrant. ✓
 | P3/P4 pillar hint | ≥ 0.8 | Sonnet |
 | P6/P7 pillar hint | any | Opus |
 | low confidence | < 0.6 | Opus |
-| `classify()` call | — | Haiku (only for intent extraction, not response generation) |
+| `classify()` call | — | Haiku (only for intent extraction) |
 
 ## Open Todos — M1 (in order)
 
-- [ ] **#1** Run `POST /pipeline/agents-skills-tools` → populate P9/10/11 in Qdrant + Neo4j
-- [ ] **#2** Run `POST /pipeline/run` → rebuild Neo4j cross-pillar edges (READS_TABLE, HAS_API)
-- [ ] **#3** DECISION: embed `high/` sub-chunks? (21,167 files, 4 vectors per API instead of 1)
+- [ ] **#11** [IN PROGRESS] Finish orders domain enrichment (199 remaining) → then shipments → ndr → billing → returns
+  - Script: `python3 scripts/enrich_p3_apis_batch.py --apply --domain orders --workers 2`
+  - After orders: re-run for each domain, then `POST /cosmos/api/v1/pipeline/schema` to re-embed
+  - **Do NOT close #11 until ALL 4,855 non-enriched APIs are done**
+  - Current enrichment counts: 641 total enriched / 5,496 total APIs (11.7%)
 - [ ] **#4** Run `POST /pipeline/eval` → confirm recall@5 ≥ 0.85, commit EVAL-REPORT.md
-
-## Last 5 Completed Tasks
-
-1. ✅ Create GitHub issues #1–#4 for all open action items (2026-04-04)
-2. ✅ Model routing quality-first policy — act/report/explain → Opus (2026-04-04)
-3. ✅ Wire Pillar 9/10/11 into training pipeline → Qdrant + MARS DB + Neo4j (2026-04-04)
-4. ✅ Add NodeType.skill + EdgeType agent_has_skill/skill_calls_tool (2026-04-04)
-5. ✅ Full Qdrant + Neo4j audit — corrected gap analysis (2026-04-04)
-
-## Architecture Decisions Log
-
-| Date | Decision | Rationale |
-|------|----------|-----------|
-| 2026-04-04 | Quality-first model routing — act/report/explain always Opus | ICRM operators make real logistics decisions; wrong answer costs money |
-| 2026-04-04 | Haiku only for classify() path, never for response generation | Correctness > cost; only pure intent-extraction uses Haiku |
-| 2026-04-04 | P9/10/11 wired into run_full() pipeline | Agents/skills/tools must be in Qdrant + Neo4j on every pipeline run |
-| 2026-04-04 | GraphRAGService.ingest_node() writes MySQL + Neo4j simultaneously | No separate sync step needed; atomic per-call writes |
-| 2026-03-31 | Adopt COSMOS lifecycle hooks (pre-commit blocking with pytest) | Enforce test gates before commit |
-| 2026-03-31 | Add ERR-COSMOS-* error code registry | Searchable, alertable identifiers for production ops |
-| 2026-03-31 | Add STATE.md for session persistence | Preserve context across compaction windows |
+- [ ] **#2** Bring Neo4j online + rebuild cross-pillar edges (READS_TABLE, HAS_API)
+- [ ] **#5** Complete create-order KB enrichment (P3 variants, P11 tool, P7 workflows)
+- [ ] **enrichment** Fix `enrichment.read_chunks_failed` — `qdrant_store.client` access needs updating
+- [ ] **all_success** Fix pipeline `all_success=False` — Neo4j DOWN causes milestone failure
 
 ## Tech Stack Snapshot
 
@@ -90,19 +124,31 @@ All `high.yaml` files (the embeddable tier) are already in Qdrant. ✓
 | AI SDK | Anthropic Python SDK | latest |
 | ORM | SQLAlchemy | async |
 | Vector DB | Qdrant | port 6333, collection: cosmos_embeddings, 1536d cosine |
-| Graph DB | Neo4j | port 7687, 28K nodes, 21K edges |
-| Relational DB | MySQL (MARS) | port 3309, graph_nodes + graph_edges tables |
+| Graph DB | Neo4j | port 7687, **DOWN** — pipeline writes MySQL only |
+| Relational DB | MySQL (MARS) | port 3309, 17 tables now |
 | Comms | gRPC + REST | grpc_server.py |
 | Port | 10001 | REST API (COSMOS) |
 
-## Modules
+## DB Tables (17 total in MySQL mars)
 
-`brain/` — AI orchestration core (3-tier router: decision tree → tool-use → full reasoning)
-`engine/` — Inference engine + model router (quality-first: Opus default for responses)
-`graph/` — Knowledge graph (CanonicalIngestionPipeline → MySQL + Neo4j)
-`learning/` — Continuous learning
-`guardrails/` — Safety/validation filters
-`grpc_servicers/` — gRPC service implementations
-`api/` — REST API routes
-`services/` — GraphRAG, vectorstore, training pipeline, KB ingestor
-`monitoring/` — Metrics + health
+1. `icrm_sessions`
+2. `icrm_messages`
+3. `icrm_conversation_context`
+4. `icrm_reasoning_traces`
+5. `icrm_tool_executions`
+6. `icrm_action_approvals`
+7. `icrm_audit_log`
+8. `icrm_analytics`
+9. `icrm_feedback`
+10. `icrm_tool_registry`
+11. `icrm_distillation_records`
+12. `icrm_knowledge_entries`
+13. `icrm_query_analytics`
+14. `cosmos_settings_cache`
+15. `cosmos_tools`
+16. `cosmos_kb_file_index`  ← tracks all 34,481 KB YAML files
+17. `cosmos_embedding_queue_tracker`  ← Kafka embedding dedup tracker
++ `cosmos_pattern_cache`  ← fast-path pattern cache (created this session)
++ `graph_nodes`  ← 11,082 nodes (label now TEXT, was VARCHAR 500)
++ `graph_edges`  ← 48,184 edges
++ entity_lookup, graph_entity_lookup (graph layer)

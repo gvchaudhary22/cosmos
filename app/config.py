@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()  # inject .env into os.environ before any module reads it directly
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from typing import Optional
 
@@ -116,6 +117,16 @@ class Settings(BaseSettings):
     FF_DRY_RUN: bool = False
     FF_PROMPT_SAFETY: bool = True
     FF_TOKEN_ECONOMICS: bool = True
+
+    @model_validator(mode="after")
+    def validate_llm_dependencies(self) -> "Settings":
+        """Fail fast if LLM_MODE=api is set without an API key."""
+        if self.LLM_MODE == "api" and not self.ANTHROPIC_API_KEY:
+            raise ValueError(
+                "LLM_MODE=api requires ANTHROPIC_API_KEY to be set. "
+                "Either set ANTHROPIC_API_KEY in .env or change LLM_MODE to 'cli' or 'hybrid'."
+            )
+        return self
 
     class Config:
         env_file = ".env"

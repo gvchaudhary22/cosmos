@@ -189,7 +189,7 @@ class PatternCache:
                     VALUES
                         (:key, :intent, :entity, :tools, :agent,
                          1, 1, 1.0, :latency)
-                    ON CONFLICT (pattern_key) DO UPDATE SET
+                    ON DUPLICATE KEY UPDATE
                         success_count = {PATTERN_TABLE}.success_count + 1,
                         total_count = {PATTERN_TABLE}.total_count + 1,
                         confidence = ({PATTERN_TABLE}.success_count + 1.0) / ({PATTERN_TABLE}.total_count + 1.0),

@@ -121,7 +121,7 @@ class TestToolRegistry:
         registry = create_tool_registry(mcapi, elk)
 
         all_tools = registry.list_all()
-        assert len(all_tools) == 23  # 15 read + 8 write
+        assert len(all_tools) == 24  # 15 read + 9 write
 
     def test_list_for_role_admin_sees_all(self):
         """Admin role should see all 15 tools (including role-restricted ones)."""
@@ -130,7 +130,7 @@ class TestToolRegistry:
         registry = create_tool_registry(mcapi, elk)
 
         admin_tools = registry.list_for_role("admin")
-        assert len(admin_tools) == 23  # 15 read + 8 write (admin sees all)
+        assert len(admin_tools) == 24  # 15 read + 9 write (admin sees all)
 
     def test_list_for_role_agent_sees_filtered(self):
         """Agent role should NOT see seller_info or billing_query (role-restricted)."""
@@ -309,7 +309,7 @@ class TestAllToolDefinitions:
         assert len(names) == len(set(names)), "Duplicate tool names detected"
 
     def test_expected_tool_names_present(self):
-        """Verify all 23 expected tool names are registered (15 read + 8 write)."""
+        """Verify all 24 expected tool names are registered (15 read + 9 write)."""
         mcapi = _make_mcapi_mock()
         elk = _make_elk_mock()
         registry = create_tool_registry(mcapi, elk)
@@ -322,8 +322,8 @@ class TestAllToolDefinitions:
             "seller_info", "seller_plan", "seller_health_score",
             "billing_query", "wallet_balance", "transaction_history",
             "elk_search", "endpoint_usage",
-            # Write tools (8)
-            "cancel_order", "initiate_refund", "reattempt_delivery",
+            # Write tools (9)
+            "cancel_order", "create_order", "initiate_refund", "reattempt_delivery",
             "update_address", "escalate_to_supervisor", "block_seller",
             "issue_wallet_credit", "reassign_courier",
         }

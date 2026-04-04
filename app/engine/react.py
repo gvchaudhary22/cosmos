@@ -76,12 +76,14 @@ class ReActEngine:
     MAX_LOOPS = 3
     MAX_LOOPS_COMPLEX = 5  # More iterations for complex multi-step queries
 
-    def __init__(self, classifier, tool_registry, llm_client, guardrails, approval_engine=None):
+    def __init__(self, classifier, tool_registry, llm_client, guardrails, approval_engine=None,
+                 tool_executor=None):
         self.classifier = classifier
         self.tool_registry = tool_registry
         self.llm = llm_client
         self.guardrails = guardrails
         self.approval_engine = approval_engine
+        self.tool_executor = tool_executor   # ToolExecutorService — enables Claude native tool_use
         self._loop_detector = LoopDetector()
 
     # ------------------------------------------------------------------
@@ -114,6 +116,20 @@ class ReActEngine:
         accumulated_context: Dict[str, Any] = {}
         loop = 0
         self._loop_detector.reset()
+
+        # Fast-path: if tool_executor is available and intent is "act", use Claude native tool_use
+        classification = self.classifier.classify(user_message)
+        if (
+            self.tool_executor is not None
+            and self.llm is not None
+            and hasattr(self.llm, "call_with_tools")
+            and classification.intent.value == "act"
+        ):
+            tool_use_result = await self._run_tool_use_loop(
+                user_message, classification, session_context or {}
+            )
+            if tool_use_result is not None:
+                return tool_use_result
 
         # Use more loops for complex queries (multi-intent, multi-entity)
         is_complex = session_context.get("complexity") == "complex" if isinstance(session_context, dict) else False
@@ -590,6 +606,129 @@ class ReActEngine:
         if confidence < 0.8:
             prefix = "Based on the information available (with moderate confidence): "
         return f"{prefix}{data_summary}"
+
+    # ------------------------------------------------------------------
+    # Claude native tool_use loop (replaces rule-based _select_tools for "act" intent)
+    # ------------------------------------------------------------------
+
+    async def _run_tool_use_loop(
+        self,
+        user_message: str,
+        classification,
+        session_context: Dict,
+    ) -> Optional["ReActResult"]:
+        """
+        Run a multi-turn Claude tool_use conversation using DB-driven tools.
+
+        Returns a ReActResult if successful, or None to fall back to the
+        standard rule-based ReAct loop.
+
+        Steps:
+          1. Fetch Anthropic-format tool defs from ToolExecutorService
+          2. Build KB context string from session_context (if provided)
+          3. Call llm.call_with_tools() — Claude selects + we execute
+          4. Wrap result in ReActResult for uniform output
+        """
+        import time
+        start_time = time.time()
+        entity = classification.entity.value if hasattr(classification.entity, "value") else str(classification.entity)
+        intent = classification.intent.value if hasattr(classification.intent, "value") else str(classification.intent)
+        user_role = session_context.get("user_role", "operator")
+
+        try:
+            # 1. Get matching tools from DB
+            tool_defs = await self.tool_executor.get_tools_for_context(
+                entity=entity,
+                intent=intent,
+                user_role=user_role,
+            )
+            if not tool_defs:
+                logger.info("react.tool_use_loop.no_tools", entity=entity, intent=intent)
+                return None  # fall back to rule-based loop
+
+            # 2. KB context string (injected by orchestrator into session_context)
+            kb_context = session_context.get("kb_context", "")
+            system_prompt = (
+                "You are COSMOS, Shiprocket's AI assistant for ICRM operators and sellers.\n"
+                "Use the provided tools to take the requested action. "
+                "Always confirm required parameters are present before calling a tool.\n"
+            )
+            if kb_context:
+                system_prompt += f"\nKnowledge base context:\n{kb_context}"
+
+            # 3. Build tool executor callback
+            from app.services.tool_executor import SessionContext as ToolSessionContext
+            tool_session = ToolSessionContext(
+                seller_token=session_context.get("seller_token"),
+                company_token=session_context.get("company_token"),
+                icrm_token=session_context.get("icrm_token"),
+                user_role=user_role,
+                approved=session_context.get("approved", False),
+            )
+
+            async def _execute(tool_name: str, tool_input: Dict) -> Any:
+                return await self.tool_executor.execute(tool_name, tool_input, tool_session)
+
+            # 4. Run multi-turn Claude tool_use loop
+            result = await self.llm.call_with_tools(
+                prompt=user_message,
+                tools=tool_defs,
+                system_prompt=system_prompt,
+                tool_executor=_execute,
+                max_turns=5,
+                max_tokens=1024,
+                session_id=session_context.get("session_id"),
+                intent=intent,
+            )
+
+            latency_ms = (time.time() - start_time) * 1000
+            tools_used = [tc["name"] for tc in result.tool_calls_made]
+
+            # Build a single step summarising the tool_use interaction
+            step = ReActStep(
+                phase=ReActPhase.ACT,
+                content=(
+                    f"Claude tool_use loop: {len(result.tool_calls_made)} tool call(s) in "
+                    f"{result.turns} turn(s). Tools: {tools_used}"
+                ),
+                confidence=0.9 if result.tool_calls_made else 0.6,
+            )
+
+            # Handle pending_approval — surface to user, don't escalate
+            response_text = result.final_text
+            if result.pending_approval:
+                response_text = result.pending_approval.get(
+                    "message",
+                    f"Action requires operator approval before executing.",
+                )
+                step.confidence = 1.0  # pending is a valid terminal state
+
+            logger.info(
+                "react.tool_use_loop.complete",
+                tools=tools_used,
+                turns=result.turns,
+                pending=result.pending_approval is not None,
+                latency_ms=round(latency_ms, 1),
+            )
+
+            return ReActResult(
+                response=response_text,
+                confidence=step.confidence,
+                steps=[step],
+                tools_used=tools_used,
+                total_loops=result.turns,
+                total_latency_ms=latency_ms,
+                escalated=False,
+            )
+
+        except Exception as exc:
+            logger.warning(
+                "react.tool_use_loop.failed",
+                error=str(exc),
+                entity=entity,
+                intent=intent,
+            )
+            return None  # fall back to standard rule-based loop
 
     # ------------------------------------------------------------------
     # Tool selection helpers

@@ -7,7 +7,6 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
-from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +40,8 @@ class NodeType(str, Enum):
     workflow = "workflow"
     # Pillar 9/10/11: Agent, Skill, Tool definitions
     skill = "skill"
+    # Pillar 12: FAQ chunks
+    faq_topic = "faq_topic"
 
 
 class EdgeType(str, Enum):
@@ -75,6 +76,10 @@ class EdgeType(str, Enum):
     # Pillar 9/10/11: Agent, Skill, Tool edges
     agent_has_skill = "agent_has_skill"   # agent → skill
     skill_calls_tool = "skill_calls_tool" # skill → tool
+    # Pillar 12: FAQ edges
+    answers_question = "answers_question"   # faq_topic → domain
+    has_faq_topic = "has_faq_topic"         # domain → faq_topic (forward, enables PPR from agent)
+    covers_faq_domain = "covers_faq_domain" # agent → domain (links agent to FAQ coverage area)
 
 
 # ── Universal identity context ─────────────────────────────────────────────

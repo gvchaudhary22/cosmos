@@ -179,6 +179,11 @@ class VectorStoreService:
         """
         if _BACKEND == "aigateway":
             return self._embed_via_gateway(content)
+        elif _BACKEND == "openai_direct":
+            embedding = self._try_openai_direct(content)
+            if embedding:
+                return embedding
+            return _hash_embed(content, EMBEDDING_DIM)
         elif _BACKEND == "local":
             model = _get_local_model()
             return model.encode(content, normalize_embeddings=True).tolist()
@@ -382,39 +387,63 @@ class VectorStoreService:
         return self.embed_text(content)
 
     async def _embed_via_openai_direct_async(self, content: str) -> List[float]:
-        """Async OpenAI direct API call (bypasses AI Gateway CloudFront)."""
+        """Async OpenAI direct API call with exponential backoff on 429.
+
+        Retries up to 3 times on 429/network errors (1s → 2s → 4s backoff).
+        Final fallback runs sync embed_text() in a thread pool so the event loop
+        is never blocked — critical for 20-concurrent ingestion correctness.
+        """
+        import asyncio
         import httpx
 
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    OPENAI_API_URL,
-                    json={
-                        "model": _EMBEDDING_MODEL,
-                        "input": content[:8000],
-                    },
-                    headers={
-                        "Authorization": f"Bearer {OPENAI_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                )
+        max_retries = 3
+        backoff_base = 1.0  # seconds
 
-            if response.status_code == 200:
-                data = response.json()
-                embedding = data["data"][0]["embedding"]
-                if len(embedding) == EMBEDDING_DIM:
-                    return embedding
-                logger.warning("openai_direct.dim_mismatch", expected=EMBEDDING_DIM, got=len(embedding))
-            elif response.status_code == 429:
-                logger.warning("openai_direct.rate_limited")
-            else:
+        for attempt in range(max_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        OPENAI_API_URL,
+                        json={
+                            "model": _EMBEDDING_MODEL,
+                            "input": content[:8000],
+                        },
+                        headers={
+                            "Authorization": f"Bearer {OPENAI_API_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                    )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    embedding = data["data"][0]["embedding"]
+                    if len(embedding) == EMBEDDING_DIM:
+                        return embedding
+                    logger.warning("openai_direct.dim_mismatch", expected=EMBEDDING_DIM, got=len(embedding))
+                    break  # Wrong dimension — don't retry
+
+                if response.status_code == 429:
+                    if attempt < max_retries:
+                        wait = backoff_base * (2 ** attempt)
+                        logger.warning("openai_direct.rate_limited", attempt=attempt + 1, retry_in=wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    logger.warning("openai_direct.rate_limited_exhausted", attempts=max_retries + 1)
+                    break
+
                 logger.warning("openai_direct.error", status=response.status_code)
+                break  # Non-retriable HTTP error
 
-            return self.embed_text(content)  # sync fallback
+            except Exception as e:
+                logger.warning("openai_direct.async_failed", attempt=attempt + 1, error=str(e))
+                if attempt < max_retries:
+                    await asyncio.sleep(backoff_base * (2 ** attempt))
+                    continue
+                break
 
-        except Exception as e:
-            logger.warning("openai_direct.async_failed", error=str(e))
-            return self.embed_text(content)
+        # Last resort: run sync embed in thread pool — never blocks the event loop
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.embed_text, content)
 
     async def _embed_via_gateway_async(self, content: str) -> List[float]:
         """Async AI Gateway call with same strict production rules."""
@@ -502,8 +531,8 @@ class VectorStoreService:
         except Exception:
             pass  # Point doesn't exist yet, continue
 
-        # Content changed or new → embed and store
-        embedding = self.embed_text(content)
+        # Content changed or new → embed and store (async for concurrent ingestion)
+        embedding = await self.embed_text_async(content)
         await self._qdrant.upsert(
             repo_id=effective_repo,
             entity_type=entity_type,

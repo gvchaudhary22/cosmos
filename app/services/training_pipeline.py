@@ -19,17 +19,60 @@ Usage:
 import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import structlog
 
-from app.services.canonical_ingestor import CanonicalIngestor, IngestDocument, IngestResult
+from app.services.canonical_ingestor import CanonicalIngestor, IngestDocument
 from app.services.kb_ingestor import KBIngestor
 from app.services.data_splitter import DataSplitter
 from app.services.chunker import chunk_documents
 from app.services.bridge_doc_generator import generate_bridge_docs
 
 logger = structlog.get_logger()
+
+# Maps FAQ domain names (suffix of pillar_12_faq/<tab> dir, e.g. "orders" from "faq_orders")
+# to the agent(s) responsible for that domain. Used to write covers_faq_domain edges so
+# PPR seeded at an agent can reach faq_topic nodes in 2 hops:
+#   agent → covers_faq_domain → domain → has_faq_topic → faq_topic
+FAQ_DOMAIN_TO_AGENTS: dict = {
+    "orders": ["order_ops_agent"],
+    "checkout": ["order_ops_agent"],
+    "buyer_experience": ["order_ops_agent"],
+    "quick": ["order_ops_agent"],
+    "returns": ["return_exchange_agent"],
+    "RTO": ["ndr_resolver_agent"],
+    "ndr_deliveryBoost": ["ndr_resolver_agent"],
+    "fulfillment": ["shipment_ops_agent"],
+    "courier": ["shipment_ops_agent", "courier_ops_agent"],
+    "cargo": ["shipment_ops_agent"],
+    "weight": ["shipment_ops_agent"],
+    "self_serve_labels": ["shipment_ops_agent"],
+    "promise": ["shipment_ops_agent"],
+    "SRX": ["courier_ops_agent"],
+    "finance": ["billing_wallet_agent"],
+    "credit_line": ["billing_wallet_agent"],
+    "credit_score": ["billing_wallet_agent"],
+    "instant_cod": ["billing_wallet_agent"],
+    "business_loan": ["billing_wallet_agent"],
+    "buyer_protect": ["billing_wallet_agent"],
+    "revprotect": ["billing_wallet_agent"],
+    "shipsure": ["billing_wallet_agent"],
+    "dashboard": ["analytics_agent"],
+    "trends": ["analytics_agent"],
+    "sense": ["analytics_agent"],
+    "settings": ["settings_admin_agent"],
+    "setup_manage": ["settings_admin_agent"],
+    "profile": ["settings_admin_agent"],
+    "AppStore": ["settings_admin_agent"],
+    "omuni": ["channel_sync_agent"],
+    "zop": ["channel_sync_agent"],
+    "API": ["order_ops_agent", "shipment_ops_agent"],
+    "secure": ["auth_login_agent"],
+    # Unmapped (no specific agent): blogs, brand_boost, engage, home, miscellaneous,
+    # navigation_bar, tools — these FAQ domains are general content, not agent-specific
+}
 
 
 @dataclass
@@ -71,7 +114,7 @@ class TrainingPipeline:
         codebase_intel=None,
     ):
         self.vectorstore = vectorstore
-        self.kb_path = kb_path
+        self.kb_path = Path(kb_path)
         self.data_dir = data_dir or os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
             "data",
@@ -80,8 +123,26 @@ class TrainingPipeline:
         self.ingestor = CanonicalIngestor(vectorstore)
         self.kb_reader = KBIngestor(kb_path)
 
-    async def run_full(self, repo_id: Optional[str] = None) -> PipelineResult:
-        """Run all milestones in dependency order."""
+    async def run_full(
+        self,
+        repo_id: Optional[str] = None,
+        event_callback=None,
+    ) -> PipelineResult:
+        """Run all milestones in dependency order.
+
+        Args:
+            repo_id: Optional repo filter.
+            event_callback: Optional async callable(event_type: str, data: dict).
+                Called on milestone_start, milestone_done, pipeline_done events.
+                Used by the SSE stream endpoint to push live progress to LIME.
+        """
+        async def _emit(etype: str, data: dict):
+            if event_callback:
+                try:
+                    await event_callback(etype, data)
+                except Exception:
+                    pass  # never let SSE errors abort the pipeline
+
         t0 = time.monotonic()
         result = PipelineResult()
 
@@ -115,65 +176,96 @@ class TrainingPipeline:
             logger.warning("pipeline.kb_quality_fix_failed", error=str(e))
 
         # M2: Train/dev/holdout split (no deps)
+        await _emit("milestone_start", {"name": "train_dev_holdout_split", "label": "M2: Train/Dev/Holdout Split"})
         m2 = await self.run_split()
         result.milestones.append(m2)
+        await _emit("milestone_done", {"name": m2.name, "docs": m2.documents_ingested, "ms": round(m2.duration_ms, 1), "success": m2.success})
 
         # M5: Pillar 1 schema + Pillar 3 APIs
+        await _emit("milestone_start", {"name": "pillar1_schema_pillar3_apis", "label": "M5: Schema + APIs"})
         m5 = await self.run_pillar1_pillar3(repo_id=repo_id)
         result.milestones.append(m5)
         result.total_documents += m5.documents_ingested
+        await _emit("milestone_done", {"name": m5.name, "docs": m5.documents_ingested, "ms": round(m5.duration_ms, 1), "success": m5.success})
 
         # M5b: Pillar 1 extras (catalog, connections, relationships, access patterns)
+        await _emit("milestone_start", {"name": "pillar1_extras", "label": "M5b: Pillar 1 Extras"})
         m5b = await self.run_pillar1_extras(repo_id=repo_id)
         result.milestones.append(m5b)
         result.total_documents += m5b.documents_ingested
+        await _emit("milestone_done", {"name": m5b.name, "docs": m5b.documents_ingested, "ms": round(m5b.duration_ms, 1), "success": m5b.success})
 
         # M5c: Pillar 4 page intelligence + Pillar 5 module docs
+        await _emit("milestone_start", {"name": "pillar4_pillar5", "label": "M5c: Pages + Module Docs"})
         m5c = await self.run_pillar4_and_5()
         result.milestones.append(m5c)
         result.total_documents += m5c.documents_ingested
+        await _emit("milestone_done", {"name": m5c.name, "docs": m5c.documents_ingested, "ms": round(m5c.duration_ms, 1), "success": m5c.success})
 
         # M3: Module docs (if codebase_intelligence available)
         if self.codebase_intel:
+            await _emit("milestone_start", {"name": "module_docs", "label": "M3: Module Docs"})
             m3 = await self.run_module_docs()
             result.milestones.append(m3)
             result.total_documents += m3.documents_ingested
+            await _emit("milestone_done", {"name": m3.name, "docs": m3.documents_ingested, "ms": round(m3.duration_ms, 1), "success": m3.success})
 
         # M6: Pillar 6 action contracts + Pillar 7 workflow runbooks + Pillar 8 negatives
+        await _emit("milestone_start", {"name": "pillar6_7_8", "label": "M6: Actions + Workflows + Negatives"})
         m6 = await self.run_pillar6_7_8()
         result.milestones.append(m6)
         result.total_documents += m6.documents_ingested
+        await _emit("milestone_done", {"name": m6.name, "docs": m6.documents_ingested, "ms": round(m6.duration_ms, 1), "success": m6.success})
 
         # M9/10/11: Agent, Skill, Tool definitions → Qdrant + MARS DB graph nodes
+        await _emit("milestone_start", {"name": "agents_skills_tools", "label": "M9/10/11: Agents + Skills + Tools"})
         m9_10_11 = await self.run_pillar9_10_11()
         result.milestones.append(m9_10_11)
         result.total_documents += m9_10_11.documents_ingested
+        await _emit("milestone_done", {"name": m9_10_11.name, "docs": m9_10_11.documents_ingested, "ms": round(m9_10_11.duration_ms, 1), "success": m9_10_11.success})
+
+        # M12: FAQ chunks (seller-facing Q&A from shiprocket_faq.xlsx)
+        await _emit("milestone_start", {"name": "faq", "label": "M12: FAQ Chunks"})
+        m12 = await self.run_pillar12_faq()
+        result.milestones.append(m12)
+        result.total_documents += m12.documents_ingested
+        await _emit("milestone_done", {"name": m12.name, "docs": m12.documents_ingested, "ms": round(m12.duration_ms, 1), "success": m12.success})
 
         # M7: Entity Hub generation (cross-pillar summaries)
+        await _emit("milestone_start", {"name": "entity_hubs", "label": "M7: Entity Hubs"})
         m7 = await self.run_entity_hubs()
         result.milestones.append(m7)
         result.total_documents += m7.documents_ingested
+        await _emit("milestone_done", {"name": m7.name, "docs": m7.documents_ingested, "ms": round(m7.duration_ms, 1), "success": m7.success})
 
         # M4: Generated artifacts
+        await _emit("milestone_start", {"name": "generated_artifacts", "label": "M4: Generated Artifacts"})
         m4 = await self.run_generated_artifacts()
         result.milestones.append(m4)
         result.total_documents += m4.documents_ingested
+        await _emit("milestone_done", {"name": m4.name, "docs": m4.documents_ingested, "ms": round(m4.duration_ms, 1), "success": m4.success})
 
         # Eval seeds ingestion
+        await _emit("milestone_start", {"name": "eval_seeds", "label": "Eval Seeds"})
         m_eval = await self.run_eval_seeds()
         result.milestones.append(m_eval)
         result.total_documents += m_eval.documents_ingested
+        await _emit("milestone_done", {"name": m_eval.name, "docs": m_eval.documents_ingested, "ms": round(m_eval.duration_ms, 1), "success": m_eval.success})
 
         # Graph rebuild: populate graph_nodes, graph_edges, entity_lookup
         # (skip if already built by run_pillar1_pillar3 above)
         if not any(m.name == "pillar1_schema_pillar3_apis" and m.details.get("graph_nodes") for m in result.milestones):
+            await _emit("milestone_start", {"name": "graph_build", "label": "Graph Build"})
             m_graph = await self.run_graph_build()
             result.milestones.append(m_graph)
+            await _emit("milestone_done", {"name": m_graph.name, "docs": 0, "ms": round(m_graph.duration_ms, 1), "success": m_graph.success})
 
         # Phase 4d: Auto-generate dev_set.jsonl from KB eval_cases
+        await _emit("milestone_start", {"name": "eval_seeds_autogen", "label": "Eval Seeds Auto-gen"})
         m_eval_autogen = await self.run_eval_seeds_autogen()
         result.milestones.append(m_eval_autogen)
         result.total_documents += m_eval_autogen.documents_ingested
+        await _emit("milestone_done", {"name": m_eval_autogen.name, "docs": m_eval_autogen.documents_ingested, "ms": round(m_eval_autogen.duration_ms, 1), "success": m_eval_autogen.success})
         if m_eval_autogen.documents_ingested:
             logger.info(
                 "pipeline.eval_seeds_autogen",
@@ -319,6 +411,25 @@ class TrainingPipeline:
             all_success=result.success,
         )
 
+        # Mark all pending KB files as indexed now that the pipeline completed.
+        # The file index is a UI display helper; Qdrant content-hash dedup is the
+        # real source of truth.  After a full run, anything still pending has either
+        # been embedded or hit the quality gate (skip) — either way it's "done".
+        try:
+            from app.services.kb_file_index import KBFileIndexService
+            _fi = KBFileIndexService()
+            _marked = await _fi.bulk_mark_indexed()
+            logger.info("training_pipeline.file_index_sync", marked_indexed=_marked)
+        except Exception as _fie:
+            logger.warning("training_pipeline.file_index_sync_failed", error=str(_fie))
+
+        await _emit("pipeline_done", {
+            "total_docs": result.total_documents,
+            "duration_ms": round(result.total_duration_ms, 1),
+            "success": result.success,
+            "milestones": len(result.milestones),
+        })
+
         return result
 
     async def run_split(self) -> MilestoneResult:
@@ -386,17 +497,22 @@ class TrainingPipeline:
                     skipped += skipped_count
                     details[f"pillar1_{repo}_skipped"] = skipped_count
 
-            # Pillar 3 APIs
+            # Pillar 3 APIs — folder-at-a-time (50 folders per batch) to keep RAM low
+            # Each batch is embedded 20-concurrently via canonical_ingestor
             for repo in repos:
-                docs = self.kb_reader.read_pillar3_apis(repo)
-                if docs:
-                    chunked = chunk_documents(docs)
-                    all_api_docs.extend(docs)
+                p3_ingested = 0
+                p3_chunks = 0
+                for folder_docs in self.kb_reader.iter_pillar3_api_folders(repo, folder_batch=50):
+                    chunked = chunk_documents(folder_docs)
+                    all_api_docs.extend(folder_docs)  # needed for bridge doc generation
                     ingest_docs = [IngestDocument(**d) for d in chunked]
                     result = await self.ingestor.ingest(ingest_docs)
+                    p3_ingested += result.ingested
+                    p3_chunks += len(chunked)
                     total += result.ingested
-                    details[f"pillar3_{repo}"] = result.ingested
-                    details[f"pillar3_{repo}_chunks"] = len(chunked)
+                if p3_ingested:
+                    details[f"pillar3_{repo}"] = p3_ingested
+                    details[f"pillar3_{repo}_chunks"] = p3_chunks
 
             # Generate and ingest bridge docs (cross-reference table ↔ API)
             if all_table_docs and all_api_docs:
@@ -533,7 +649,6 @@ class TrainingPipeline:
                     details[f"p3_extras_{repo}"] = result.ingested
 
             # Pillar 5: module docs from all repos
-            import os
             kb_path_obj = self.kb_reader.kb_path
             for repo_dir in sorted(kb_path_obj.iterdir()):
                 if not repo_dir.is_dir():
@@ -639,14 +754,14 @@ class TrainingPipeline:
             repo = meta.get("repo_id", "MultiChannel_API")
 
             # Read the actual index.yaml to get linked_* fields
-            action_dir = self.kb_path / repo / "pillar_6_action_contracts" / "domains" / domain
+            action_dir = self.kb_reader.kb_path / repo / "pillar_6_action_contracts" / "domains" / domain
             for ad in action_dir.iterdir() if action_dir.exists() else []:
-                idx = self._read_yaml(ad / "index.yaml") if ad.is_dir() else None
+                idx = self.kb_reader._read_yaml(ad / "index.yaml") if ad.is_dir() else None
                 if idx and idx.get("action_id") == action_id:
                     action_index_data[action_id] = idx
                     break
 
-            graphrag.ingest_node(
+            await graphrag.ingest_node(
                 node_id=action_id,
                 node_type=NodeType.action_contract,
                 label=action_id,
@@ -665,7 +780,7 @@ class TrainingPipeline:
             # action → table edges (reads_table)
             for lt in idx.get("linked_tables", []):
                 table_name = lt.split("/")[-1] if "/" in lt else lt
-                graphrag.ingest_edge(
+                await graphrag.ingest_edge(
                     source_id=action_id,
                     target_id=f"table:{table_name}",
                     edge_type=EdgeType.reads_table,
@@ -676,7 +791,7 @@ class TrainingPipeline:
             # action → api edges (calls_api)
             for la in idx.get("linked_apis", []):
                 api_id = la.split("/")[-1] if "/" in la else la
-                graphrag.ingest_edge(
+                await graphrag.ingest_edge(
                     source_id=action_id,
                     target_id=f"api:{api_id}",
                     edge_type=EdgeType.calls_api,
@@ -686,7 +801,7 @@ class TrainingPipeline:
 
             # action → job edges (dispatches_job)
             for lj in idx.get("linked_jobs", []):
-                graphrag.ingest_edge(
+                await graphrag.ingest_edge(
                     source_id=action_id,
                     target_id=f"job:{lj}",
                     edge_type=EdgeType.dispatches_job,
@@ -705,14 +820,14 @@ class TrainingPipeline:
             repo = meta.get("repo_id", "MultiChannel_API")
 
             # Read actual index.yaml for linked_actions
-            wf_dir = self.kb_path / repo / "pillar_7_workflow_runbooks" / "domains" / domain
+            wf_dir = self.kb_reader.kb_path / repo / "pillar_7_workflow_runbooks" / "domains" / domain
             for wd in wf_dir.iterdir() if wf_dir.exists() else []:
-                idx = self._read_yaml(wd / "index.yaml") if wd.is_dir() else None
+                idx = self.kb_reader._read_yaml(wd / "index.yaml") if wd.is_dir() else None
                 if idx and idx.get("workflow_id") == wf_id:
                     workflow_index_data[wf_id] = idx
                     break
 
-            graphrag.ingest_node(
+            await graphrag.ingest_node(
                 node_id=wf_id,
                 node_type=NodeType.workflow,
                 label=wf_id,
@@ -728,7 +843,7 @@ class TrainingPipeline:
         # Create edges from workflows to actions
         for wf_id, idx in workflow_index_data.items():
             for la in idx.get("linked_actions", []):
-                graphrag.ingest_edge(
+                await graphrag.ingest_edge(
                     source_id=wf_id,
                     target_id=la,
                     edge_type=EdgeType.uses_action,
@@ -739,7 +854,7 @@ class TrainingPipeline:
             # workflow → table edges
             for lt in idx.get("linked_tables", []):
                 table_name = lt.split("/")[-1] if "/" in lt else lt
-                graphrag.ingest_edge(
+                await graphrag.ingest_edge(
                     source_id=wf_id,
                     target_id=f"table:{table_name}",
                     edge_type=EdgeType.reads_table,
@@ -952,6 +1067,19 @@ class TrainingPipeline:
             graph_details = await self._build_agent_skill_tool_graph(p9_docs, p10_docs, p11_docs)
             details.update(graph_details)
 
+            # Seed cosmos_tools table from P11 YAML execution metadata (issue #7)
+            try:
+                from app.services.kb_file_index import KBFileIndexService
+                fi = KBFileIndexService()
+                tool_seed_stats = await fi.ingest_tool_definitions(str(self.kb_path))
+                details.update({
+                    "cosmos_tools_upserted": tool_seed_stats.get("tools_upserted", 0),
+                    "cosmos_tools_skipped":  tool_seed_stats.get("tools_skipped", 0),
+                })
+                logger.info("pipeline.cosmos_tools_seeded", **tool_seed_stats)
+            except Exception as te:
+                logger.warning("pipeline.cosmos_tools_seed_failed", error=str(te))
+
             logger.info("pipeline.pillar9_10_11_complete", total=total, details=details)
             return MilestoneResult(
                 milestone=70, name="pillar9_10_11_agents_skills_tools",
@@ -964,6 +1092,121 @@ class TrainingPipeline:
                 milestone=70, name="pillar9_10_11_agents_skills_tools",
                 error=str(e), duration_ms=(time.monotonic() - t0) * 1000,
             )
+
+    async def run_pillar12_faq(self) -> MilestoneResult:
+        """Ingest Pillar 12 FAQ chunks (seller-facing Q&A) into Qdrant + MARS DB graph nodes.
+
+        Source: pillar_12_faq/<tab>/*.yaml — generated by scripts/ingest_faq_xlsx.py
+        Each FAQ chunk → one faq_topic graph node + answers_question edge to domain node.
+        """
+        t0 = time.monotonic()
+        try:
+            total = 0
+            details: Dict[str, Any] = {}
+            faq_nodes = 0
+
+            kb_path_obj = self.kb_reader.kb_path
+            for repo_dir in sorted(kb_path_obj.iterdir()):
+                if not repo_dir.is_dir():
+                    continue
+                repo = repo_dir.name
+                if not (repo_dir / "pillar_12_faq").exists():
+                    continue
+
+                docs = self.kb_reader.read_pillar12_faq(repo)
+                if docs:
+                    ingest_docs = [IngestDocument(**d) for d in docs]
+                    res = await self.ingestor.ingest(ingest_docs)
+                    total += res.ingested
+                    details[f"p12_faq_{repo}"] = res.ingested
+
+                    # Write faq_topic graph nodes + answers_question edges
+                    faq_nodes += await self._build_faq_graph(docs, repo)
+
+            details["graph_faq_nodes"] = faq_nodes
+            logger.info("pipeline.pillar12_faq_complete", total=total, faq_nodes=faq_nodes)
+            return MilestoneResult(
+                milestone=80, name="pillar12_faq_chunks",
+                success=True, documents_ingested=total,
+                duration_ms=(time.monotonic() - t0) * 1000, details=details,
+            )
+        except Exception as e:
+            logger.error("pipeline.pillar12_faq_failed", error=str(e))
+            return MilestoneResult(
+                milestone=80, name="pillar12_faq_chunks",
+                error=str(e), duration_ms=(time.monotonic() - t0) * 1000,
+            )
+
+    async def _build_faq_graph(self, faq_docs: list, repo_id: str) -> int:
+        """Write faq_topic graph nodes + FAQ edges to MARS DB.
+
+        Per FAQ chunk writes:
+          faq_topic node
+          faq_topic → answers_question → domain  (reverse traversal / BFS)
+          domain → has_faq_topic → faq_topic     (forward PPR path)
+        """
+        from app.services.graphrag_models import NodeType, EdgeType
+        graphrag = getattr(self, "_graphrag", None)
+        if graphrag is None:
+            try:
+                from app.services.graphrag import GraphRAGService
+                graphrag = GraphRAGService()
+                self._graphrag = graphrag
+            except Exception:
+                return 0
+
+        node_count = 0
+        for doc in faq_docs:
+            meta = doc.get("metadata", {})
+            entity_id = doc.get("entity_id", "")
+            if not entity_id:
+                continue
+            domain = meta.get("domain", "general")
+            question = meta.get("question", "")[:200]
+            tab = meta.get("tab", "")
+
+            await graphrag.ingest_node(
+                node_id=entity_id,
+                node_type=NodeType.faq_topic,
+                label=question or entity_id,
+                repo_id=repo_id,
+                properties={
+                    "domain": domain,
+                    "tab": tab,
+                    "question_preview": question,
+                    "pillar": "pillar_12_faq",
+                },
+            )
+
+            domain_node_id = f"domain:{domain}"
+            await graphrag.ingest_node(
+                node_id=domain_node_id,
+                node_type=NodeType.domain,
+                label=domain,
+                repo_id=repo_id,
+                properties={"domain": domain},
+            )
+
+            # faq_topic → answers_question → domain (for BFS reverse + human readability)
+            await graphrag.ingest_edge(
+                source_id=entity_id,
+                target_id=domain_node_id,
+                edge_type=EdgeType.answers_question,
+                repo_id=repo_id,
+                properties={"pillar": "pillar_12_faq"},
+            )
+            # domain → has_faq_topic → faq_topic (forward direction — enables PPR)
+            # PPR path: agent → covers_faq_domain → domain → has_faq_topic → faq_topic
+            await graphrag.ingest_edge(
+                source_id=domain_node_id,
+                target_id=entity_id,
+                edge_type=EdgeType.has_faq_topic,
+                repo_id=repo_id,
+                properties={"pillar": "pillar_12_faq"},
+            )
+            node_count += 1
+
+        return node_count
 
     async def _build_agent_skill_tool_graph(
         self,
@@ -1022,14 +1265,18 @@ class TrainingPipeline:
             repo = doc.get("repo_id", "MultiChannel_API")
             entity_id = doc.get("entity_id", f"agent:{agent_name}")
 
-            # Reconstruct skills list from content (already rendered as "Skills: a, b, c")
-            raw_skills: list = []
-            content = doc.get("content", "")
-            for line in content.splitlines():
-                if line.startswith("Skills: "):
-                    raw_skills = [s.strip() for s in line[len("Skills: "):].split(",") if s.strip()]
+            # Use structured skill names from metadata (set by kb_ingestor.read_pillar9_agents).
+            # Falls back to content parsing for docs produced by older ingestor versions.
+            raw_skills: list = meta.get("skills", [])
+            if not raw_skills:
+                content = doc.get("content", "")
+                for line in content.splitlines():
+                    if line.startswith("Skills: "):
+                        tokens = [s.strip() for s in line[len("Skills: "):].split(",") if s.strip()]
+                        # Strip any leading '{' that appears when dicts are rendered
+                        raw_skills = [t.lstrip("{").split(":")[0].strip().strip("'\"") for t in tokens if t]
 
-            graphrag.ingest_node(
+            await graphrag.ingest_node(
                 node_id=entity_id,
                 node_type=NodeType.agent,
                 label=agent_name,
@@ -1044,13 +1291,34 @@ class TrainingPipeline:
 
             for sname in raw_skills:
                 target = skill_index.get(sname, f"skill:{sname}")
-                graphrag.ingest_edge(
+                await graphrag.ingest_edge(
                     source_id=entity_id,
                     target_id=target,
                     edge_type=EdgeType.agent_has_skill,
                     repo_id=repo,
                 )
                 edge_count += 1
+
+            # Write agent → covers_faq_domain → domain edges so PPR from this agent
+            # can reach faq_topic nodes in 2 hops (agent → domain → faq_topic).
+            for faq_domain, mapped_agents in FAQ_DOMAIN_TO_AGENTS.items():
+                if agent_name in mapped_agents:
+                    domain_node_id = f"domain:{faq_domain}"
+                    await graphrag.ingest_node(
+                        node_id=domain_node_id,
+                        node_type=NodeType.domain,
+                        label=faq_domain,
+                        repo_id=repo,
+                        properties={"domain": faq_domain},
+                    )
+                    await graphrag.ingest_edge(
+                        source_id=entity_id,
+                        target_id=domain_node_id,
+                        edge_type=EdgeType.covers_faq_domain,
+                        repo_id=repo,
+                        properties={"pillar": "pillar_12_faq"},
+                    )
+                    edge_count += 1
 
         # Ingest skill nodes + skill→tool edges
         for doc in p10_docs:
@@ -1061,7 +1329,7 @@ class TrainingPipeline:
             repo = doc.get("repo_id", "MultiChannel_API")
             entity_id = doc.get("entity_id", f"skill:{skill_name}")
 
-            graphrag.ingest_node(
+            await graphrag.ingest_node(
                 node_id=entity_id,
                 node_type=NodeType.skill,
                 label=skill_name,
@@ -1073,22 +1341,17 @@ class TrainingPipeline:
             )
             skill_nodes += 1
 
-            # Wire skill→tool edges from "Step N: tool_call — <tool_name>" lines
-            content = doc.get("content", "")
-            for line in content.splitlines():
-                if "tool_call" in line or "tool:" in line:
-                    # Extract tool name from "Step N: tool_call — orders_get" style lines
-                    parts = line.split("—")
-                    if len(parts) >= 2:
-                        tname = parts[-1].strip()
-                        if tname in tool_index:
-                            graphrag.ingest_edge(
-                                source_id=entity_id,
-                                target_id=tool_index[tname],
-                                edge_type=EdgeType.skill_calls_tool,
-                                repo_id=repo,
-                            )
-                            edge_count += 1
+            # Wire skill→tool edges using structured metadata (set by kb_ingestor.read_pillar10_skills)
+            tools_called = meta.get("tools_called", [])
+            for tname in tools_called:
+                if tname in tool_index:
+                    await graphrag.ingest_edge(
+                        source_id=entity_id,
+                        target_id=tool_index[tname],
+                        edge_type=EdgeType.skill_calls_tool,
+                        repo_id=repo,
+                    )
+                    edge_count += 1
 
         # Ingest tool nodes
         for doc in p11_docs:
@@ -1099,7 +1362,7 @@ class TrainingPipeline:
             repo = doc.get("repo_id", "MultiChannel_API")
             entity_id = doc.get("entity_id", f"tool_def:{tool_name}")
 
-            graphrag.ingest_node(
+            await graphrag.ingest_node(
                 node_id=entity_id,
                 node_type=NodeType.tool,
                 label=tool_name,
@@ -1429,21 +1692,19 @@ class TrainingPipeline:
         t0 = time.monotonic()
         details: Dict[str, Any] = {}
         try:
-            from app.db.session import AsyncSessionLocal
-            from sqlalchemy import text
-
-            async with AsyncSessionLocal() as session:
-                row = await session.execute(
-                    text("SELECT COUNT(*) FROM cosmos_embeddings")
-                )
-                current_count = row.scalar() or 0
-                details["current_row_count"] = current_count
+            # Get current vector count from Qdrant (our actual vector store)
+            current_count = 0
+            try:
+                vs_stats = await self.vectorstore.get_stats()
+                current_count = vs_stats.get("points_count", 0) if vs_stats else 0
+            except Exception:
+                pass
+            details["current_row_count"] = current_count
 
             # Load last known count from benchmark_results.json (if exists)
             import json
             results_path = self.data_dir + "/benchmark_results.json"
             prev_count = 0
-            prev_tool_accuracy = None
             try:
                 import os
                 if os.path.exists(results_path):
@@ -1453,10 +1714,7 @@ class TrainingPipeline:
                     # Get tool_accuracy from flat or nested results
                     backends = prev_results.get("backends", {})
                     if backends:
-                        first_backend = next(iter(backends.values()), {})
-                        prev_tool_accuracy = first_backend.get("tool_accuracy")
-                    else:
-                        prev_tool_accuracy = prev_results.get("tool_accuracy")
+                        pass  # backends present; tool_accuracy checked elsewhere
             except Exception:
                 pass
 
@@ -1640,7 +1898,7 @@ class TrainingPipeline:
         try:
             from app.services.qdrant_client import qdrant_store
 
-            if not qdrant_store or not qdrant_store.available:
+            if not qdrant_store:
                 logger.warning("enrichment.qdrant_not_available")
                 return []
 

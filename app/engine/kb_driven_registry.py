@@ -170,7 +170,10 @@ class KBDrivenRegistry:
                 ORDER BY label
             """))
             for row in rows.fetchall():
-                props = row.properties or {}
+                raw_props = row.properties or {}
+                props = raw_props if isinstance(raw_props, dict) else (
+                    __import__("json").loads(raw_props) if isinstance(raw_props, str) else {}
+                )
                 name = row.label or row.id.replace("tool:", "")
                 self.tools[name] = DynamicTool(
                     name=name,

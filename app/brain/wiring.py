@@ -334,10 +334,20 @@ class KBScanScheduler:
                 await asyncio.sleep(30)
 
     async def _scan_and_ingest(self):
-        """One full scan + ingest cycle."""
+        """One full scan + ingest cycle.
+
+        Phase 1 only: diff disk vs DB and mark changed files as pending.
+        Phase 2 (bulk re-embedding) is intentionally skipped here — the training
+        pipeline (POST /pipeline/run) handles bulk ingestion efficiently with
+        20-concurrent embeddings and folder-at-a-time iteration.
+
+        Running read_pillar3_apis() per pending file would be O(N²): with 45K
+        pending files × 10K API parse = 450M YAML parses, blocking the event loop
+        for hours. The scheduler's job is only change detection, not embedding.
+        """
         fi = self._get_file_index()
         if not fi or not self._kb_path:
-            # Fallback to legacy in-memory scan
+            # Fallback to legacy in-memory scan (only for change detection)
             changes = self._pipeline.scan_for_changes()
             if changes:
                 updates = await self._pipeline.process_changes(changes)
@@ -349,74 +359,24 @@ class KBScanScheduler:
                 )
             return
 
-        # Phase 1: diff disk vs DB → mark pending (fast, MD5 only)
+        # Phase 1: diff disk vs DB → mark changed files as pending.
+        # diff_and_mark_pending() now runs the disk walk in asyncio.to_thread,
+        # so this call is non-blocking even for 44K files.
         changed = await fi.diff_and_mark_pending(
             self._kb_path,
-            repo_id="MultiChannel_API",      # primary repo; scan others separately
+            repo_id="MultiChannel_API",
             batch_size=self._batch_size,
         )
 
-        # Phase 2: process pending files (YAML parse + embed)
-        pending = await fi.get_pending(repo_id="MultiChannel_API", limit=self._batch_size)
-        if not pending:
-            return
-
-        ingested = 0
-        failed = 0
-
-        try:
-            from app.services.kb_ingestor import KBIngestor
-            from app.services.canonical_ingestor import CanonicalIngestor, IngestDocument
-
-            kb_reader = KBIngestor(self._kb_path)
-            ingestor = CanonicalIngestor(self._vectorstore) if self._vectorstore else None
-
-            for pf in pending:
-                file_path: str = pf["file_path"]
-                repo_id: str = pf["repo_id"] or "MultiChannel_API"
-                entity_id: str = pf["entity_id"]
-                entity_type: str = pf["entity_type"]
-
-                try:
-                    # Re-read only this file's entity
-                    if entity_type == "api_tool":
-                        docs = kb_reader.read_pillar3_apis(repo_id)
-                        # Filter to just this entity
-                        docs = [d for d in docs if d.get("entity_id") == entity_id]
-                    elif entity_type == "schema":
-                        docs = kb_reader.read_pillar1_schema(repo_id)
-                        docs = [d for d in docs if d.get("entity_id") == entity_id]
-                    else:
-                        docs = []
-
-                    if docs and ingestor:
-                        ingest_docs = [IngestDocument(**d) for d in docs]
-                        result = await ingestor.ingest(ingest_docs)
-                        if result.ingested > 0:
-                            await fi.mark_indexed(file_path, repo_id, entity_id, entity_type)
-                            ingested += 1
-                        else:
-                            await fi.mark_failed(file_path, repo_id, "no documents ingested")
-                            failed += 1
-                    else:
-                        # Nothing to ingest (e.g. registry file) — mark indexed
-                        await fi.mark_indexed(file_path, repo_id)
-                        ingested += 1
-
-                except Exception as e:
-                    await fi.mark_failed(file_path, repo_id, str(e))
-                    failed += 1
-
-        except Exception as e:
-            logger.error("kb_scan_scheduler.ingest_setup_failed", error=str(e))
-            return
+        # Phase 2 (bulk embedding) is intentionally omitted here.
+        # Use POST /cosmos/api/v1/pipeline/run to embed all pending files
+        # with 20-concurrent processing and folder-at-a-time P3 iteration.
+        # Running read_pillar3_apis() per-file would be O(N²) — do not restore.
 
         logger.info(
             "kb_scan_scheduler.cycle_complete",
             changed=len(changed),
-            pending=len(pending),
-            ingested=ingested,
-            failed=failed,
+            pending_action="use POST /pipeline/run to embed changed files",
         )
 
 

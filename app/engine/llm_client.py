@@ -18,7 +18,8 @@ import json
 import os
 import structlog
 import time
-from typing import Any, AsyncIterator, Dict, Optional
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from app.engine.classifier import Intent
 from app.engine.model_router import ModelRouter, ModelTier, PROFILES
@@ -27,6 +28,15 @@ from app.engine.context_budget import ContextBudgeter
 from app.engine.cost_tracker import CostTracker
 
 logger = structlog.get_logger()
+
+
+@dataclass
+class ToolUseResult:
+    """Result from a multi-turn call_with_tools() conversation."""
+    final_text: str
+    tool_calls_made: List[Dict] = field(default_factory=list)
+    pending_approval: Optional[Dict] = None  # set when a HIGH-risk tool needs approval
+    turns: int = 0
 
 
 def _build_anthropic_client(api_key: Optional[str]) -> Any:
@@ -442,6 +452,158 @@ class LLMClient:
             intent="explain",
             confidence=0.6,
             session_id=session_id,
+        )
+
+    # ------------------------------------------------------------------
+    # call_with_tools — multi-turn Claude tool_use loop
+    # ------------------------------------------------------------------
+
+    async def call_with_tools(
+        self,
+        prompt: str,
+        tools: List[Dict],
+        system_prompt: str = "",
+        tool_executor: Optional[Callable] = None,
+        max_turns: int = 5,
+        max_tokens: int = 1024,
+        session_id: Optional[str] = None,
+        intent: Optional[str] = None,
+    ) -> "ToolUseResult":
+        """
+        Run a multi-turn Claude tool_use conversation.
+
+        Flow per turn:
+          1. Send messages + tool definitions to Claude
+          2. If stop_reason == "tool_use": extract tool calls, execute via tool_executor, feed results back
+          3. If stop_reason == "end_turn": return final text
+          4. Repeat up to max_turns
+
+        Args:
+            prompt:        User message
+            tools:         Anthropic-format tool definitions (from ToolExecutorService)
+            system_prompt: KB context injected as system message
+            tool_executor: async callable(tool_name, tool_input) -> ToolExecutionResult
+                           If None, tool calls are returned unexecuted.
+            max_turns:     Safety cap (default 5)
+            max_tokens:    Per-turn token budget
+            session_id:    For cost tracking
+            intent:        For model routing (default "act" → Opus)
+
+        Returns:
+            ToolUseResult with final_text, tool_calls_made, pending_approval info
+        """
+        if self._client is None:
+            raise LLMClientError(
+                "call_with_tools() requires Anthropic API mode. "
+                "Set ANTHROPIC_API_KEY and LLM_MODE=api."
+            )
+
+        sid = session_id or self._default_session_id
+        profile = self._router.route(
+            self._resolve_intent(intent or "act"), 0.8, {}
+        )
+
+        sys_block = {
+            "type": "text",
+            "text": system_prompt or "You are COSMOS, Shiprocket's AI assistant for ICRM operators.",
+            "cache_control": {"type": "ephemeral"},
+        }
+
+        messages: List[Dict] = [{"role": "user", "content": prompt}]
+        tool_calls_made: List[Dict] = []
+        pending_approval: Optional[Dict] = None
+        final_text = ""
+        total_input_tokens = 0
+        total_output_tokens = 0
+
+        for turn in range(max_turns):
+            logger.info("llm_client.tool_use_turn", turn=turn, tools=len(tools))
+
+            response = await self._client.messages.create(
+                model=profile.model_id,
+                max_tokens=max_tokens,
+                system=[sys_block],
+                tools=tools,
+                tool_choice={"type": "auto"},
+                messages=messages,
+            )
+
+            total_input_tokens += getattr(response.usage, "input_tokens", 0)
+            total_output_tokens += getattr(response.usage, "output_tokens", 0)
+
+            # Collect text blocks
+            for block in response.content:
+                if hasattr(block, "text"):
+                    final_text = block.text  # overwrite — last text wins
+
+            if response.stop_reason != "tool_use":
+                break
+
+            # Process tool_use blocks
+            tool_results_content = []
+            for block in response.content:
+                if block.type != "tool_use":
+                    continue
+
+                tc = {"id": block.id, "name": block.name, "input": block.input}
+                tool_calls_made.append(tc)
+                logger.info("llm_client.tool_called", tool=block.name, turn=turn)
+
+                if tool_executor is None:
+                    # No executor — return the tool calls for caller to handle
+                    tool_results_content.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps({"error": "No tool executor configured"}),
+                    })
+                    continue
+
+                result = await tool_executor(block.name, block.input)
+
+                if result.status == "pending_approval":
+                    pending_approval = result.data
+                    tool_results_content.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps(result.data),
+                    })
+                elif result.status == "error":
+                    tool_results_content.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "is_error": True,
+                        "content": json.dumps({"error": result.error}),
+                    })
+                else:
+                    tool_results_content.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps(result.data),
+                    })
+
+            # Append assistant turn + tool results for next turn
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "user", "content": tool_results_content})
+
+            if pending_approval:
+                # Stop loop — operator must confirm before we can continue
+                break
+
+        # Record costs
+        self._costs.record(
+            session_id=sid,
+            tier=profile.tier.value,
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+            intent=intent or "act",
+            cached=True,
+        )
+
+        return ToolUseResult(
+            final_text=final_text,
+            tool_calls_made=tool_calls_made,
+            pending_approval=pending_approval,
+            turns=min(turn + 1, max_turns),
         )
 
     # ------------------------------------------------------------------

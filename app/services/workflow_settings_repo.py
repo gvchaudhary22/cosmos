@@ -1,7 +1,7 @@
 """
-Cosmos Workflow Settings Repo — Layer 2 (Postgres write-through cache).
+Cosmos Workflow Settings Repo — Layer 2 (MySQL write-through cache).
 
-Single-row table `cosmos_settings_cache` with a  constraint.
+Single-row table `cosmos_settings_cache` with a primary-key constraint.
 On first call the row is created from balanced defaults.
 """
 
@@ -27,9 +27,8 @@ CREATE TABLE IF NOT EXISTS cosmos_settings_cache (
 
 # Seed the single row if absent.
 _SEED_ROW_SQL = """
-INSERT INTO cosmos_settings_cache (id, settings, updated_at)
-VALUES (1, :settings, NOW())
-ON CONFLICT (id) DO NOTHING;
+INSERT IGNORE INTO cosmos_settings_cache (id, settings, updated_at)
+VALUES (1, :settings, NOW());
 """
 
 _SELECT_SQL = "SELECT settings FROM cosmos_settings_cache WHERE id = 1"
@@ -37,9 +36,9 @@ _SELECT_SQL = "SELECT settings FROM cosmos_settings_cache WHERE id = 1"
 _UPSERT_SQL = """
 INSERT INTO cosmos_settings_cache (id, settings, updated_at)
 VALUES (1, :settings, NOW())
-ON CONFLICT (id) DO UPDATE SET
-    settings   = EXCLUDED.settings,
-    updated_at = EXCLUDED.updated_at;
+ON DUPLICATE KEY UPDATE
+    settings   = :settings,
+    updated_at = NOW();
 """
 
 

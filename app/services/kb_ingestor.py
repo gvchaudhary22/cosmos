@@ -23,9 +23,8 @@ Also handles:
 
 import hashlib
 import json
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import structlog
 
@@ -206,8 +205,48 @@ class KBIngestor:
         "index": "api_overview",
     }
 
+    def _merge_sub_chunks(self, high: Dict, high_dir: Path) -> None:
+        """Merge params.yaml, response.yaml, and examples.yaml from high/ into the high dict.
+
+        Modifies `high` in-place. Called before _build_api_doc_from_high() so the
+        builder sees the full content — params, response fields, and examples — in
+        one pass, producing a single rich embedding doc per API.
+
+        Merges:
+          high/params.yaml   → high["request_schema"]   (full field validations)
+          high/response.yaml → high["response_fields"]  (return fields + side effects)
+          high/examples.yaml → high["examples"]         (real call examples, merged/appended)
+        Skips identity.yaml (duplicates high.yaml overview).
+        """
+        if not high_dir.is_dir():
+            return
+        # Map: (sub-chunk filename stem) → list of (source_key_in_file, dest_key_in_high)
+        # params.yaml has top-level key "request_schema"
+        # response.yaml has top-level keys "response_fields" and "side_effects"
+        # examples.yaml has top-level key "examples" (or "param_extraction_pairs")
+        _MERGE_MAP = {
+            "params":   [("request_schema", "request_schema")],
+            "response": [("response_fields", "response_fields"), ("side_effects", "side_effects")],
+            "examples": [("examples", "examples")],
+        }
+        for stem, key_pairs in _MERGE_MAP.items():
+            chunk_path = high_dir / f"{stem}.yaml"
+            if not chunk_path.exists():
+                continue
+            data = self._read_yaml(chunk_path)
+            if not data or not isinstance(data, dict):
+                continue
+            for src_key, dest_key in key_pairs:
+                value = data.get(src_key)
+                if value is None:
+                    continue
+                if dest_key not in high or not high[dest_key]:
+                    # high.yaml had nothing — use sub-chunk value directly
+                    high[dest_key] = value
+                # If high.yaml already has content (Claude-enriched), leave it as-is
+
     def _read_high_folder(self, high_dir: Path, entity_name: str, repo_id: str, entity_type: str) -> List[Dict]:
-        """Read all YAML chunk files from a high/ folder.
+        """Read YAML chunk files from a high/ folder.
 
         Each file becomes a separate embedding doc with entity_id suffixed
         by the chunk name (e.g., table:orders:identity, table:orders:states).
@@ -604,20 +643,22 @@ class KBIngestor:
                 if not api_dir.is_dir():
                     continue
 
-                # Prefer high.yaml (merged) over high/ dir (split) to avoid double-embedding.
-                # Skip entire file if it's a stub (_status: stub or _tier: stub).
+                # One doc per API — high.yaml is the single source of truth.
+                # Sub-chunk content (params, response, examples) was merged into high.yaml
+                # on disk by scripts/merge_subchunks_to_high.py — no runtime merge needed.
+                # Skip stubs entirely.
                 high_yaml_path = api_dir / "high.yaml"
+                high_dir_path = api_dir / "high"
                 if high_yaml_path.exists():
                     high = self._read_yaml(high_yaml_path)
                     if high:
-                        # Skip stubs at file level
                         if high.get("_status") == "stub" or high.get("_tier") == "stub":
                             continue
                         doc = self._build_api_doc_from_high(api_dir.name, repo_id, high)
                     else:
                         doc = None
-                elif (api_dir / "high").is_dir():
-                    chunk_docs = self._read_high_folder(api_dir / "high", api_dir.name, repo_id, "api_tool")
+                elif high_dir_path.is_dir():
+                    chunk_docs = self._read_high_folder(high_dir_path, api_dir.name, repo_id, "api_tool")
                     docs.extend(chunk_docs)
                     continue
                 else:
@@ -678,6 +719,115 @@ class KBIngestor:
 
         logger.info("kb_ingestor.pillar3_read", repo=repo_id, apis=len(docs))
         return docs
+
+    def iter_pillar3_api_folders(
+        self, repo_id: str = "MultiChannel_API", folder_batch: int = 50
+    ) -> Generator[List[Dict], None, None]:
+        """Yield P3 API docs one folder-batch at a time (memory-efficient alternative to read_pillar3_apis).
+
+        Instead of loading all 5,617 API folders into one list, yields `folder_batch` folders
+        at a time. The caller ingest()s each batch before loading the next — keeps RAM low
+        and gives progress feedback per batch.
+
+        Args:
+            repo_id: KB repo to read (default: MultiChannel_API).
+            folder_batch: how many API folders to read before yielding (default: 50).
+
+        Yields:
+            List[Dict] — docs for up to `folder_batch` API folders.
+        """
+        api_base = self.kb_path / repo_id / "pillar_3_api_mcp_tools"
+        if not api_base.exists():
+            return
+
+        apis_dir = api_base / "apis"
+        if not apis_dir.exists():
+            return
+
+        batch: List[Dict] = []
+        for api_dir in sorted(apis_dir.iterdir()):
+            if not api_dir.is_dir():
+                continue
+
+            high_yaml_path = api_dir / "high.yaml"
+            if high_yaml_path.exists():
+                high = self._read_yaml(high_yaml_path)
+                if high:
+                    if high.get("_status") == "stub" or high.get("_tier") == "stub":
+                        continue
+                    doc = self._build_api_doc_from_high(api_dir.name, repo_id, high)
+                    if doc:
+                        batch.append(doc)
+            elif (api_dir / "high").is_dir():
+                chunk_docs = self._read_high_folder(api_dir / "high", api_dir.name, repo_id, "api_tool")
+                batch.extend(chunk_docs)
+            else:
+                doc = self._build_api_doc_from_files(api_dir, repo_id)
+                if doc:
+                    batch.append(doc)
+
+            if len(batch) >= folder_batch:
+                yield batch
+                batch = []
+
+        if batch:
+            yield batch
+
+        # Registry files live at the pillar root (NOT inside apis/) — yield as a final batch.
+        # read_pillar3_apis() includes these; we must too or they'd be silently dropped.
+        registry_files = {
+            "entity_dictionary.yaml": ("entity_def", "entities"),
+            "intent_taxonomy.yaml": ("intent_def", "intents"),
+            "agent_registry.yaml": ("agent_def", "agents"),
+            "api_registry.yaml": ("api_registry", "apis"),
+            "tool_registry.yaml": ("tool_registry", "tools"),
+        }
+        registry_batch: List[Dict] = []
+        for filename, (entity_type, list_key) in registry_files.items():
+            reg_path = api_base / filename
+            if not reg_path.exists():
+                continue
+            data = self._read_yaml(reg_path) or {}
+            records = data.get(list_key, [])
+            if isinstance(records, list) and records:
+                for rec in records:
+                    if not isinstance(rec, dict):
+                        continue
+                    rec_id = (
+                        rec.get("api_id") or rec.get("tool_id") or rec.get("agent_id")
+                        or rec.get("entity_id") or rec.get("id", "")
+                    )
+                    if not rec_id:
+                        continue
+                    parts = [f"{k}: {v}" for k, v in rec.items() if isinstance(v, (str, int, float, bool)) and v]
+                    registry_batch.append({
+                        "entity_type": entity_type,
+                        "entity_id": f"registry:{repo_id}:{rec_id}",
+                        "content": f"[{repo_id}:{filename}] {' | '.join(parts)}",
+                        "repo_id": repo_id,
+                        "capability": "retrieval",
+                        "trust_score": 0.8,
+                        "metadata": {
+                            "file": filename,
+                            "domain": rec.get("domain", ""),
+                            "training_ready": rec.get("training_ready", False),
+                        },
+                    })
+            else:
+                parts = [f"{k}: {v}" for k, v in data.items()
+                         if isinstance(v, (str, int, float, bool)) and not k.startswith("_")]
+                registry_batch.append({
+                    "entity_type": entity_type,
+                    "entity_id": f"registry:{repo_id}:{filename}",
+                    "content": f"[{repo_id}] {filename}: {' | '.join(parts)}",
+                    "repo_id": repo_id,
+                    "capability": "retrieval",
+                    "trust_score": 0.8,
+                    "metadata": {"file": filename},
+                })
+
+        if registry_batch:
+            yield registry_batch
 
     def _build_api_doc_from_high(self, api_id: str, repo_id: str, high: Dict) -> Optional[Dict]:
         """Build an API embedding doc from high.yaml merged content."""
@@ -1641,6 +1791,18 @@ class KBIngestor:
             if data.get("example_queries"):
                 parts.append(f"Example queries: {'; '.join(data['example_queries'][:5])}")
 
+            # Extract clean skill names (handles list, list-of-dicts, dict formats)
+            skill_names: list = []
+            raw_skills_field = data.get("skills", [])
+            if isinstance(raw_skills_field, list):
+                for s in raw_skills_field:
+                    if isinstance(s, dict):
+                        skill_names.extend(s.keys())
+                    else:
+                        skill_names.append(str(s).split(":")[0].strip())
+            elif isinstance(raw_skills_field, dict):
+                skill_names = list(raw_skills_field.keys())
+
             docs.append({
                 "entity_type": "agent_definition",
                 "entity_id": f"agent:{agent_name}",
@@ -1654,6 +1816,7 @@ class KBIngestor:
                     "agent_name": agent_name,
                     "tier": data.get("tier", ""),
                     "query_mode": "explain",
+                    "skills": skill_names,
                 },
             })
         logger.info("kb_ingestor.pillar9_agents", repo_id=repo_id, count=len(docs))
@@ -1688,7 +1851,19 @@ class KBIngestor:
                     else:
                         parts.append(f"Step {i+1}: {step}")
             if data.get("required_params"):
-                parts.append(f"Required params: {', '.join(str(p) for p in data['required_params'])}")
+                param_labels = [
+                    f"{p['name']} ({p.get('type', 'any')})" if isinstance(p, dict) else str(p)
+                    for p in data["required_params"]
+                ]
+                parts.append(f"Required params: {', '.join(param_labels)}")
+            # Extract tool names called by this skill from steps
+            tools_called: list = []
+            for step in data.get("steps", []):
+                if isinstance(step, dict):
+                    t = step.get("tool", "")
+                    if t:
+                        tools_called.append(t)
+
             docs.append({
                 "entity_type": "skill_definition",
                 "entity_id": f"skill:{skill_name}",
@@ -1701,6 +1876,7 @@ class KBIngestor:
                     "domain": data.get("domain", ""),
                     "skill_name": skill_name,
                     "query_mode": "explain",
+                    "tools_called": tools_called,
                 },
             })
         logger.info("kb_ingestor.pillar10_skills", repo_id=repo_id, count=len(docs))
@@ -1755,6 +1931,65 @@ class KBIngestor:
         return docs
 
     # ------------------------------------------------------------------
+    # Pillar 12: FAQ Chunks (from shiprocket_faq.xlsx)
+    # ------------------------------------------------------------------
+
+    def read_pillar12_faq(self, repo_id: str = "MultiChannel_API") -> List[Dict]:
+        """Read FAQ YAML files from pillar_12_faq/<tab>/*.yaml.
+
+        Each file is one Q+A chunk produced by scripts/ingest_faq_xlsx.py.
+        Embedding content: question + answer + domain keywords for dense retrieval.
+        """
+        p12_path = self.kb_path / repo_id / "pillar_12_faq"
+        if not p12_path.exists():
+            return []
+        docs = []
+        for tab_dir in sorted(p12_path.iterdir()):
+            if not tab_dir.is_dir():
+                continue
+            tab_name = tab_dir.name
+            for f in sorted(tab_dir.glob("*.yaml")):
+                data = self._read_yaml(f)
+                if not data or not isinstance(data, dict):
+                    continue
+                question = data.get("question", "")
+                answer = data.get("answer", "")
+                domain = data.get("domain", tab_name.replace("faq_", ""))
+                keywords = data.get("keywords", [])
+                query_mode = data.get("query_mode", "lookup")
+
+                if not question or not answer:
+                    continue
+
+                # Build retrieval-optimized embedding content
+                kw_str = ", ".join(keywords) if keywords else domain
+                content = (
+                    f"FAQ: {question}\n"
+                    f"{answer}\n"
+                    f"Domain: {domain}\n"
+                    f"Keywords: {kw_str}"
+                )
+
+                docs.append({
+                    "entity_type": "faq_chunk",
+                    "entity_id": data.get("entity_id", f"faq:{domain}:{f.stem}"),
+                    "content": content,
+                    "repo_id": repo_id,
+                    "capability": "retrieval",
+                    "trust_score": data.get("trust_score", 0.7),
+                    "metadata": {
+                        "pillar": "pillar_12_faq",
+                        "domain": domain,
+                        "tab": tab_name,
+                        "query_mode": query_mode,
+                        "question": question[:200],
+                        "source": "shiprocket_faq.xlsx",
+                    },
+                })
+        logger.info("kb_ingestor.pillar12_faq", repo_id=repo_id, count=len(docs))
+        return docs
+
+    # ------------------------------------------------------------------
     # Convenience: read everything
     # ------------------------------------------------------------------
 
@@ -1803,6 +2038,11 @@ class KBIngestor:
         for hub_repo in [d.name for d in self.kb_path.iterdir()
                          if d.is_dir() and (d / "entity_hubs").exists()]:
             docs.extend(self.read_entity_hubs(hub_repo))
+        # Pillar 12: FAQ chunks (seller-facing Q&A from shiprocket_faq.xlsx)
+        for p12_repo in [d.name for d in self.kb_path.iterdir()
+                         if d.is_dir() and (d / "pillar_12_faq").exists()]:
+            docs.extend(self.read_pillar12_faq(p12_repo))
+
         # Eval seeds + generated artifacts
         docs.extend(self.read_eval_seeds(repo_id))
         docs.extend(self.read_generated_artifacts())

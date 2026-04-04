@@ -76,7 +76,7 @@ TIER1_AGENTS = [
         tier=AgentTier.CORE,
         domain="orders",
         description="Handles all order-related queries: status checks, cancellations, address updates, order search",
-        tools_allowed=["order_lookup", "orders_by_company", "order_search", "cancel_order", "update_address"],
+        tools_allowed=["order_lookup", "orders_by_company", "order_search", "create_order", "cancel_order", "update_address"],
         knowledge_scope=["orders", "core_orders"],
         instructions=(
             "You are the Order Operations agent. Always verify the order exists before any action. "

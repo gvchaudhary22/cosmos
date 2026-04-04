@@ -20,6 +20,7 @@ from app.tools.read_tools import (
 )
 from app.tools.write_tools import (
     CancelOrderTool,
+    CreateOrderTool,
     InitiateRefundTool,
     ReattemptDeliveryTool,
     UpdateAddressTool,
@@ -65,9 +66,10 @@ def create_tool_registry(mcapi: MCAPIClient, elk: ELKClient) -> ToolRegistry:
     registry.register(ELKSearchTool(elk))
     registry.register(EndpointUsageTool(elk))
 
-    # ---- Phase 2: Write / Action tools (16-23) ---- #
+    # ---- Phase 2: Write / Action tools (16-24) ---- #
 
     registry.register(CancelOrderTool(mcapi))
+    registry.register(CreateOrderTool(mcapi))
     registry.register(InitiateRefundTool(mcapi))
     registry.register(ReattemptDeliveryTool(mcapi))
     registry.register(UpdateAddressTool(mcapi))

@@ -5,7 +5,7 @@ Every document enters cosmos_embeddings through this ingestor, regardless of sou
 This ensures: one upsert policy, one trust scoring, one schema contract.
 
 Multi-model embedding:
-  PRIMARY:  text-embedding-3-small (1536 dim) → cosmos_embeddings (live, serves queries)
+  PRIMARY:  text-embedding-3-small (1536 dim) → cosmos_embeddings (20 concurrent async requests)
   SHADOW:   voyage-3-large (1024 dim) → cosmos_embeddings_shadow (benchmark only)
   Shadow runs async in background — never blocks primary ingestion.
   Shadow is disabled if VOYAGE_API_KEY is not set.
@@ -96,27 +96,43 @@ class CanonicalIngestor:
                 logger.debug("ingestor.kafka_init_failed", error=str(e))
         return self._kafka_producer
 
-    async def ingest(self, documents: List[IngestDocument]) -> IngestResult:
+    # Max concurrent embed requests to OpenAI/AI Gateway
+    CONCURRENT_EMBEDS = 20
+
+    async def ingest(self, documents: List[IngestDocument],
+                     kafka_mode: bool = False) -> IngestResult:
         """Ingest a batch of documents into cosmos_embeddings with upsert.
 
-        Primary: text-embedding-3-small → cosmos_embeddings (synchronous, blocks)
+        Primary: text-embedding-3-small → cosmos_embeddings (20 concurrent async requests)
         Shadow:  voyage-3-large → cosmos_embeddings_shadow (async background, non-blocking)
+
+        Args:
+            documents: Docs to embed.
+            kafka_mode: If True, publish to Kafka instead of embedding in-process.
+                        PrimaryEmbeddingConsumer handles the actual embed asynchronously.
+                        Returns immediately with IngestResult.published count.
+                        Falls back to in-process embed if Kafka is unavailable.
+
+        Processes up to CONCURRENT_EMBEDS=20 docs in parallel via asyncio.gather().
         """
+        # kafka_mode: publish docs to Kafka, return immediately (consumer embeds async)
+        if kafka_mode:
+            return await self._publish_to_kafka(documents)
+
         t0 = time.monotonic()
         result = IngestResult(total=len(documents))
         kafka_producer = self._get_kafka_producer()
         kafka_published = 0
 
+        # Pre-filter and prepare docs (fast, no I/O — keeps memory low per folder batch)
+        work: List[tuple] = []
         for doc in documents:
-            # Skip below minimum trust
             if doc.trust_score < self.MIN_TRUST:
                 result.skipped += 1
                 continue
 
-            # Skip empty content — but create fallback for P6/P7 docs
             content = doc.content or ""
             if len(content.strip()) < 10:
-                # For action/workflow docs, create a minimal fallback instead of skipping
                 if doc.capability in ("action", "workflow"):
                     content = f"{doc.entity_type}:{doc.entity_id} — {doc.capability} document"
                 else:
@@ -131,44 +147,61 @@ class CanonicalIngestor:
                 "freshness": doc.freshness,
                 "ingested_at": time.time(),
             }
+            work.append((doc, meta))
 
-            try:
-                # PRIMARY LANE: text-embedding-3-small → cosmos_embeddings
-                await self.vectorstore.store_embedding(
-                    entity_type=doc.entity_type,
-                    entity_id=doc.entity_id,
-                    content=doc.content,
-                    repo_id=doc.repo_id or None,
-                    metadata=meta,
-                )
-                result.ingested += 1
-                result.by_entity_type[doc.entity_type] = result.by_entity_type.get(doc.entity_type, 0) + 1
+        # Embed up to 20 docs concurrently — semaphore caps in-flight requests
+        semaphore = asyncio.Semaphore(self.CONCURRENT_EMBEDS)
 
-                # Mark small_done in tracker (so re-runs skip this doc)
-                if kafka_producer:
-                    kafka_producer._track_small_done(
-                        doc.repo_id or "", doc.entity_type, doc.entity_id,
-                        meta.get("content_hash", "")
-                    )
-
-                # SHADOW LANES: publish to Kafka → consumer embeds with 3-large + Voyage in parallel
-                if kafka_producer:
-                    ok = kafka_producer.publish(
+        async def _embed_one(doc: IngestDocument, meta: Dict) -> tuple:
+            """Returns (success: bool, entity_type: str)."""
+            nonlocal kafka_published
+            async with semaphore:
+                try:
+                    # PRIMARY LANE: text-embedding-3-small → cosmos_embeddings
+                    await self.vectorstore.store_embedding(
                         entity_type=doc.entity_type,
                         entity_id=doc.entity_id,
                         content=doc.content,
-                        repo_id=doc.repo_id or "",
+                        repo_id=doc.repo_id or None,
                         metadata=meta,
-                        trust_score=doc.trust_score,
                     )
-                    if ok:
-                        kafka_published += 1
 
-            except Exception as e:
+                    # Mark done in Kafka tracker (so re-runs skip this doc)
+                    if kafka_producer:
+                        kafka_producer._track_small_done(
+                            doc.repo_id or "", doc.entity_type, doc.entity_id,
+                            meta.get("content_hash", "")
+                        )
+
+                    # SHADOW LANE: publish to Kafka → consumer embeds 3-large + Voyage
+                    if kafka_producer:
+                        ok = kafka_producer.publish(
+                            entity_type=doc.entity_type,
+                            entity_id=doc.entity_id,
+                            content=doc.content,
+                            repo_id=doc.repo_id or "",
+                            metadata=meta,
+                            trust_score=doc.trust_score,
+                        )
+                        if ok:
+                            kafka_published += 1
+
+                    return (True, doc.entity_type)
+                except Exception as e:
+                    logger.warning("ingestor.error", entity_id=doc.entity_id, error=str(e))
+                    return (False, doc.entity_type)
+
+        # Fire all docs concurrently (semaphore ensures ≤20 in-flight at once)
+        outcomes = await asyncio.gather(*[_embed_one(d, m) for d, m in work])
+
+        for success, entity_type in outcomes:
+            if success:
+                result.ingested += 1
+                result.by_entity_type[entity_type] = result.by_entity_type.get(entity_type, 0) + 1
+            else:
                 result.errors += 1
-                logger.warning("ingestor.error", entity_id=doc.entity_id, error=str(e))
 
-        # Flush Kafka producer to ensure all messages are sent
+        # Flush Kafka producer to ensure all shadow messages are sent
         if kafka_producer and kafka_published > 0:
             kafka_producer.flush()
 
@@ -185,8 +218,74 @@ class CanonicalIngestor:
             ms=round(result.duration_ms, 1),
             by_type=result.by_entity_type,
             kafka_published=kafka_published,
+            concurrent=self.CONCURRENT_EMBEDS,
         )
 
+        return result
+
+    async def _publish_to_kafka(self, documents: List[IngestDocument]) -> IngestResult:
+        """kafka_mode=True path: publish docs to Kafka, return immediately.
+
+        PrimaryEmbeddingConsumer handles actual embedding asynchronously.
+        Falls back to in-process embed (kafka_mode=False) if Kafka is unavailable.
+        """
+        kafka_producer = self._get_kafka_producer()
+
+        if not kafka_producer:
+            # Kafka not available — fall back to in-process embed transparently
+            logger.warning("ingestor.kafka_unavailable_fallback",
+                           docs=len(documents), fallback="in_process")
+            return await self.ingest(documents, kafka_mode=False)
+
+        t0 = time.monotonic()
+        result = IngestResult(total=len(documents))
+
+        for doc in documents:
+            if doc.trust_score < self.MIN_TRUST:
+                result.skipped += 1
+                continue
+
+            content = doc.content or ""
+            if len(content.strip()) < 10:
+                if doc.capability in ("action", "workflow"):
+                    content = f"{doc.entity_type}:{doc.entity_id} — {doc.capability} document"
+                else:
+                    result.skipped += 1
+                    continue
+            doc.content = content
+
+            meta = {
+                **doc.metadata,
+                "trust_score": doc.trust_score,
+                "capability": doc.capability,
+                "freshness": doc.freshness,
+            }
+
+            ok = kafka_producer.publish_primary(
+                entity_type=doc.entity_type,
+                entity_id=doc.entity_id,
+                content=doc.content,
+                repo_id=doc.repo_id or "",
+                metadata=meta,
+                trust_score=doc.trust_score,
+            )
+            if ok:
+                result.ingested += 1  # "ingested" = published to Kafka here
+                result.by_entity_type[doc.entity_type] = result.by_entity_type.get(doc.entity_type, 0) + 1
+            else:
+                result.errors += 1
+
+        kafka_producer.flush()
+        result.duration_ms = (time.monotonic() - t0) * 1000
+
+        logger.info(
+            "ingestor.kafka_publish_complete",
+            total=result.total,
+            published=result.ingested,
+            skipped=result.skipped,
+            errors=result.errors,
+            ms=round(result.duration_ms, 1),
+        )
         return result
 
     async def ingest_one(self, doc: IngestDocument) -> bool:
