@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [v3.1.1] — 2026-04-05 — M3 Phase 1: UAT Verification + Phase 2 Prep
+
+### Fixed
+- `tests/test_action_approval.py` — 10 propose/consume tests called async methods without `await` after Phase 2 refactored `ActionApprovalGate.propose()` / `consume()` to `async`. Added `@pytest.mark.asyncio` + `await` to all affected tests.
+
+### Added (Phase 2 prep — wired but not yet active in production paths)
+- `app/brain/action_approval.py` — generic write action registry (`_WRITE_ACTION_REGISTRY`) with COD toggle + SRF feature entries; `detect_write_action()` replaces hardcoded keyword checks; async `propose()` / `consume()` with DB-backed persistence (best-effort); `WriteActionSignal` datatype
+- `app/services/tool_executor.py` — `feature_cod_toggle`, `feature_srf_enable`, `analytics_ndr_count` tool registrations in fallback registry (approval_mode=manual on write tools)
+- `docs/PHASE-1-UAT.md` — formal UAT report: 1057 tests pass, all M3-P1 in-scope criteria verified
+
+### Docs
+- `docs/PHASE-1-UAT.md` — UAT verdict: PASS
+
+---
+
 ## [v3.1] — 2026-04-04 — M3 Phase 1: Agentic ICRM Copilot (Write Actions + Streaming)
 
 ### Added

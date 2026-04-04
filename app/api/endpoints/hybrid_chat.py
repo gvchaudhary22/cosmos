@@ -904,7 +904,7 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                     yield _sse("error", {"message": "Action approval gate not initialized"})
                     yield _sse("done", {"session_id": session_id, "confidence": 0.0, "intents": []})
                     return
-                proposal = gate.consume(chat_req.confirm_token)
+                proposal = await gate.consume(chat_req.confirm_token)
                 if proposal is None:
                     yield _sse("error", {
                         "message": "Confirmation token is invalid or has expired. Please re-submit the original request.",
@@ -954,7 +954,7 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                 })
                 _ok = exec_result.status == "success"
                 _summary_text = (
-                    f"Order cancellation executed successfully."
+                    f"{proposal.summary} — executed successfully."
                     if _ok else
                     f"Action could not be completed: {exec_result.error or exec_result.status}"
                 )
@@ -1118,27 +1118,21 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                         orch_result.context.get("knowledge_chunks", [])
                         if isinstance(orch_result.context, dict) else []
                     )
-                    if ActionApprovalGate.is_cancel_order_intent(
+                    _write_signal = ActionApprovalGate.detect_write_action(
                         chat_req.message, orch_result.intents, _kc_for_gate
-                    ):
-                        _order_ids = ActionApprovalGate.extract_order_ids(chat_req.message)
-                        _action_input = {"ids": _order_ids} if _order_ids else {}
-                        _action_summary = (
-                            f"Cancel {len(_order_ids)} order(s): {_order_ids}"
-                            if _order_ids else
-                            "Cancel order (no order IDs detected — please confirm or provide IDs)"
-                        )
-                        _proposal = _gate.propose(
+                    )
+                    if _write_signal is not None:
+                        _proposal = await _gate.propose(
                             session_id=str(session_id),
-                            action_type="orders_cancel",
-                            action_input=_action_input,
-                            summary=_action_summary,
-                            risk_level="high",
+                            action_type=_write_signal.tool_name,
+                            action_input=_write_signal.action_input,
+                            summary=_write_signal.summary,
+                            risk_level=_write_signal.risk_level,
                         )
                         logger.info(
                             "stream.approval_required",
-                            action="orders_cancel",
-                            order_ids=_order_ids,
+                            action=_write_signal.tool_name,
+                            entity_id=_write_signal.entity_id,
                             token_prefix=_proposal.confirm_token[:8],
                         )
                         yield _sse("approval_required", {
@@ -1149,7 +1143,7 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                             "summary": _proposal.summary,
                             "risk_level": _proposal.risk_level,
                             "message": (
-                                f"This action requires your confirmation: {_action_summary}. "
+                                f"This action requires your confirmation: {_proposal.summary}. "
                                 f"Re-send with confirm_action=true and the confirm_token provided in this event."
                             ),
                         })
@@ -1163,6 +1157,57 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                         return
             except Exception as _ae:
                 logger.debug("stream.action_approval_error", error=str(_ae))
+
+            # --- Analytics probe (M3-P2 #24) ---
+            # If the analytics probe fired with a company_id, execute the live count
+            # and yield an `analytics` SSE event before the LLM response.
+            try:
+                from app.services.query_orchestrator import PipelineName as _PN
+                _analytics_probe = orch_result.pipeline_contributions.get(_PN.ANALYTICS) if hasattr(orch_result, "pipeline_contributions") else None
+                # Check probe_results directly on orch_result if available
+                _analytics_data = None
+                if hasattr(orch_result, "probe_results"):
+                    _ap = orch_result.probe_results.get(_PN.ANALYTICS)
+                    if _ap and _ap.found_data and _ap.data:
+                        _analytics_data = _ap.data
+                if _analytics_data and chat_req.icrm_token:
+                    from app.config import settings as _settings
+                    from app.services.tool_executor import ToolExecutorService, SessionContext as _SC
+                    _tool_name = _analytics_data.get("tool_name", "analytics_order_count")
+                    _tool_params = {"client_id": int(_analytics_data["company_id"])}
+                    if _analytics_data.get("from_date"):
+                        _tool_params["from"] = _analytics_data["from_date"]
+                    if _analytics_data.get("to_date"):
+                        _tool_params["to"] = _analytics_data["to_date"]
+                    _executor = ToolExecutorService(settings=_settings, db=None)
+                    _actx = _SC(
+                        seller_token=chat_req.seller_token,
+                        icrm_token=chat_req.icrm_token,
+                        approved=True,
+                    )
+                    try:
+                        _result = await _executor.execute(_tool_name, _tool_params, _actx)
+                        await _executor.aclose()
+                        if _result.status == "success":
+                            _count = (
+                                _result.data.get("total")
+                                or _result.data.get("count")
+                                or len(_result.data) if isinstance(_result.data, list) else None
+                            )
+                            yield _sse("analytics", {
+                                "metric": _tool_name,
+                                "company_id": _analytics_data["company_id"],
+                                "value": _count,
+                                "label": _analytics_data.get("date_label"),
+                                "from_date": _analytics_data.get("from_date"),
+                                "to_date": _analytics_data.get("to_date"),
+                                "raw": _result.data,
+                            })
+                    except Exception as _ae:
+                        logger.debug("analytics_probe.execute_error", error=str(_ae))
+                        # Graceful degradation — fall through to LLM text answer
+            except Exception as _ae:
+                logger.debug("analytics_probe.error", error=str(_ae))
 
             # --- Stage 3: LLM Assembly ---
             yield _sse("stage:llm_start", {})

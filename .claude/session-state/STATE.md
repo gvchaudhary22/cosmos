@@ -1,13 +1,15 @@
 # Cosmos — Project State
 
-> Auto-updated at session end. Last updated: 2026-04-04
+> Auto-updated at session end. Last updated: 2026-04-05
 
 ## Active Phase
 
 **M3 — Agentic ICRM Copilot (Actions + Streaming + Feature Control)**
-Status: `planning_complete` — Phase 1 plan **re-planned 2026-04-04** (`docs/PHASE-1-PLAN.md`). Ready for `/cosmos:build 1`.
-M2 Status: `phase_6_shipped` — #18 (ParamClarifier) + #19 (SSO token) done. #20/#21 carry to M3-P1.
-Re-plan notes: Security C1–C5/H1 done. Re-embed run 9151516d complete (22,254 docs upserted). Tests: 1055. `execute_stream()` missing — blocks Wave 2.
+Status: `planning_complete` — Phase 2 plan **created 2026-04-05** (`docs/PHASE-2-PLAN.md`). Ready for `/cosmos:build 2`.
+M3-P1 shipped+verified: v3.1 tagged, v3.1.1 UAT patch committed. #20 ✅ #21 ✅ #22 ✅. PR gvchaudhary22/cosmos#22 merged ✅.
+M3-P1 UAT: ✅ **PASSED** (2026-04-05) — `docs/PHASE-1-UAT.md`. 1057 tests pass. Async test regression fixed in `test_action_approval.py`.
+M3-P2 scope: #23 (feature flags) + #24 (analytics) + entity_extractor + KB enrichment (shipments/billing/returns) + eval benchmark.
+M3-P2 prep committed: generic write action registry (`_WRITE_ACTION_REGISTRY`) + async propose/consume + COD/SRF/analytics tool registrations.
 
 Qdrant current state: **22,464 vectors** (run 9151516d upserted soft_required_context — 22,254 docs processed).
 `cosmos_tools` table: **27 tools** seeded from all P11 YAMLs. ✓
