@@ -4,15 +4,17 @@
 
 ## Active Phase
 
-**M2 — Retrieval Quality & Live Execution**
-Status: `planning_complete` — Phase 6 plan produced (`docs/PHASE-6-PLAN.md`). Ready for `/cosmos:build 6`.
-M1 Status: `pipeline_clean` — run `6f5fba0c` complete.
+**M3 — Agentic ICRM Copilot (Actions + Streaming + Feature Control)**
+Status: `planning_complete` — Phase 1 plan **re-planned 2026-04-04** (`docs/PHASE-1-PLAN.md`). Ready for `/cosmos:build 1`.
+M2 Status: `phase_6_shipped` — #18 (ParamClarifier) + #19 (SSO token) done. #20/#21 carry to M3-P1.
+Re-plan notes: Security C1–C5/H1 done. Re-embed run 9151516d complete (22,254 docs upserted). Tests: 1055. `execute_stream()` missing — blocks Wave 2.
 
-Qdrant current state: **22,450 vectors** (stable — all content-hash deduped, 10 entity hub docs added).
+Qdrant current state: **22,464 vectors** (run 9151516d upserted soft_required_context — 22,254 docs processed).
 `cosmos_tools` table: **27 tools** seeded from all P11 YAMLs. ✓
-Pillar 12 FAQ: **1,743 FAQ chunks** embedded (text-embedding-3-small). ✓
-Graph (MySQL): **11,082 nodes**, **48,184 edges**. Neo4j: DOWN (pipeline writes MySQL only).
+Pillar 12 FAQ: **1,703 FAQ chunks** in Qdrant (verified scroll count). ✓
+Graph (MySQL): **11,082 nodes**, **48,185 edges**. Neo4j: **SYNCED** ✅ — 11,083 nodes, 48,185 edges, 20,793 lookups. Gap fully closed.
 KB File Index: **34,481 indexed / 0 pending / 0 failed** across 8 repos + all 8 pillars.
+Tests: **1055 passing** (4 new test files: test_orchestrator_wave34.py, test_orchestrator_tier2_tier3.py, test_streaming_sse.py, test_action_approval.py).
 
 ## GitHub Issues
 
@@ -25,17 +27,29 @@ KB File Index: **34,481 indexed / 0 pending / 0 failed** across 8 repos + all 8 
 | [#7](https://github.com/gvchaudhary22/cosmos/issues/7) | DB-driven tool execution via training pipeline | **DONE** ✅ — cosmos_tools seeded |
 | [#19](https://github.com/gvchaudhary22/cosmos/issues/19) | ICRM token persistence + MARS→COSMOS wiring | **DONE** ✅ — token warm-up on session create; passed as `icrm_token` to COSMOS |
 
-### Phase 6 — ChatGPT-Like ICRM Copilot
+### Phase 6 — ChatGPT-Like ICRM Copilot (M2) — SHIPPED ✅
 | # | Title | Priority | Status |
 |---|-------|----------|--------|
-| [#18](https://github.com/gvchaudhary22/cosmos/issues/18) | ParamClarificationEngine — ask targeted follow-up | HIGH | KB done ✅; COSMOS engine PENDING |
-| [#20](https://github.com/gvchaudhary22/cosmos/issues/20) | SSE event format — COSMOS `chunk` → LIME `assistant` | HIGH | MARS translates ✅; true progressive streaming PENDING |
-| [#21](https://github.com/gvchaudhary22/cosmos/issues/21) | `soft_required_context` for admin/orders + admin/ndr | MEDIUM | PENDING |
+| [#18](https://github.com/gvchaudhary22/cosmos/issues/18) | ParamClarificationEngine — ask targeted follow-up | HIGH | **DONE** ✅ — engine built, 13 tests pass, wired into orchestrator |
+| [#19](https://github.com/gvchaudhary22/cosmos/issues/19) | ICRM token persistence + MARS→COSMOS wiring | HIGH | **DONE** ✅ |
+| [#20](https://github.com/gvchaudhary22/cosmos/issues/20) | SSE true progressive streaming | HIGH | Carried to M3-P1 Wave 1 |
+| [#21](https://github.com/gvchaudhary22/cosmos/issues/21) | `soft_required_context` for admin/orders + admin/ndr | MEDIUM | Carried to M3-P1 Wave 1 |
+
+### M3 Phase 1 — Agentic ICRM Copilot
+| Issue | Title | Priority | Wave | Status |
+|-------|-------|----------|------|--------|
+| [#20](https://github.com/gvchaudhary22/cosmos/issues/20) | SSE true progressive streaming | HIGH | W1-A | **DONE** ✅ — wave SSE + token streaming via riper.stream_final_response() |
+| [#21](https://github.com/gvchaudhary22/cosmos/issues/21) | soft_required_context: orders + NDR | MEDIUM | W1-B | **DONE** ✅ — orders 657/657, admin 80/80, NDR 81 files; re-embedded run 9151516d |
+| #22 (new) | Write action: cancel order with approval gate | HIGH | W2-B | **DONE** ✅ — ActionApprovalGate built (206 lines), approval SSE wired in hybrid_chat |
+| #23 (new) | Write action: enable/disable seller feature flags | HIGH | W3-A | ❌ PENDING — feature-flag intent not in ActionApprovalGate yet |
+| #24 (new) | Analytics: live NDR/shipment counts by company | MEDIUM | W3-B | ❌ PENDING — no analytics routing in orchestrator |
+| — | Date entity extractor | MEDIUM | W3-C | ❌ PENDING — entity_extractor.py not built |
+| [#11](https://github.com/gvchaudhary22/cosmos/issues/11) | Enrichment: complete orders domain (199 remaining) | CRITICAL | W1-C | **DONE** ✅ — orders 657/657, admin enriched-only 80/80 |
 
 ### Open — KB Enrichment Roadmap
 | # | Title | Priority | Status |
 |---|-------|----------|--------|
-| [#11](https://github.com/gvchaudhary22/cosmos/issues/11) | Enrich 4,855 non-enriched P3 APIs with Opus+PHP source | CRITICAL | **IN PROGRESS** — orders: 178/377 done (148 prev + 30 this session), 199 remaining |
+| [#11](https://github.com/gvchaudhary22/cosmos/issues/11) | Enrich P3 APIs with Opus+PHP source | CRITICAL | **IN PROGRESS** — orders: 657/657 soft_ctx ✓; admin enriched-only: 80/80 ✓; NDR/shipments/billing next |
 | [#2](https://github.com/gvchaudhary22/cosmos/issues/2) | Neo4j cross-pillar edges nearly empty | HIGH | `/cosmos:riper 2` |
 | [#4](https://github.com/gvchaudhary22/cosmos/issues/4) | Run full pipeline + eval benchmark — recall@5 ≥ 0.85 | HIGH | `/cosmos:riper 4` |
 | [#5](https://github.com/gvchaudhary22/cosmos/issues/5) | Complete create-order KB enrichment | MEDIUM | `/cosmos:riper 5` |
@@ -44,6 +58,17 @@ KB File Index: **34,481 indexed / 0 pending / 0 failed** across 8 repos + all 8 
 | [#14](https://github.com/gvchaudhary22/cosmos/issues/14) | Expand P8 negative routing to 50+ examples | LOW | not started |
 | [#15](https://github.com/gvchaudhary22/cosmos/issues/15) | Build POST /pipeline/enriched-sync incremental re-embed | MEDIUM | not started |
 | [#16](https://github.com/gvchaudhary22/cosmos/issues/16) | Add high.yaml for 21 P5 module docs | LOW | not started |
+
+## What Was Done This Session (2026-04-04 — enrichment + Neo4j audit)
+
+| Work | Detail |
+|------|--------|
+| `soft_required_context` — orders | 657/657 APIs complete (was 0). Fixed domain filter bug + JSON parse error in `enrich_p3_apis_batch.py` |
+| `soft_required_context` — admin enriched-only | 80/80 done with new `--enriched-only` flag |
+| `enrich_p3_apis_batch.py` new flags | `--soft-context-only`, `--enriched-only`, `--prefix`, `--api-ids`; dual YAML+name domain filter |
+| `audit_neo4j_sync.py` | New script: audit MySQL vs Neo4j gap + sync missing nodes/edges/lookups |
+| `neo4j_graph.py` credentials fix | Was hardcoded `"password"` at module import time; now reads from `app.config.settings` |
+| Neo4j audit result | Gap: **1,790 nodes, 26,987 edges, 20,793 lookups** missing. Run `--sync` to fix. |
 
 ## What Was Fixed This Session (2026-04-04 — Post-Compaction)
 
@@ -104,11 +129,12 @@ The file index tracks disk files; Qdrant tracks embedded vectors. Not 1:1.
 
 ## Open Todos — M1 (in order)
 
-- [ ] **#11** [IN PROGRESS] Finish orders domain enrichment (199 remaining) → then shipments → ndr → billing → returns
-  - Script: `python3 scripts/enrich_p3_apis_batch.py --apply --domain orders --workers 2`
-  - After orders: re-run for each domain, then `POST /cosmos/api/v1/pipeline/schema` to re-embed
-  - **Do NOT close #11 until ALL 4,855 non-enriched APIs are done**
-  - Current enrichment counts: 641 total enriched / 5,496 total APIs (11.7%)
+- [x] **Neo4j sync** DONE ✅ — 1,790 nodes + 26,987 edges + 20,793 lookups synced
+- [ ] **re-embed** `POST /cosmos/api/v1/pipeline/schema` to re-embed updated APIs (orders/admin soft_ctx updated on disk)
+- [ ] **#21** [PARTIAL] NDR domain `soft_required_context` still pending — `python3 scripts/enrich_p3_apis_batch.py --apply --domain ndr --soft-context-only --force-update --enriched-only --workers 2`
+- [ ] **#11** [IN PROGRESS] Continue enrichment: shipments → ndr → billing → returns
+  - `python3 scripts/enrich_p3_apis_batch.py --apply --domain shipments --soft-context-only --force-update --enriched-only --workers 2`
+  - **Do NOT close #11 until ALL domains done**
 - [ ] **#4** Run `POST /pipeline/eval` → confirm recall@5 ≥ 0.85, commit EVAL-REPORT.md
 - [ ] **#2** Bring Neo4j online + rebuild cross-pillar edges (READS_TABLE, HAS_API)
 - [ ] **#5** Complete create-order KB enrichment (P3 variants, P11 tool, P7 workflows)

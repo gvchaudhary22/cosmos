@@ -98,6 +98,29 @@
       "triggers": ["no matching agent", "forge new agent", "create agent", "new specialist"],
       "skills": ["ai-systems", "brainstorming"],
       "outputs": ["new agent spec", "registry update"]
+    },
+    {
+      "name": "icrm-action-agent",
+      "file": ".cosmos/extensions/agents/icrm-action-agent.md",
+      "domains": ["ICRM", "ENGINEERING", "SYNTHESIS"],
+      "triggers": [
+        "cancel order", "write action", "approval gate", "feature flag",
+        "enable", "disable", "action contract", "side effects", "risk level",
+        "seller feature", "COD", "prepaid", "action_contract", "ActionApprovalGate",
+        "confirm_token", "reversible", "icrm action", "admin write",
+        "ndr action", "rto action", "refund"
+      ],
+      "skills": ["riper", "security-and-identity", "knowledge-base", "tdd"],
+      "outputs": [
+        "app/brain/action_approval.py",
+        "high.yaml action_contract blocks",
+        "tests/test_action_approval.py",
+        "SSE event contract documentation"
+      ],
+      "tier": "userland",
+      "project": "cosmos-icrm",
+      "created": "2026-04-04",
+      "created_by": "/cosmos:forge"
     }
   ],
   "skills": [

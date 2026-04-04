@@ -876,6 +876,25 @@ class KBIngestor:
             fields = resp["fields"][:15]
             response_text = f" | Response: [{', '.join(str(f) for f in fields)}]"
 
+        # soft_required_context — params that return garbage without them
+        soft_ctx_text = ""
+        soft_ctx = hints.get("soft_required_context", [])
+        if soft_ctx and isinstance(soft_ctx, list):
+            entries = []
+            for sc in soft_ctx[:5]:
+                if isinstance(sc, dict):
+                    param = sc.get("param", "")
+                    ask = sc.get("ask_if_missing", "")
+                    skip = sc.get("skip_if_present", [])
+                    entry = f"{param}"
+                    if ask:
+                        entry += f" (ask: {ask[:80]})"
+                    if skip:
+                        entry += f" [skip if: {', '.join(skip[:3])}]"
+                    entries.append(entry)
+            if entries:
+                soft_ctx_text = f" | SoftRequired: {'; '.join(entries)}"
+
         # Check if this API was enriched by Claude (source code reading)
         is_enriched = high.get("_enriched_by_claude", False)
 
@@ -909,6 +928,7 @@ class KBIngestor:
             f"{f' | RW: {read_write}' if read_write else ''}"
             f"{f' | Keywords: {", ".join(str(k) for k in keywords[:5])}' if keywords else ''}"
             f"{business_logic_text}"
+            f"{soft_ctx_text}"
             f"{examples_text}{params_text}{response_text}"
         )
 

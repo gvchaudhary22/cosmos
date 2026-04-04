@@ -173,6 +173,10 @@ async def lifespan(app: FastAPI):
     # Initialize Tournament engine
     app.state.tournament_engine = _init_tournament_engine()
 
+    # Initialize ActionApprovalGate for write action approval flow (M3-P1 #22)
+    from app.brain.action_approval import ActionApprovalGate
+    app.state.action_approval_gate = ActionApprovalGate()
+
     # Initialize Kafka event bus (before brain wiring so it can be passed in)
     event_bus = EventBus(
         bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
@@ -304,6 +308,7 @@ async def lifespan(app: FastAPI):
                     event_bus=getattr(app.state, "event_bus", None),
                     semantic_cache=getattr(app.state, "semantic_cache", None),
                 )
+                orchestrator._kb_root_for_clarifier = kb_path  # used by ParamClarificationEngine
                 app.state.query_orchestrator = orchestrator
                 logger.info("Hybrid Query Orchestrator initialized")
 
