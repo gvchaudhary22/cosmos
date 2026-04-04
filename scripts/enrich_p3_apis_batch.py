@@ -160,7 +160,7 @@ def _needs_update(d: Dict, soft_only: bool = False) -> bool:
     )
 
 
-def _extract_api_data(api_dir: Path, force_update: bool = False, soft_only: bool = False, domain_filter: Optional[str] = None) -> Optional[Dict]:
+def _extract_api_data(api_dir: Path, force_update: bool = False, soft_only: bool = False, domain_filter: Optional[str] = None, enriched_only: bool = False) -> Optional[Dict]:
     """Extract data from high.yaml + PHP source for enrichment prompt."""
     high_yaml = api_dir / "high.yaml"
     if not high_yaml.exists():
@@ -174,6 +174,10 @@ def _extract_api_data(api_dir: Path, force_update: bool = False, soft_only: bool
     if not d or not isinstance(d, dict):
         return None
 
+    # --enriched-only: skip APIs never enriched before
+    if enriched_only and not d.get("_enriched_by_claude"):
+        return None
+
     # Skip already enriched unless force_update and missing fields we care about
     if d.get("_enriched_by_claude"):
         if not force_update or not _needs_update(d, soft_only=soft_only):
@@ -184,11 +188,14 @@ def _extract_api_data(api_dir: Path, force_update: bool = False, soft_only: bool
     cls = ov.get("classification", {}) or {}
     rh = ov.get("retrieval_hints", {}) or {}
 
-    # Domain filter: use YAML classification.domain, not directory name
-    # This catches APIs like mcapi.internal.report.hyperlocal_orders.get
-    # whose directory name parses to "report" but YAML domain is "orders"
-    if domain_filter and cls.get("domain", "") != domain_filter:
-        return None
+    # Domain filter: match YAML classification.domain OR directory-name key
+    # - YAML domain catches: mcapi.internal.report.hyperlocal_orders (dir→"report", yaml→"orders")
+    # - Dir-name key catches: mcapi.v1.admin.* (dir→"admin", yaml→"general"/"billing"/etc.)
+    if domain_filter:
+        yaml_domain = cls.get("domain", "")
+        dir_domain = _get_domain_key(api_dir.name)
+        if yaml_domain != domain_filter and dir_domain != domain_filter:
+            return None
 
     method = api_info.get("method", "")
     path = api_info.get("path", "")
@@ -642,6 +649,8 @@ async def main_async(args):
     print(f"PHP source: {PHP_ROOT.exists()} ({CTRL_ROOT})")
     if args.domain:
         print(f"Domain filter: {args.domain}")
+    if args.prefix:
+        print(f"Prefix filter: {args.prefix}")
     # Resolve --api-ids: comma-separated list OR path to a file with one ID per line
     api_id_filter: Optional[set] = None
     if args.api_ids:
@@ -668,6 +677,9 @@ async def main_async(args):
     for api_dir in all_dirs:
         if not api_dir.is_dir():
             continue
+        # Prefix filter: e.g. --prefix mcapi.v1.admin
+        if args.prefix and not api_dir.name.startswith(args.prefix):
+            continue
         # File-level filter: if --api-ids specified, only process those IDs
         if api_id_filter and api_dir.name not in api_id_filter:
             continue
@@ -676,9 +688,10 @@ async def main_async(args):
 
         data = _extract_api_data(
             api_dir,
-            force_update=args.force_update or bool(api_id_filter),  # --api-ids implies force
+            force_update=args.force_update or bool(api_id_filter) or bool(args.prefix),
             soft_only=soft_only,
-            domain_filter=args.domain if not api_id_filter else None,  # skip domain filter when IDs given
+            domain_filter=args.domain if not api_id_filter and not args.prefix else None,
+            enriched_only=args.enriched_only,
         )
         if data:
             api_dirs[api_dir.name] = api_dir
@@ -747,6 +760,17 @@ def main():
         "--soft-context-only", action="store_true",
         help="Write ONLY soft_required_context — skip all other enrichment fields. "
              "~70%% fewer output tokens. Preserves existing business_logic, operator_phrasing, etc."
+    )
+    parser.add_argument(
+        "--enriched-only", action="store_true",
+        help="Only process APIs that were previously enriched (_enriched_by_claude: true). "
+             "Skips never-enriched APIs entirely. Use with --soft-context-only to backfill "
+             "soft_required_context on already-enriched docs only."
+    )
+    parser.add_argument(
+        "--prefix", default=None,
+        help="Filter APIs by directory name prefix (e.g. 'mcapi.v1.admin'). "
+             "Implies --force-update for matched APIs."
     )
     parser.add_argument(
         "--api-ids", default=None,

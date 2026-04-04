@@ -47,6 +47,10 @@ class HybridChatRequest(BaseModel):
     # Used for /v1/admin/* and /api/v1/admin/* endpoints (requires company_id=1 role).
     icrm_token: Optional[str] = None
     tournament_mode: bool = False     # A/B strategy testing via TournamentEngine
+    # Write action approval gate (M3-P1 #22)
+    # confirm_action=True + confirm_token=<token> re-executes a pending write action.
+    confirm_action: bool = False
+    confirm_token: Optional[str] = None
 
 
 class PipelineBreakdown(BaseModel):
@@ -87,6 +91,10 @@ def _get_react_engine(request: Request):
 
 def _get_tournament_engine(request: Request):
     return getattr(request.app.state, "tournament_engine", None)
+
+
+def _get_approval_gate(request: Request):
+    return getattr(request.app.state, "action_approval_gate", None)
 
 
 def _get_event_bus(request: Request):
@@ -159,7 +167,7 @@ def _build_llm_context(orch_result: OrchestratorResult) -> str:
     # Cross-repo
     cross = ctx.get("cross_repo_comparison", {})
     if cross and cross.get("shared_fields"):
-        parts.append(f"[Cross-Repo Comparison]")
+        parts.append("[Cross-Repo Comparison]")
         parts.append(f"  Source: {cross.get('source', {}).get('page_id', '?')} ({cross.get('source', {}).get('field_count', 0)} fields)")
         parts.append(f"  Target: {cross.get('target', {}).get('page_id', '?')} ({cross.get('target', {}).get('field_count', 0)} fields)")
         parts.append(f"  Shared fields: {', '.join(cross.get('shared_fields', [])[:10])}")
@@ -312,7 +320,7 @@ async def hybrid_chat(request: Request, chat_req: HybridChatRequest):
         user_id=chat_req.user_id,
         repo_id=chat_req.repo_id,
         role=chat_req.role,
-        company_id=chat_req.company_id or "25149",
+        company_id=chat_req.company_id or None,
         session_context=chat_req.metadata,
         session_id=str(session_id),
         workflow_settings=_workflow_settings,
@@ -822,7 +830,7 @@ async def get_trace_schema():
                 "confidence": 0.0,
                 "sub_domains": [],
             },
-            "waves": [f"Array of 5 wave objects (see wave_schema below). wave.wave = 1..5"],
+            "waves": ["Array of 5 wave objects (see wave_schema below). wave.wave = 1..5"],
             "response": {
                 "content": "Final LLM response text",
                 "confidence": 0.0,
@@ -885,6 +893,78 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
         try:
             if orchestrator is None:
                 yield _sse("error", {"message": "Hybrid orchestrator not initialized"})
+                return
+
+            # --- Approval confirmation path (M3-P1 #22) ---
+            # When the client re-sends with confirm_action=True + confirm_token,
+            # skip the full pipeline and directly execute the pre-approved action.
+            if chat_req.confirm_action and chat_req.confirm_token:
+                gate = _get_approval_gate(request)
+                if gate is None:
+                    yield _sse("error", {"message": "Action approval gate not initialized"})
+                    yield _sse("done", {"session_id": session_id, "confidence": 0.0, "intents": []})
+                    return
+                proposal = gate.consume(chat_req.confirm_token)
+                if proposal is None:
+                    yield _sse("error", {
+                        "message": "Confirmation token is invalid or has expired. Please re-submit the original request.",
+                    })
+                    yield _sse("done", {"session_id": session_id, "confidence": 0.0, "intents": []})
+                    return
+                # SECURITY: validate session ownership — prevent cross-session token reuse
+                if proposal.session_id != str(session_id):
+                    logger.warning(
+                        "action_approval.session_mismatch",
+                        proposal_session=proposal.session_id,
+                        request_session=str(session_id),
+                    )
+                    yield _sse("error", {"message": "Confirmation token does not belong to this session."})
+                    yield _sse("done", {"session_id": session_id, "confidence": 0.0, "intents": []})
+                    return
+                yield _sse("action_executing", {
+                    "action": proposal.action_type,
+                    "summary": proposal.summary,
+                    "risk_level": proposal.risk_level,
+                })
+                try:
+                    from app.config import settings as _settings
+                    from app.services.tool_executor import ToolExecutorService, SessionContext as _SC
+                    _executor = ToolExecutorService(settings=_settings, db=None)
+                    _ctx = _SC(
+                        seller_token=chat_req.seller_token,
+                        icrm_token=chat_req.icrm_token,
+                        approved=True,
+                        approved_job_id=proposal.action_type,
+                    )
+                    exec_result = await _executor.execute(
+                        proposal.action_type, proposal.action_input, _ctx
+                    )
+                    await _executor.aclose()
+                except Exception as _exec_exc:
+                    logger.error("action_approval.execute_error", error=str(_exec_exc))
+                    yield _sse("error", {"message": f"Action execution failed: {str(_exec_exc)}"})
+                    yield _sse("done", {"session_id": session_id, "confidence": 0.0, "intents": []})
+                    return
+                yield _sse("action_executed", {
+                    "action": exec_result.tool_name,
+                    "status": exec_result.status,
+                    "data": exec_result.data,
+                    "error": exec_result.error,
+                    "latency_ms": round(exec_result.latency_ms, 1),
+                })
+                _ok = exec_result.status == "success"
+                _summary_text = (
+                    f"Order cancellation executed successfully."
+                    if _ok else
+                    f"Action could not be completed: {exec_result.error or exec_result.status}"
+                )
+                yield _sse("chunk", {"text": _summary_text})
+                yield _sse("done", {
+                    "session_id": session_id,
+                    "confidence": 1.0 if _ok else 0.0,
+                    "tools_used": [exec_result.tool_name],
+                    "intents": [],
+                })
                 return
 
             # Phase 5f: Wave progress queue — bridge between orchestrator callback
@@ -981,13 +1061,108 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
             orch_result = OrchestratorResult()
             orch_result.probe_latency_ms = probe_ms
             orch_result.deep_latency_ms = deep_ms
-            orch_result.context = orchestrator._merge_context(probe_results, deep_results)
+            # Bug B2 fix: _merge_context is async — must be awaited
+            orch_result.context = await orchestrator._merge_context(probe_results, deep_results)
 
             # Extract intents
             from app.services.query_orchestrator import PipelineName
             intent_probe = probe_results.get(PipelineName.INTENT)
             if intent_probe and intent_probe.data:
                 orch_result.intents = intent_probe.data if isinstance(intent_probe.data, list) else [intent_probe.data]
+
+            # Bug B3 fix: run ParamClarificationEngine on streaming path
+            # (previously only ran in orchestrator.execute() — non-streaming path)
+            try:
+                _kb_root = getattr(orchestrator, "_kb_root_for_clarifier", None)
+                if _kb_root:
+                    _clarifier = getattr(orchestrator, "_param_clarifier", None)
+                    if _clarifier is None:
+                        from app.brain.param_clarifier import ParamClarificationEngine
+                        _clarifier = ParamClarificationEngine(_kb_root)
+                        orchestrator._param_clarifier = _clarifier
+                    _kc = (
+                        orch_result.context.get("knowledge_chunks", [])
+                        if isinstance(orch_result.context, dict) else []
+                    )
+                    _clarification = await _clarifier.check(
+                        knowledge_chunks=_kc,
+                        query=chat_req.message,
+                        company_id=chat_req.company_id or None,
+                        session_context=chat_req.metadata or {},
+                    )
+                    if _clarification:
+                        yield _sse("clarification", {
+                            "question": _clarification.question,
+                            "pending_param": _clarification.pending_param,
+                            "api_entity_id": _clarification.api_entity_id,
+                        })
+                        yield _sse("done", {
+                            "session_id": session_id,
+                            "needs_clarification": True,
+                            "confidence": 0.0,
+                            "intents": orch_result.intents,
+                        })
+                        return
+            except Exception as _ce:
+                logger.debug("stream.param_clarifier_error", error=str(_ce))
+
+            # --- Write action approval gate (M3-P1 #22) ---
+            # Detect cancel-order (and future write action) intents BEFORE LLM streaming.
+            # If detected → propose approval, yield approval_required SSE event, return.
+            # Operator then re-sends with confirm_action=True + confirm_token to execute.
+            try:
+                _gate = _get_approval_gate(request)
+                if _gate is not None and not chat_req.confirm_action:
+                    from app.brain.action_approval import ActionApprovalGate
+                    _kc_for_gate = (
+                        orch_result.context.get("knowledge_chunks", [])
+                        if isinstance(orch_result.context, dict) else []
+                    )
+                    if ActionApprovalGate.is_cancel_order_intent(
+                        chat_req.message, orch_result.intents, _kc_for_gate
+                    ):
+                        _order_ids = ActionApprovalGate.extract_order_ids(chat_req.message)
+                        _action_input = {"ids": _order_ids} if _order_ids else {}
+                        _action_summary = (
+                            f"Cancel {len(_order_ids)} order(s): {_order_ids}"
+                            if _order_ids else
+                            "Cancel order (no order IDs detected — please confirm or provide IDs)"
+                        )
+                        _proposal = _gate.propose(
+                            session_id=str(session_id),
+                            action_type="orders_cancel",
+                            action_input=_action_input,
+                            summary=_action_summary,
+                            risk_level="high",
+                        )
+                        logger.info(
+                            "stream.approval_required",
+                            action="orders_cancel",
+                            order_ids=_order_ids,
+                            token_prefix=_proposal.confirm_token[:8],
+                        )
+                        yield _sse("approval_required", {
+                            "confirm_token": _proposal.confirm_token,
+                            "expires_in_seconds": _proposal.ttl_seconds(),
+                            "action": _proposal.action_type,
+                            "action_input": _proposal.action_input,
+                            "summary": _proposal.summary,
+                            "risk_level": _proposal.risk_level,
+                            "message": (
+                                f"This action requires your confirmation: {_action_summary}. "
+                                f"Re-send with confirm_action=true and the confirm_token provided in this event."
+                            ),
+                        })
+                        yield _sse("done", {
+                            "session_id": session_id,
+                            "needs_clarification": False,
+                            "pending_approval": True,
+                            "confidence": 0.9,
+                            "intents": orch_result.intents,
+                        })
+                        return
+            except Exception as _ae:
+                logger.debug("stream.action_approval_error", error=str(_ae))
 
             # --- Stage 3: LLM Assembly ---
             yield _sse("stage:llm_start", {})
@@ -1004,8 +1179,12 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                 }
                 augmented_context.update(chat_req.metadata)
 
-                # Phase 6a: Use RIPER.stream_final_response() for true token-level
-                # streaming instead of fake 60-char chunking.
+                # Bug B1 fix: classification was undefined in this scope.
+                # Use request_classification if populated, else empty dict.
+                # complexity defaults to "standard" which is correct for most queries.
+                classification = orch_result.request_classification or {}
+
+                # True token-level streaming via RIPER.stream_final_response()
                 t0 = time.monotonic()
                 riper = getattr(orchestrator, "riper_engine", None)
 
@@ -1085,8 +1264,8 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
             })
 
         except Exception as exc:
-            logger.error("hybrid_chat_stream.error", error=str(exc))
-            yield _sse("error", {"message": str(exc)})
+            logger.error("hybrid_chat_stream.error", error_code="ERR-COSMOS-500", error=type(exc).__name__)
+            yield _sse("error", {"message": "An internal error occurred. Please try again."})
 
     return StreamingResponse(
         generate(),

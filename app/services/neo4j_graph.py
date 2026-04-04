@@ -12,7 +12,7 @@ Key differences vs NetworkX approach:
 
 Usage::
 
-    svc = Neo4jGraphService(uri="bolt://localhost:7687", user="neo4j", password="password")
+    svc = Neo4jGraphService(uri="bolt://localhost:7687", user="neo4j", password="<NEO4J_PASSWORD>")
     await svc.connect()
     await svc.ingest_node("orders", "module", "Orders Module")
     result = await svc.bfs_query("order status", max_depth=2)
@@ -32,9 +32,12 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-_NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://127.0.0.1:7687")
-_NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
-_NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "password")
+def _neo4j_defaults():
+    """Read credentials from app.config (loads .env). No os.environ fallback — use config.py."""
+    from app.config import settings
+    return settings.NEO4J_URI, settings.NEO4J_USER, settings.NEO4J_PASSWORD
+
+_NEO4J_URI, _NEO4J_USER, _NEO4J_PASSWORD = _neo4j_defaults()
 
 
 class Neo4jGraphService:
