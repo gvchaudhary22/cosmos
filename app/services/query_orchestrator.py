@@ -42,6 +42,7 @@ class PipelineName(str, Enum):
     GRAPH_RAG = "graph_rag_deep"
     CROSS_REPO_DEEP = "cross_repo_deep"
     SESSION_HISTORY = "session_history"
+    ANALYTICS = "analytics"
 
 
 @dataclass
@@ -1403,6 +1404,7 @@ class QueryOrchestrator:
             PipelineName.VECTOR: self._probe_vector(query, repo_id),
             PipelineName.PAGE_ROLE: self._probe_page_role(query, role),
             PipelineName.CROSS_REPO: self._probe_cross_repo(query, repo_id),
+            PipelineName.ANALYTICS: self._probe_analytics(query, session_context),
         }
 
         keys = list(tasks.keys())
@@ -1747,6 +1749,84 @@ class QueryOrchestrator:
         except Exception as e:
             return ProbeResult(
                 pipeline=PipelineName.CROSS_REPO,
+                latency_ms=(time.monotonic() - t0) * 1000,
+                error=str(e),
+            )
+
+    async def _probe_analytics(
+        self,
+        query: str,
+        session_context: Optional[Dict],
+    ) -> ProbeResult:
+        """
+        Analytics probe — fires when query asks for counts/totals for a company.
+
+        Detects: "how many NDRs", "total orders", "shipment count", "stats for company X".
+        Extracts company_id + date range via EntityExtractor.
+        Returns ProbeResult with analytics data if company_id found; otherwise no-op.
+        """
+        t0 = time.monotonic()
+        try:
+            from app.brain.entity_extractor import EntityExtractor
+
+            _ANALYTICS_KEYWORDS = frozenset([
+                "how many", "count", "total", "stats", "statistics",
+                "number of", "how much", "kitne", "kitna",
+            ])
+            _METRIC_MAP = {
+                "ndr": "analytics_ndr_count",
+                "non delivery": "analytics_ndr_count",
+                "non-delivery": "analytics_ndr_count",
+                "shipment": "analytics_shipment_count",
+                "order": "analytics_order_count",
+            }
+
+            q_lower = query.lower()
+
+            # Gate: must have an analytics keyword
+            if not any(kw in q_lower for kw in _ANALYTICS_KEYWORDS):
+                return ProbeResult(
+                    pipeline=PipelineName.ANALYTICS,
+                    latency_ms=(time.monotonic() - t0) * 1000,
+                    reason="no analytics keyword",
+                )
+
+            # Extract entities
+            extractor = EntityExtractor()
+            entities = extractor.extract(query)
+
+            if not entities.has_company():
+                return ProbeResult(
+                    pipeline=PipelineName.ANALYTICS,
+                    latency_ms=(time.monotonic() - t0) * 1000,
+                    found_data=False,
+                    reason="no company_id in query",
+                )
+
+            # Determine metric
+            tool_name = "analytics_order_count"  # default
+            for keyword, tool in _METRIC_MAP.items():
+                if keyword in q_lower:
+                    tool_name = tool
+                    break
+
+            return ProbeResult(
+                pipeline=PipelineName.ANALYTICS,
+                latency_ms=(time.monotonic() - t0) * 1000,
+                found_data=True,
+                data={
+                    "tool_name": tool_name,
+                    "company_id": entities.company_id,
+                    "from_date": entities.from_date,
+                    "to_date": entities.to_date,
+                    "date_label": entities.date_label,
+                },
+                recommend_deepen=False,
+                reason=f"analytics intent: {tool_name} for company {entities.company_id}",
+            )
+        except Exception as e:
+            return ProbeResult(
+                pipeline=PipelineName.ANALYTICS,
                 latency_ms=(time.monotonic() - t0) * 1000,
                 error=str(e),
             )

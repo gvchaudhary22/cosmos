@@ -173,9 +173,13 @@ async def lifespan(app: FastAPI):
     # Initialize Tournament engine
     app.state.tournament_engine = _init_tournament_engine()
 
-    # Initialize ActionApprovalGate for write action approval flow (M3-P1 #22)
+    # Initialize ActionApprovalGate for write action approval flow (M3-P2 Phase 2)
     from app.brain.action_approval import ActionApprovalGate
-    app.state.action_approval_gate = ActionApprovalGate()
+    from app.db.repositories import ApprovalRepository
+    from app.db.session import AsyncSessionLocal
+    app.state.action_approval_gate = ActionApprovalGate(
+        approval_repo=ApprovalRepository(AsyncSessionLocal)
+    )
 
     # Initialize Kafka event bus (before brain wiring so it can be passed in)
     event_bus = EventBus(
