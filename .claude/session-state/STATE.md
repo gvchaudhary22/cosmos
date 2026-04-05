@@ -5,18 +5,14 @@
 ## Active Phase
 
 **M3 — Agentic ICRM Copilot (Actions + Streaming + Feature Control)**
-Status: `planning_complete` — Phase 2 plan **created 2026-04-05** (`docs/PHASE-2-PLAN.md`). Ready for `/cosmos:build 2`.
-M3-P1 shipped+verified: v3.1 tagged, v3.1.1 UAT patch committed. #20 ✅ #21 ✅ #22 ✅. PR gvchaudhary22/cosmos#22 merged ✅.
-M3-P1 UAT: ✅ **PASSED** (2026-04-05) — `docs/PHASE-1-UAT.md`. 1057 tests pass. Async test regression fixed in `test_action_approval.py`.
-M3-P2 scope: #23 (feature flags) + #24 (analytics) + entity_extractor + KB enrichment (shipments/billing/returns) + eval benchmark.
-M3-P2 prep committed: generic write action registry (`_WRITE_ACTION_REGISTRY`) + async propose/consume + COD/SRF/analytics tool registrations.
+Status: `phase_2_shipped` — v3.2 tagged 2026-04-05. PR gvchaudhary22/cosmos#23 open.
+M3-P1 shipped: v3.1/v3.1.1. #20 ✅ #21 ✅ #22 ✅.
+M3-P2 shipped: v3.2. #23 ✅ #24 ✅. Wave 3 (KB enrichment) deferred — independent script run.
+M3-P3 scope: bulk actions, proactive alerts, multi-company analytics, #2 Neo4j edges, #5 create-order KB.
 
-Qdrant current state: **22,464 vectors** (run 9151516d upserted soft_required_context — 22,254 docs processed).
-`cosmos_tools` table: **27 tools** seeded from all P11 YAMLs. ✓
-Pillar 12 FAQ: **1,703 FAQ chunks** in Qdrant (verified scroll count). ✓
-Graph (MySQL): **11,082 nodes**, **48,185 edges**. Neo4j: **SYNCED** ✅ — 11,083 nodes, 48,185 edges, 20,793 lookups. Gap fully closed.
-KB File Index: **34,481 indexed / 0 pending / 0 failed** across 8 repos + all 8 pillars.
-Tests: **1055 passing** (4 new test files: test_orchestrator_wave34.py, test_orchestrator_tier2_tier3.py, test_streaming_sse.py, test_action_approval.py).
+Qdrant current state: **22,464 vectors** (run 9151516d — Wave 3 enrichment pending will increase this).
+`cosmos_tools` table: **27 tools** seeded. ✓
+Tests: **1089 passing** (test_entity_extractor.py +18, test_action_approval.py +14 vs v3.1).
 
 ## GitHub Issues
 
@@ -43,9 +39,9 @@ Tests: **1055 passing** (4 new test files: test_orchestrator_wave34.py, test_orc
 | [#20](https://github.com/gvchaudhary22/cosmos/issues/20) | SSE true progressive streaming | HIGH | W1-A | **DONE** ✅ — wave SSE + token streaming via riper.stream_final_response() |
 | [#21](https://github.com/gvchaudhary22/cosmos/issues/21) | soft_required_context: orders + NDR | MEDIUM | W1-B | **DONE** ✅ — orders 657/657, admin 80/80, NDR 81 files; re-embedded run 9151516d |
 | #22 (new) | Write action: cancel order with approval gate | HIGH | W2-B | **DONE** ✅ — ActionApprovalGate built (206 lines), approval SSE wired in hybrid_chat |
-| #23 (new) | Write action: enable/disable seller feature flags | HIGH | W3-A | ❌ PENDING — feature-flag intent not in ActionApprovalGate yet |
-| #24 (new) | Analytics: live NDR/shipment counts by company | MEDIUM | W3-B | ❌ PENDING — no analytics routing in orchestrator |
-| — | Date entity extractor | MEDIUM | W3-C | ❌ PENDING — entity_extractor.py not built |
+| #23 (new) | Write action: enable/disable seller feature flags | HIGH | W3-A | ✅ DONE — detect_write_action() + COD/SRF registry + KB YAMLs enriched |
+| #24 (new) | Analytics: live NDR/shipment counts by company | MEDIUM | W3-B | ✅ DONE — PipelineName.ANALYTICS + _probe_analytics + analytics SSE event |
+| — | Date entity extractor | MEDIUM | W3-C | ✅ DONE — app/brain/entity_extractor.py, 18 tests, IST-correct |
 | [#11](https://github.com/gvchaudhary22/cosmos/issues/11) | Enrichment: complete orders domain (199 remaining) | CRITICAL | W1-C | **DONE** ✅ — orders 657/657, admin enriched-only 80/80 |
 
 ### Open — KB Enrichment Roadmap
