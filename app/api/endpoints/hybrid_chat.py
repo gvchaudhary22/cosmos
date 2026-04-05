@@ -1187,7 +1187,6 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                     )
                     try:
                         _result = await _executor.execute(_tool_name, _tool_params, _actx)
-                        await _executor.aclose()
                         if _result.status == "success":
                             _count = (
                                 _result.data.get("total")
@@ -1206,6 +1205,8 @@ async def hybrid_chat_stream(request: Request, chat_req: HybridChatRequest):
                     except Exception as _ae:
                         logger.debug("analytics_probe.execute_error", error=str(_ae))
                         # Graceful degradation — fall through to LLM text answer
+                    finally:
+                        await _executor.aclose()
             except Exception as _ae:
                 logger.debug("analytics_probe.error", error=str(_ae))
 

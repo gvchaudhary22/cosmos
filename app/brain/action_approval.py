@@ -254,20 +254,33 @@ class ActionApprovalGate:
                     session=proposal.session_id,
                 )
                 return None
-            # Mark consumed in DB (best-effort)
+            # Mark consumed in DB — MUST succeed or token stays replayable after restart.
+            # Log warning on failure so operators can detect DB persistence issues.
+            _db_consumed = False
             if self._repo is not None:
                 try:
                     await self._repo.update_status(token, "approved")
-                except Exception:
-                    pass
+                    _db_consumed = True
+                except Exception as _dbe:
+                    logger.warning(
+                        "action_approval.db_consumed_failed",
+                        action=proposal.action_type,
+                        token_prefix=token[:8],
+                        error=str(_dbe),
+                    )
             logger.info(
                 "action_approval.consumed",
                 action=proposal.action_type,
                 session=proposal.session_id,
+                db_consumed=_db_consumed,
             )
             return proposal
 
         # L2: DB fallback (post-restart recovery)
+        # Only reached when token not in memory — i.e. after server restart.
+        # update_status is called BEFORE returning the proposal so that a
+        # concurrent L2 lookup (multi-instance or rapid retry) sees "approved"
+        # and returns None rather than re-consuming the token.
         if self._repo is not None:
             try:
                 record = await self._repo.get_by_id(token)

@@ -61,6 +61,16 @@ Tests: **1055 passing** (4 new test files: test_orchestrator_wave34.py, test_orc
 | [#15](https://github.com/gvchaudhary22/cosmos/issues/15) | Build POST /pipeline/enriched-sync incremental re-embed | MEDIUM | not started |
 | [#16](https://github.com/gvchaudhary22/cosmos/issues/16) | Add high.yaml for 21 P5 module docs | LOW | not started |
 
+## Discovery: M3-P3 Horizon (2026-04-05)
+
+`docs/DISCOVERY.md` created. Recommendation: **GO** with scoped priority:
+1. W0: Neo4j cross-pillar edges (#2) — no P2 dependency, LOW complexity
+2. W1: AWB Trace Assistant (new) — highest-frequency ICRM query, tools exist
+3. W2: Proactive NDR alerts — thin layer on P2 analytics probe
+4. W3: Bulk actions — needs P2 gate + operator telemetry first
+5. DEFERRED: Multi-company dashboard (validate usage pattern post-P2)
+6. GATED ⚠️: Seller self-service (100-query safety audit + MARS auth scope required)
+
 ## What Was Done This Session (2026-04-04 — enrichment + Neo4j audit)
 
 | Work | Detail |

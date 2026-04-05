@@ -1,5 +1,55 @@
 # CHANGELOG
 
+## [v3.2] — 2026-04-05 — M3 Phase 2: Feature Flags + Analytics + Entity Extractor
+
+### Added
+
+#### Write Action: Seller Feature Flags (#23)
+- `_WRITE_ACTION_REGISTRY` — generic write action detection: `feature_cod_toggle` + `feature_srf_enable` entries with entity_id patterns, keywords, intent patterns
+- `detect_write_action()` — KB entity_id → intent → keyword priority; replaces hardcoded `is_cancel_order_intent()` in streaming path
+- `WriteActionSignal` dataclass — carries `tool_name`, `action_input`, `summary`, `risk_level`, `entity_id`
+- `hybrid_chat.py` — uses `detect_write_action()` generically; all feature flag + cancel order intents trigger `approval_required` SSE
+- KB YAMLs enriched with `action_contract` + `soft_required_context`:
+  - `mcapi.v1.admin.sellers.enablepartialcodtoggle.by_company_id.post/high.yaml`
+  - `mcapi.v1.admin.sellers.srf_feature_enable.by_company_id.post/high.yaml`
+- `_FALLBACK_TOOLS` — `feature_cod_toggle`, `feature_srf_enable` registered (approval_mode=manual, risk_level=high/medium)
+
+#### Analytics: Live Counts (#24)
+- `PipelineName.ANALYTICS` — new Stage 1 probe pipeline enum value
+- `_probe_analytics()` — fires on count/total/how-many keywords + company_id; uses EntityExtractor for date range; maps metric keywords to tool names
+- Analytics SSE probe in `hybrid_chat.py` — yields `{"type": "analytics", metric, value, label, from_date, to_date}` before LLM chunk; graceful degradation on API failure
+- `_FALLBACK_TOOLS` — `analytics_ndr_count`, `analytics_shipment_count`, `analytics_order_count` registered (GET endpoints, approval_mode=auto)
+
+#### Entity Extractor — Date Resolution
+- `app/brain/entity_extractor.py` (new) — `EntityExtractor.extract(query)` resolves 9 date expressions to IST ISO from/to dates
+  - Expressions: today, yesterday, this week, last week, last 7 days, last 30 days, last N days, this month, last month
+  - Always IST (Asia/Kolkata, UTC+5:30) — no hardcoded dates
+  - Also extracts: `company_id`, `awb`, `order_ids` via regex
+- `ExtractedEntities` dataclass — typed container with `has_date_range()` / `has_company()` helpers
+
+#### DB-Backed Approval Token Persistence
+- `app/main.py` — injects `ApprovalRepository(AsyncSessionLocal)` into `ActionApprovalGate` at startup
+- `propose()` / `consume()` — async; persist to `icrm_action_approvals` (best-effort); UUID v4 tokens for DB FK compatibility
+- `consume()` L2 DB fallback — post-restart token recovery with `update_status` called before returning proposal
+- DB update failure now logged as WARNING (was silently swallowed)
+
+### Fixed
+- CRITICAL security: `consume()` DB update failure was silent (`pass`) — token could be re-consumed post-restart via L2 DB path; now logs `action_approval.db_consumed_failed` warning
+- Resource leak: analytics executor `aclose()` moved to `finally` block — always closes even if execute() raises
+- `hybrid_chat.py` — `await gate.consume()` and `await gate.propose()` properly awaited
+- `_summary_text` in confirm path now uses `proposal.summary` (generic) instead of hardcoded "Order cancellation executed successfully."
+
+### Tests
+- Total: **1089 passing** (was 1057 at v3.1 ship, +32)
+- New: `tests/test_entity_extractor.py` (18 tests — all 9 date expressions, company/AWB extraction, helpers)
+- Updated: `tests/test_action_approval.py` (37 tests — +14 feature flag + WriteActionSignal + UUID format tests)
+
+### Docs
+- `docs/PHASE-2-PLAN.md` — M3 Phase 2 full wave plan
+- `docs/PHASE-2-UAT.md` — UAT report (52/52 PASS)
+
+---
+
 ## [v3.1.1] — 2026-04-05 — M3 Phase 1: UAT Verification + Phase 2 Prep
 
 ### Fixed
